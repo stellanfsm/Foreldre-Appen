@@ -11,7 +11,7 @@ import type { NavTab } from './components/BottomNav'
 import { useScheduleState } from './hooks/useScheduleState'
 import { useAutoFillWeek } from './hooks/useAutoFillWeek'
 import { useFamily } from './context/FamilyContext'
-import type { Event } from './types'
+import type { Event, Task } from './types'
 import { useAuth } from './context/AuthContext'
 import { useEffectiveUserId } from './context/EffectiveUserIdContext'
 import { useUserPreferences } from './context/UserPreferencesContext'
@@ -27,6 +27,8 @@ import { useCalendarDerivedState } from './features/calendar/hooks/useCalendarDe
 import { CalendarHomeTab } from './features/calendar/CalendarHomeTab'
 import { CalendarOverlays } from './features/calendar/CalendarOverlays'
 import { useEventController } from './features/calendar/hooks/useEventController'
+import { useTasksState } from './hooks/useTasksState'
+import { useTaskController } from './features/tasks/hooks/useTaskController'
 
 function App() {
   useTimeOfDaySurface()
@@ -73,6 +75,8 @@ function App() {
   /** When set, AddEventSheet targets this date (e.g. måned → langt trykk) instead of selectedDate */
   const [addEventDateOverride, setAddEventDateOverride] = useState<string | null>(null)
   const [editingEvent, setEditingEvent] = useState<{ event: Event; date: string; scope: 'this' | 'all' } | null>(null)
+  const [isAddingTask, setIsAddingTask] = useState(false)
+  const [editingTask, setEditingTask] = useState<Task | null>(null)
   const [selectedBackgroundEvent, setSelectedBackgroundEvent] = useState<{ event: Event; date: string } | null>(null)
   const [navTab, setNavTab] = useState<NavTab>('today')
   const { currentPersonId, hapticsEnabled } = useUserPreferences()
@@ -86,6 +90,15 @@ function App() {
   )
   const [hideFamilyBanner, setHideFamilyBanner] = useState(false)
   const { saveFeedback, showSaveFeedback, showSavingFeedback, showSaveError } = useSaveFeedback(hapticsEnabled)
+  const { getTasksForDate, addTask, patchTask, removeTask } = useTasksState(selectedDate)
+  const taskController = useTaskController({
+    addTask,
+    patchTask,
+    removeTask,
+    showSavingFeedback,
+    showSaveFeedback,
+    showSaveError,
+  })
   const controller = useEventController({
     addEvent,
     addRecurring,
@@ -185,6 +198,11 @@ function App() {
     setAddFlowSaved(false)
     setAddEventDateOverride(dateOverride)
     setIsAdding(true)
+  }
+
+  const openAddTask = () => {
+    setEditingTask(null)
+    setIsAddingTask(true)
   }
 
   const hasAnyWeekEvents = weekLayoutData.some((d) => d.events.length > 0)
@@ -334,6 +352,21 @@ function App() {
               onMoveWeeklyEvent={async (event, fromDate, toDate) => {
                 await controller.moveEvent(fromDate, event, toDate).catch(() => {})
               }}
+              dayTasks={getTasksForDate(selectedDate)}
+              openAddTask={openAddTask}
+              onEditTask={(task) => {
+                setIsAddingTask(false)
+                setEditingTask(task)
+              }}
+              onCompleteTask={(task) => {
+                void taskController.markTaskDone(task).catch(() => {})
+              }}
+              onUndoCompleteTask={(task) => {
+                void taskController.undoTaskComplete(task).catch(() => {})
+              }}
+              onDeleteTask={(task) => {
+                void taskController.deleteTask(task).catch(() => {})
+              }}
             />
           )}
           </div>
@@ -369,6 +402,11 @@ function App() {
         onAddFlowSaved={() => endUxTimer('add_event_flow', 'time_to_add_event_ms')}
         onAddFlowClosedWithoutSave={() => logUxMetric('flow_backtracks', 1)}
         onConflictResolved={() => endUxTimer('resolve_conflict_flow', 'time_to_resolve_conflict_ms')}
+        isAddingTask={isAddingTask}
+        setIsAddingTask={setIsAddingTask}
+        editingTask={editingTask}
+        setEditingTask={setEditingTask}
+        taskController={taskController}
       />
     </AppShell>
   )

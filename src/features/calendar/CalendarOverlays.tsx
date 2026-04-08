@@ -3,8 +3,10 @@ import { AddEventSheet, REPEAT_INTERVAL_DAYS } from '../../components/AddEventSh
 import { EditEventSheet } from '../../components/EditEventSheet'
 import { EventDetailSheet } from '../../components/EventDetailSheet'
 import { BackgroundDetailSheet } from '../../components/BackgroundDetailSheet'
-import type { Event } from '../../types'
+import { AddTaskSheet } from '../tasks/components/AddTaskSheet'
+import type { Event, Task } from '../../types'
 import type { UseEventControllerReturn } from './hooks/useEventController'
+import type { UseTaskControllerReturn } from '../tasks/hooks/useTaskController'
 
 interface CalendarOverlaysProps {
   selectedEvent: { event: Event; date: string } | null
@@ -25,6 +27,11 @@ interface CalendarOverlaysProps {
   onAddFlowSaved: () => void
   onAddFlowClosedWithoutSave: () => void
   onConflictResolved: () => void
+  isAddingTask: boolean
+  setIsAddingTask: (value: boolean) => void
+  editingTask: Task | null
+  setEditingTask: (value: Task | null) => void
+  taskController: UseTaskControllerReturn
 }
 
 export function CalendarOverlays({
@@ -46,6 +53,11 @@ export function CalendarOverlays({
   onAddFlowSaved,
   onAddFlowClosedWithoutSave,
   onConflictResolved,
+  isAddingTask,
+  setIsAddingTask,
+  editingTask,
+  setEditingTask,
+  taskController,
 }: CalendarOverlaysProps) {
   return (
     <AnimatePresence>
@@ -144,6 +156,37 @@ export function CalendarOverlays({
             }
           }}
           onClose={() => setEditingEvent(null)}
+        />
+      )}
+      {isAddingTask && (
+        <AddTaskSheet
+          key={`add-task-${selectedDate}`}
+          date={selectedDate}
+          onSave={async (data) => {
+            try {
+              await taskController.createTask(data)
+            } catch {
+              // feedback handled by controller
+            }
+            setIsAddingTask(false)
+          }}
+          onClose={() => setIsAddingTask(false)}
+        />
+      )}
+      {editingTask && (
+        <AddTaskSheet
+          key={`edit-task-${editingTask.id}`}
+          date={editingTask.date}
+          initialTask={editingTask}
+          onSave={async (data) => {
+            try {
+              await taskController.editTask(editingTask, data)
+            } catch {
+              // feedback handled by controller
+            }
+            setEditingTask(null)
+          }}
+          onClose={() => setEditingTask(null)}
         />
       )}
     </AnimatePresence>

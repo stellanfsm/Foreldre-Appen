@@ -12,9 +12,10 @@ import { WeeklyList } from '../../components/WeeklyList'
 import { TimelineContainer } from '../../components/TimelineContainer'
 import { springSnappy } from '../../lib/motion'
 import { COPY } from '../../lib/norwegianCopy'
-import type { Event, PersonId, TimelineLayoutItem, GapInfo } from '../../types'
+import type { Event, Task, PersonId, TimelineLayoutItem, GapInfo } from '../../types'
 import type { SaveFeedbackState } from '../app/hooks/useSaveFeedback'
 import type { WeekDayLayout } from '../../hooks/useScheduleState'
+import { DayTaskList } from '../tasks/components/DayTaskList'
 
 interface CalendarHomeTabProps {
   selectedPersonIds: PersonId[]
@@ -64,6 +65,12 @@ interface CalendarHomeTabProps {
   onDragReschedule: (eventId: string, times: { prevStart: string; prevEnd: string; nextStart: string; nextEnd: string }) => Promise<void>
   onDeleteWeeklyEvent: (event: Event, date: string) => Promise<void>
   onMoveWeeklyEvent: (event: Event, fromDate: string, toDate: string) => Promise<void>
+  dayTasks: Task[]
+  openAddTask: () => void
+  onEditTask: (task: Task) => void
+  onCompleteTask: (task: Task) => void
+  onUndoCompleteTask: (task: Task) => void
+  onDeleteTask: (task: Task) => void
 }
 
 export function CalendarHomeTab({
@@ -114,6 +121,12 @@ export function CalendarHomeTab({
   onDragReschedule,
   onDeleteWeeklyEvent,
   onMoveWeeklyEvent,
+  dayTasks,
+  openAddTask,
+  onEditTask,
+  onCompleteTask,
+  onUndoCompleteTask,
+  onDeleteTask,
 }: CalendarHomeTabProps) {
   return (
     <div className="mt-3 flex min-h-0 w-full min-w-0 max-w-full flex-1 flex-col overflow-x-hidden px-3 pb-4">
@@ -124,13 +137,22 @@ export function CalendarHomeTab({
           mePersonId={mePersonId}
         />
         <div className="flex items-center justify-between gap-3 px-4 pb-1 pt-1">
-          <button
-            type="button"
-            onClick={() => openAddEvent()}
-            className="shrink-0 rounded-full bg-brandTeal px-3.5 py-1.5 text-[13px] font-semibold text-white shadow-planner transition hover:brightness-95 active:translate-y-px active:shadow-planner-press focus:outline-none focus:ring-2 focus:ring-brandTeal focus:ring-offset-2"
-          >
-            + Legg til
-          </button>
+          <div className="flex shrink-0 gap-2">
+            <button
+              type="button"
+              onClick={() => openAddEvent()}
+              className="rounded-full bg-brandTeal px-3.5 py-1.5 text-[13px] font-semibold text-white shadow-planner transition hover:brightness-95 active:translate-y-px active:shadow-planner-press focus:outline-none focus:ring-2 focus:ring-brandTeal focus:ring-offset-2"
+            >
+              + Aktivitet
+            </button>
+            <button
+              type="button"
+              onClick={() => openAddTask()}
+              className="rounded-full border-2 border-brandTeal px-3.5 py-1.5 text-[13px] font-semibold text-brandTeal shadow-planner-sm transition hover:bg-brandTeal/10 active:translate-y-px active:shadow-planner-press focus:outline-none focus:ring-2 focus:ring-brandTeal focus:ring-offset-2"
+            >
+              + Oppgave
+            </button>
+          </div>
           <div className="min-w-0 flex-1">
             <SearchBar
               weekLayoutData={weekLayoutData}
@@ -256,6 +278,13 @@ export function CalendarHomeTab({
             )}
           </div>
         )}
+        <DayTaskList
+          tasks={dayTasks}
+          onComplete={onCompleteTask}
+          onUndoComplete={onUndoCompleteTask}
+          onEdit={onEditTask}
+          onDelete={onDeleteTask}
+        />
         <div className="mt-1 flex min-h-0 flex-1 flex-col overflow-hidden">
           {weekEventsLoading ? (
             <ScheduleLoadingSkeleton />

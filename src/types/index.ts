@@ -159,3 +159,20 @@ export interface DaySummary {
   /** Minutes until next event start (if today and nextEvent exists) */
   minutesUntilNext: number | null;
 }
+
+/** A date-bound to-do item that is NOT a timed calendar block. */
+export interface Task {
+  id: string;
+  title: string;
+  notes?: string;
+  /** YYYY-MM-DD — which day this task belongs to */
+  date: string;
+  /** Optional deadline time "HH:mm" (display only, not timeline placement) */
+  dueTime?: string;
+  /** person_id of the family member responsible for completing this task */
+  assignedToPersonId?: PersonId;
+  /** person_id of the child this task concerns */
+  childPersonId?: PersonId;
+  /** ISO timestamp when marked complete; undefined = open */
+  completedAt?: string;
+}
