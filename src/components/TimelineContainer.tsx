@@ -1,6 +1,6 @@
 import { useRef, useEffect } from 'react'
 import { motion, useReducedMotion } from 'framer-motion'
-import type { DragReschedulePayload, GapInfo, TimelineLayoutItem } from '../types'
+import type { DragReschedulePayload, GapInfo, TimelineLayoutItem, Task } from '../types'
 import { TimeRail } from './TimeRail'
 import { TimelineGrid } from './TimelineGrid'
 import { timelineTotalHeight, PIXELS_PER_HOUR, TIMELINE_START_HOUR, TIMELINE_END_HOUR } from '../lib/time'
@@ -17,6 +17,7 @@ interface TimelineContainerProps {
   onSelectEvent: (event: Event) => void
   onSelectBackgroundEvent?: (event: Event) => void
   onDragReschedule?: (eventId: string, payload: DragReschedulePayload) => void | Promise<void>
+  dayTasks?: Task[]
 }
 
 const DAY_START_MIN = TIMELINE_START_HOUR * 60
@@ -36,6 +37,7 @@ export function TimelineContainer({
   onSelectEvent,
   onSelectBackgroundEvent,
   onDragReschedule,
+  dayTasks,
 }: TimelineContainerProps) {
   const scrollRef = useRef<HTMLDivElement>(null)
   const reducedMotion = useReducedMotion() ?? false
@@ -87,6 +89,7 @@ export function TimelineContainer({
             onSelectEvent={onSelectEvent}
             onSelectBackgroundEvent={onSelectBackgroundEvent}
             onDragReschedule={onDragReschedule}
+            dayTasks={dayTasks}
           />
         </motion.div>
       </div>

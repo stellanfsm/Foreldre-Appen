@@ -113,6 +113,7 @@ export function AddEventSheet({ date, initialPersonId = 'family', onSave, onClos
   const [saving, setSaving] = useState(false)
   const [repeatOpen, setRepeatOpen] = useState(false)
   const [reminderOpen, setReminderOpen] = useState(false)
+  const [showMore, setShowMore] = useState(false)
   const dialogRef = useRef<HTMLDivElement>(null)
   const previousFocusRef = useRef<HTMLElement | null>(null)
 
@@ -315,145 +316,164 @@ export function AddEventSheet({ date, initialPersonId = 'family', onSave, onClos
             </div>
           </div>
 
-          {/* Repeat dropdown */}
-          <div className="space-y-1">
-            <label className="text-[12px] font-medium text-zinc-600">Gjentakelse</label>
-            <div className="relative">
-              <button
-                type="button"
-                onClick={() => { setRepeatOpen(!repeatOpen); setReminderOpen(false) }}
-                aria-haspopup="listbox"
-                aria-expanded={repeatOpen}
-                className="flex w-full items-center justify-between rounded-full border border-zinc-200 px-4 py-2 text-[14px] outline-none hover:border-zinc-300 focus:border-zinc-400"
-              >
-                <span className={repeat === 'none' ? 'text-zinc-400' : 'text-zinc-900'}>
-                  {repeatLabel(repeat, customIntervalDays)}
-                </span>
-                <svg className={`h-4 w-4 text-zinc-400 transition-transform ${repeatOpen ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" />
-                </svg>
-              </button>
-              <Dropdown open={repeatOpen} onClose={() => setRepeatOpen(false)}>
-                {(['none', 'daily', 'weekly', 'biweekly', 'custom'] as RepeatFrequency[]).map((val) => (
-                  <DropdownItem
-                    key={val}
-                    label={repeatLabel(val, 0)}
-                    active={repeat === val}
-                    onClick={() => { setRepeat(val); if (val !== 'custom') setRepeatOpen(false) }}
-                  />
-                ))}
-                {repeat === 'custom' && (
-                  <div className="flex items-center gap-2 border-t border-zinc-100 px-4 py-3">
-                    <span className="text-[13px] text-zinc-600">Hver</span>
-                    <input
-                      type="number"
-                      min={1}
-                      max={365}
-                      value={customIntervalDays}
-                      onChange={(e) => setCustomIntervalDays(Math.max(1, parseInt(e.target.value) || 1))}
-                      className="w-16 rounded-lg border border-zinc-200 px-2 py-1 text-center text-[13px] outline-none focus:border-zinc-400"
-                    />
-                    <span className="text-[13px] text-zinc-600">dag</span>
-                    <button
-                      type="button"
-                      onClick={() => setRepeatOpen(false)}
-              className="ml-auto rounded-full bg-brandTeal px-3 py-1 text-[12px] font-medium text-white shadow-planner-sm"
-                    >
-                      Ferdig
-                    </button>
-                  </div>
-                )}
-              </Dropdown>
-            </div>
-          </div>
+          {/* Progressive disclosure toggle */}
+          <button
+            type="button"
+            onClick={() => setShowMore((v) => !v)}
+            className="flex items-center gap-1.5 text-[12px] font-medium text-brandTeal hover:text-brandTeal/80"
+          >
+            <svg
+              className={`h-3.5 w-3.5 transition-transform duration-150 ${showMore ? 'rotate-180' : ''}`}
+              fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor"
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" />
+            </svg>
+            {showMore ? 'Skjul detaljer' : 'Mer detaljer (gjentak, påminnelse, transport)'}
+          </button>
 
-          {repeat !== 'none' && (
-            <div className="space-y-1">
-              <label className="text-[12px] font-medium text-zinc-600" htmlFor="end-date">
-                Sluttdato
-              </label>
-              <input
-                id="end-date"
-                type="date"
-                value={endDate}
-                min={date}
-                onChange={(e) => setEndDate(e.target.value)}
-                className="w-full rounded-full border border-zinc-200 px-3 py-2 text-[14px] outline-none focus:border-zinc-400"
-              />
-              <p className="text-[11px] text-zinc-500">
-                Gjentas {repeat === 'custom' ? `hver ${customIntervalDays}. dag` : repeat === 'daily' ? 'hver dag' : repeat === 'biweekly' ? 'hver 2. uke' : 'hver uke'} til denne datoen
-              </p>
-            </div>
+          {showMore && (
+            <>
+              {/* Repeat dropdown */}
+              <div className="space-y-1">
+                <label className="text-[12px] font-medium text-zinc-600">Gjentakelse</label>
+                <div className="relative">
+                  <button
+                    type="button"
+                    onClick={() => { setRepeatOpen(!repeatOpen); setReminderOpen(false) }}
+                    aria-haspopup="listbox"
+                    aria-expanded={repeatOpen}
+                    className="flex w-full items-center justify-between rounded-full border border-zinc-200 px-4 py-2 text-[14px] outline-none hover:border-zinc-300 focus:border-zinc-400"
+                  >
+                    <span className={repeat === 'none' ? 'text-zinc-400' : 'text-zinc-900'}>
+                      {repeatLabel(repeat, customIntervalDays)}
+                    </span>
+                    <svg className={`h-4 w-4 text-zinc-400 transition-transform ${repeatOpen ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" />
+                    </svg>
+                  </button>
+                  <Dropdown open={repeatOpen} onClose={() => setRepeatOpen(false)}>
+                    {(['none', 'daily', 'weekly', 'biweekly', 'custom'] as RepeatFrequency[]).map((val) => (
+                      <DropdownItem
+                        key={val}
+                        label={repeatLabel(val, 0)}
+                        active={repeat === val}
+                        onClick={() => { setRepeat(val); if (val !== 'custom') setRepeatOpen(false) }}
+                      />
+                    ))}
+                    {repeat === 'custom' && (
+                      <div className="flex items-center gap-2 border-t border-zinc-100 px-4 py-3">
+                        <span className="text-[13px] text-zinc-600">Hver</span>
+                        <input
+                          type="number"
+                          min={1}
+                          max={365}
+                          value={customIntervalDays}
+                          onChange={(e) => setCustomIntervalDays(Math.max(1, parseInt(e.target.value) || 1))}
+                          className="w-16 rounded-lg border border-zinc-200 px-2 py-1 text-center text-[13px] outline-none focus:border-zinc-400"
+                        />
+                        <span className="text-[13px] text-zinc-600">dag</span>
+                        <button
+                          type="button"
+                          onClick={() => setRepeatOpen(false)}
+                          className="ml-auto rounded-full bg-brandTeal px-3 py-1 text-[12px] font-medium text-white shadow-planner-sm"
+                        >
+                          Ferdig
+                        </button>
+                      </div>
+                    )}
+                  </Dropdown>
+                </div>
+              </div>
+
+              {repeat !== 'none' && (
+                <div className="space-y-1">
+                  <label className="text-[12px] font-medium text-zinc-600" htmlFor="end-date">
+                    Sluttdato
+                  </label>
+                  <input
+                    id="end-date"
+                    type="date"
+                    value={endDate}
+                    min={date}
+                    onChange={(e) => setEndDate(e.target.value)}
+                    className="w-full rounded-full border border-zinc-200 px-3 py-2 text-[14px] outline-none focus:border-zinc-400"
+                  />
+                  <p className="text-[11px] text-zinc-500">
+                    Gjentas {repeat === 'custom' ? `hver ${customIntervalDays}. dag` : repeat === 'daily' ? 'hver dag' : repeat === 'biweekly' ? 'hver 2. uke' : 'hver uke'} til denne datoen
+                  </p>
+                </div>
+              )}
+
+              {/* Reminder dropdown */}
+              <div className="space-y-1">
+                <label className="text-[12px] font-medium text-zinc-600">Påminnelse</label>
+                <div className="relative">
+                  <button
+                    type="button"
+                    onClick={() => { setReminderOpen(!reminderOpen); setRepeatOpen(false) }}
+                    aria-haspopup="listbox"
+                    aria-expanded={reminderOpen}
+                    className="flex w-full items-center justify-between rounded-full border border-zinc-200 px-4 py-2 text-[14px] outline-none hover:border-zinc-300 focus:border-zinc-400"
+                  >
+                    <span className={reminderMinutes == null ? 'text-zinc-400' : 'text-zinc-900'}>
+                      {reminderLabel(reminderMinutes)}
+                    </span>
+                    <svg className={`h-4 w-4 text-zinc-400 transition-transform ${reminderOpen ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" />
+                    </svg>
+                  </button>
+                  <Dropdown open={reminderOpen} onClose={() => setReminderOpen(false)}>
+                    {[
+                      { value: undefined as number | undefined, label: 'Ingen' },
+                      { value: 5, label: '5 minutter før' },
+                      { value: 15, label: '15 minutter før' },
+                      { value: 30, label: '30 minutter før' },
+                      { value: 60, label: '1 time før' },
+                      { value: 120, label: '2 timer før' },
+                    ].map((opt) => (
+                      <DropdownItem
+                        key={String(opt.value)}
+                        label={opt.label}
+                        active={reminderMinutes === opt.value}
+                        onClick={() => { setReminderMinutes(opt.value); setReminderOpen(false) }}
+                      />
+                    ))}
+                  </Dropdown>
+                </div>
+              </div>
+
+              {/* Transport */}
+              <div className="space-y-2">
+                <label className="text-[12px] font-medium text-zinc-600">Levering og henting</label>
+                <div className="flex items-center gap-2">
+                  <span className="w-20 shrink-0 text-[12px] text-zinc-500">Levert av</span>
+                  <select
+                    value={dropoffBy ?? ''}
+                    onChange={(e) => setDropoffBy(e.target.value ? (e.target.value as PersonId) : null)}
+                    className="flex-1 rounded-full border border-zinc-200 px-4 py-2 text-[14px] outline-none focus:border-zinc-400 bg-white"
+                  >
+                    <option value="">Ingen</option>
+                    {people.map((p) => (
+                      <option key={p.id} value={p.id}>{p.name}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="w-20 shrink-0 text-[12px] text-zinc-500">Hentes av</span>
+                  <select
+                    value={pickupBy ?? ''}
+                    onChange={(e) => setPickupBy(e.target.value ? (e.target.value as PersonId) : null)}
+                    className="flex-1 rounded-full border border-zinc-200 px-4 py-2 text-[14px] outline-none focus:border-zinc-400 bg-white"
+                  >
+                    <option value="">Ingen</option>
+                    {people.map((p) => (
+                      <option key={p.id} value={p.id}>{p.name}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+            </>
           )}
-
-          {/* Reminder dropdown */}
-          <div className="space-y-1">
-            <label className="text-[12px] font-medium text-zinc-600">Påminnelse</label>
-            <div className="relative">
-              <button
-                type="button"
-                onClick={() => { setReminderOpen(!reminderOpen); setRepeatOpen(false) }}
-                aria-haspopup="listbox"
-                aria-expanded={reminderOpen}
-                className="flex w-full items-center justify-between rounded-full border border-zinc-200 px-4 py-2 text-[14px] outline-none hover:border-zinc-300 focus:border-zinc-400"
-              >
-                <span className={reminderMinutes == null ? 'text-zinc-400' : 'text-zinc-900'}>
-                  {reminderLabel(reminderMinutes)}
-                </span>
-                <svg className={`h-4 w-4 text-zinc-400 transition-transform ${reminderOpen ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" />
-                </svg>
-              </button>
-              <Dropdown open={reminderOpen} onClose={() => setReminderOpen(false)}>
-                {[
-                  { value: undefined as number | undefined, label: 'Ingen' },
-                  { value: 5, label: '5 minutter før' },
-                  { value: 15, label: '15 minutter før' },
-                  { value: 30, label: '30 minutter før' },
-                  { value: 60, label: '1 time før' },
-                  { value: 120, label: '2 timer før' },
-                ].map((opt) => (
-                  <DropdownItem
-                    key={String(opt.value)}
-                    label={opt.label}
-                    active={reminderMinutes === opt.value}
-                    onClick={() => { setReminderMinutes(opt.value); setReminderOpen(false) }}
-                  />
-                ))}
-              </Dropdown>
-            </div>
-          </div>
-
-          {/* Optional: who delivers / picks up */}
-          <div className="space-y-2">
-            <label className="text-[12px] font-medium text-zinc-600">Levering og henting (valgfritt)</label>
-            <div className="flex items-center gap-2">
-              <span className="w-20 shrink-0 text-[12px] text-zinc-500">Levert av</span>
-              <select
-                value={dropoffBy ?? ''}
-                onChange={(e) => setDropoffBy(e.target.value ? (e.target.value as PersonId) : null)}
-                className="flex-1 rounded-full border border-zinc-200 px-4 py-2 text-[14px] outline-none focus:border-zinc-400 bg-white"
-              >
-                <option value="">Ingen</option>
-                {people.map((p) => (
-                  <option key={p.id} value={p.id}>{p.name}</option>
-                ))}
-              </select>
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="w-20 shrink-0 text-[12px] text-zinc-500">Hentes av</span>
-              <select
-                value={pickupBy ?? ''}
-                onChange={(e) => setPickupBy(e.target.value ? (e.target.value as PersonId) : null)}
-                className="flex-1 rounded-full border border-zinc-200 px-4 py-2 text-[14px] outline-none focus:border-zinc-400 bg-white"
-              >
-                <option value="">Ingen</option>
-                {people.map((p) => (
-                  <option key={p.id} value={p.id}>{p.name}</option>
-                ))}
-              </select>
-            </div>
-          </div>
 
           {error && <p className="text-[12px] text-red-500">{error}</p>}
 

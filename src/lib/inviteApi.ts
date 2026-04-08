@@ -157,13 +157,12 @@ export async function fetchPendingInviteForTarget(
   }
 }
 
-/** Reuse an active invite for this parent, or create a new one. */
+/** Reuse an active invite for this parent, or create a new one. Token-based; not email-bound. */
 export async function getOrCreateInviteForTarget(
   fromUserId: string,
-  invitedEmail: string | undefined,
   targetMemberId: string
 ): Promise<{ token: string; expiresAt: string } | null> {
   const existing = await fetchPendingInviteForTarget(fromUserId, targetMemberId)
   if (existing) return { token: existing.token, expiresAt: existing.expiresAt }
-  return createInvite(fromUserId, invitedEmail, targetMemberId)
+  return createInvite(fromUserId, undefined, targetMemberId)
 }

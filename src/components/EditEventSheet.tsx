@@ -139,6 +139,9 @@ export function EditEventSheet({ event, date, onSave, onClose }: EditEventSheetP
   const [pickupBy, setPickupBy] = useState<PersonId | undefined>(initialTransport?.pickupBy)
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
+  const [showMore, setShowMore] = useState(() =>
+    !!(event.location || event.notes || event.reminderMinutes != null || initialTransport?.dropoffBy || initialTransport?.pickupBy)
+  )
   const dialogRef = useRef<HTMLDivElement>(null)
   const previousFocusRef = useRef<HTMLElement | null>(null)
 
@@ -381,97 +384,116 @@ export function EditEventSheet({ event, date, onSave, onClose }: EditEventSheetP
             </div>
           </div>
 
-          <div className="space-y-1">
-            <label className="text-[12px] font-medium text-zinc-600" htmlFor="edit-location">
-              Sted (valgfritt)
-            </label>
-            <input
-              id="edit-location"
-              className="w-full rounded-full border border-zinc-200 px-3 py-2 text-[14px] outline-none focus:border-zinc-400"
-              placeholder="f.eks. Parken"
-              value={location}
-              onChange={(e) => setLocation(e.target.value)}
-            />
-          </div>
+          {/* Progressive disclosure toggle */}
+          <button
+            type="button"
+            onClick={() => setShowMore((v) => !v)}
+            className="flex items-center gap-1.5 text-[12px] font-medium text-brandTeal hover:text-brandTeal/80"
+          >
+            <svg
+              className={`h-3.5 w-3.5 transition-transform duration-150 ${showMore ? 'rotate-180' : ''}`}
+              fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor"
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" />
+            </svg>
+            {showMore ? 'Skjul detaljer' : 'Mer detaljer (sted, notater, påminnelse, transport)'}
+          </button>
 
-          <div className="space-y-1">
-            <label className="text-[12px] font-medium text-zinc-600" htmlFor="edit-notes">
-              Notater (valgfritt)
-            </label>
-            <textarea
-              id="edit-notes"
-              rows={2}
-              className="w-full rounded-xl border border-zinc-200 px-3 py-2 text-[14px] outline-none focus:border-zinc-400 resize-none"
-              placeholder="Eventuelle ekstra detaljer"
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-            />
-          </div>
+          {showMore && (
+            <>
+              <div className="space-y-1">
+                <label className="text-[12px] font-medium text-zinc-600" htmlFor="edit-location">
+                  Sted (valgfritt)
+                </label>
+                <input
+                  id="edit-location"
+                  className="w-full rounded-full border border-zinc-200 px-3 py-2 text-[14px] outline-none focus:border-zinc-400"
+                  placeholder="f.eks. Parken"
+                  value={location}
+                  onChange={(e) => setLocation(e.target.value)}
+                />
+              </div>
 
-          <ReminderDropdownField reminderMinutes={reminderMinutes} setReminderMinutes={setReminderMinutes} />
+              <div className="space-y-1">
+                <label className="text-[12px] font-medium text-zinc-600" htmlFor="edit-notes">
+                  Notater (valgfritt)
+                </label>
+                <textarea
+                  id="edit-notes"
+                  rows={2}
+                  className="w-full rounded-xl border border-zinc-200 px-3 py-2 text-[14px] outline-none focus:border-zinc-400 resize-none"
+                  placeholder="Eventuelle ekstra detaljer"
+                  value={notes}
+                  onChange={(e) => setNotes(e.target.value)}
+                />
+              </div>
 
-          {/* Transport section */}
-          <div className="space-y-2 pt-1">
-            <p className="text-[12px] font-medium text-zinc-600">Transport</p>
-            <div className="flex gap-2">
-              <div className="flex-1 space-y-1">
-                <p className="text-[11px] font-medium text-zinc-500">Levering</p>
-                <div className="flex flex-wrap gap-1">
-                  <button
-                    type="button"
-                    onClick={() => setDropoffBy(undefined)}
-                    className={`rounded-full px-3 py-1 text-[11px] font-medium ${
-                      !dropoffBy ? 'bg-brandNavy text-white' : 'bg-zinc-100 text-zinc-700 hover:bg-zinc-200'
-                    }`}
-                  >
-                    Ingen
-                  </button>
-                  {people.map((p) => (
-                    <button
-                      key={p.id}
-                      type="button"
-                      onClick={() => setDropoffBy(p.id)}
-                      className={`rounded-full px-3 py-1 text-[11px] font-medium ${
-                        dropoffBy === p.id
-                          ? 'bg-brandNavy text-white'
-                          : 'bg-zinc-100 text-zinc-700 hover:bg-zinc-200'
-                      }`}
-                    >
-                      {p.name}
-                    </button>
-                  ))}
+              <ReminderDropdownField reminderMinutes={reminderMinutes} setReminderMinutes={setReminderMinutes} />
+
+              {/* Transport section */}
+              <div className="space-y-2 pt-1">
+                <p className="text-[12px] font-medium text-zinc-600">Transport</p>
+                <div className="flex gap-2">
+                  <div className="flex-1 space-y-1">
+                    <p className="text-[11px] font-medium text-zinc-500">Levering</p>
+                    <div className="flex flex-wrap gap-1">
+                      <button
+                        type="button"
+                        onClick={() => setDropoffBy(undefined)}
+                        className={`rounded-full px-3 py-1 text-[11px] font-medium ${
+                          !dropoffBy ? 'bg-brandNavy text-white' : 'bg-zinc-100 text-zinc-700 hover:bg-zinc-200'
+                        }`}
+                      >
+                        Ingen
+                      </button>
+                      {people.map((p) => (
+                        <button
+                          key={p.id}
+                          type="button"
+                          onClick={() => setDropoffBy(p.id)}
+                          className={`rounded-full px-3 py-1 text-[11px] font-medium ${
+                            dropoffBy === p.id
+                              ? 'bg-brandNavy text-white'
+                              : 'bg-zinc-100 text-zinc-700 hover:bg-zinc-200'
+                          }`}
+                        >
+                          {p.name}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="flex-1 space-y-1">
+                    <p className="text-[11px] font-medium text-zinc-500">Henting</p>
+                    <div className="flex flex-wrap gap-1">
+                      <button
+                        type="button"
+                        onClick={() => setPickupBy(undefined)}
+                        className={`rounded-full px-3 py-1 text-[11px] font-medium ${
+                          !pickupBy ? 'bg-brandNavy text-white' : 'bg-zinc-100 text-zinc-700 hover:bg-zinc-200'
+                        }`}
+                      >
+                        Ingen
+                      </button>
+                      {people.map((p) => (
+                        <button
+                          key={p.id}
+                          type="button"
+                          onClick={() => setPickupBy(p.id)}
+                          className={`rounded-full px-3 py-1 text-[11px] font-medium ${
+                            pickupBy === p.id
+                              ? 'bg-brandNavy text-white'
+                              : 'bg-zinc-100 text-zinc-700 hover:bg-zinc-200'
+                          }`}
+                        >
+                          {p.name}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
                 </div>
               </div>
-              <div className="flex-1 space-y-1">
-                <p className="text-[11px] font-medium text-zinc-500">Henting</p>
-                <div className="flex flex-wrap gap-1">
-                  <button
-                    type="button"
-                    onClick={() => setPickupBy(undefined)}
-                    className={`rounded-full px-3 py-1 text-[11px] font-medium ${
-                      !pickupBy ? 'bg-brandNavy text-white' : 'bg-zinc-100 text-zinc-700 hover:bg-zinc-200'
-                    }`}
-                  >
-                    Ingen
-                  </button>
-                  {people.map((p) => (
-                    <button
-                      key={p.id}
-                      type="button"
-                      onClick={() => setPickupBy(p.id)}
-                      className={`rounded-full px-3 py-1 text-[11px] font-medium ${
-                        pickupBy === p.id
-                          ? 'bg-brandNavy text-white'
-                          : 'bg-zinc-100 text-zinc-700 hover:bg-zinc-200'
-                      }`}
-                    >
-                      {p.name}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            </div>
-          </div>
+            </>
+          )}
 
           {error && <p className="text-[12px] text-red-500">{error}</p>}
 

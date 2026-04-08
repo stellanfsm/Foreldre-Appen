@@ -1,4 +1,4 @@
-import type { DragReschedulePayload, GapInfo, TimelineLayoutItem } from '../types'
+import type { DragReschedulePayload, GapInfo, TimelineLayoutItem, Task } from '../types'
 import type { Event } from '../types'
 import { ActivityBlock } from './ActivityBlock'
 import { BackgroundBlock } from './BackgroundBlock'
@@ -24,6 +24,7 @@ interface TimelineGridProps {
   onSelectBackgroundEvent?: (event: Event) => void
   onDragReschedule?: (eventId: string, payload: DragReschedulePayload) => void | Promise<void>
   variant?: 'day' | 'week'
+  dayTasks?: Task[]
 }
 
 function nowTimeString(): string {
@@ -42,6 +43,7 @@ export function TimelineGrid({
   onSelectBackgroundEvent,
   onDragReschedule,
   variant = 'day',
+  dayTasks,
 }: TimelineGridProps) {
   const totalHeight = timelineTotalHeight(pixelsPerHour)
   const isToday = (() => {
@@ -85,6 +87,28 @@ export function TimelineGrid({
           onSelect={onSelectBackgroundEvent ? () => onSelectBackgroundEvent(item.block) : undefined}
         />
       ))}
+
+      {dayTasks
+        ?.filter((t) => !t.completedAt && !!t.dueTime)
+        .map((task) => {
+          const parts = task.dueTime!.split(':').map(Number)
+          const topPx = (((parts[0] ?? 0) * 60 + (parts[1] ?? 0) - TIMELINE_START_HOUR * 60) / 60) * pixelsPerHour
+          if (topPx < 0 || topPx > totalHeight) return null
+          const label = task.title.length > 16 ? task.title.slice(0, 15) + '…' : task.title
+          return (
+            <div
+              key={`dl-${task.id}`}
+              className="pointer-events-none absolute left-0 right-2 flex items-center gap-1"
+              style={{ top: topPx, zIndex: 1 }}
+            >
+              <span className="h-2 w-2 shrink-0 rounded-sm bg-amber-400" />
+              <div className="flex-1 border-t border-dashed border-amber-300" />
+              <span className="whitespace-nowrap rounded-full bg-amber-50 px-1.5 py-px text-[10px] font-semibold text-amber-700 ring-1 ring-amber-200">
+                {label}
+              </span>
+            </div>
+          )
+        })}
 
       {layoutItems.map((item, index) => (
         <ActivityBlock

@@ -227,7 +227,7 @@ export function FamilyEditor({ onPersonRemoved }: FamilyEditorProps) {
     if (!user || !effectiveUserId) return
     setInviteLoadingForId(memberId)
     try {
-      const inv = await getOrCreateInviteForTarget(effectiveUserId, user.email ?? undefined, memberId)
+      const inv = await getOrCreateInviteForTarget(effectiveUserId, memberId)
       if (inv) setParentInviteUrl(buildInviteUrl(inv.token))
     } finally {
       setInviteLoadingForId(null)
@@ -309,7 +309,6 @@ export function FamilyEditor({ onPersonRemoved }: FamilyEditorProps) {
               if (data.memberKind === 'parent' && created && user && effectiveUserId) {
                 const inv = await getOrCreateInviteForTarget(
                   effectiveUserId,
-                  user.email ?? undefined,
                   created.id
                 )
                 if (inv) setParentInviteUrl(buildInviteUrl(inv.token))

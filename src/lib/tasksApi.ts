@@ -32,7 +32,7 @@ function mapRowToTask(row: TaskRow): Task {
 }
 
 export type TaskUpdates = Partial<
-  Pick<Task, 'title' | 'notes' | 'dueTime' | 'assignedToPersonId' | 'childPersonId' | 'completedAt'>
+  Pick<Task, 'title' | 'notes' | 'date' | 'dueTime' | 'assignedToPersonId' | 'childPersonId' | 'completedAt'>
 >
 
 export async function fetchTasksForDateRange(
@@ -88,6 +88,7 @@ export async function updateTask(
 ): Promise<Task | null> {
   const payload: Record<string, unknown> = {}
   if (updates.title != null) payload.title = updates.title
+  if (updates.date != null) payload.date = updates.date
   if ('notes' in updates) payload.notes = updates.notes ?? null
   if ('dueTime' in updates) payload.due_time = updates.dueTime ?? null
   if ('assignedToPersonId' in updates) payload.assigned_to_person_id = updates.assignedToPersonId ?? null

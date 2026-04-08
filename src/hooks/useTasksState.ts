@@ -79,17 +79,23 @@ export function useTasksState(selectedDate: string) {
     })
   }
 
-  async function patchTask(taskId: string, date: string, updates: TaskUpdates) {
+  async function patchTask(taskId: string, oldDate: string, updates: TaskUpdates) {
     if (!user) throw new Error('Must be signed in to edit tasks')
     const updated = await updateTaskApi(taskId, updates)
     if (!updated) throw new Error('Could not update task')
-    setTasksByDate((prev) => {
-      const list = prev[date] ?? []
-      return {
+    const newDate = updates.date ?? oldDate
+    if (newDate !== oldDate) {
+      setTasksByDate((prev) => ({
         ...prev,
-        [date]: list.map((t) => (t.id === taskId ? { ...t, ...updates } : t)),
-      }
-    })
+        [oldDate]: (prev[oldDate] ?? []).filter((t) => t.id !== taskId),
+        [newDate]: [...(prev[newDate] ?? []), updated],
+      }))
+    } else {
+      setTasksByDate((prev) => ({
+        ...prev,
+        [oldDate]: (prev[oldDate] ?? []).map((t) => (t.id === taskId ? updated : t)),
+      }))
+    }
   }
 
   async function removeTask(taskId: string, date: string) {

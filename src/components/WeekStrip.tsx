@@ -8,9 +8,10 @@ interface WeekStripProps {
   selectedDate: string
   onSelectDay: (date: string) => void
   loading?: boolean
+  taskCountByDate?: Record<string, number>
 }
 
-export function WeekStrip({ days, selectedDate, onSelectDay, loading }: WeekStripProps) {
+export function WeekStrip({ days, selectedDate, onSelectDay, loading, taskCountByDate }: WeekStripProps) {
   const reducedMotion = useReducedMotion() ?? false
   const { container, item } = weekStripStagger(reducedMotion)
   const weekKey = days[0]?.date ?? 'empty'
@@ -30,6 +31,7 @@ export function WeekStrip({ days, selectedDate, onSelectDay, loading }: WeekStri
           isSelected={day.date === selectedDate}
           onSelect={() => onSelectDay(day.date)}
           variants={item}
+          openTaskCount={taskCountByDate?.[day.date] ?? 0}
         />
       ))}
     </motion.div>

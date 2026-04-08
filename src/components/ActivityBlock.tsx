@@ -263,16 +263,30 @@ export function ActivityBlock({
       {!showBlank && (dropoffPerson || pickupPerson) && (
         <>
           {dropoffPerson && (
-            <div
-              className="absolute left-0 right-0 top-0 h-[3px]"
-              style={{ backgroundColor: dropoffPerson.colorAccent }}
-            />
+            <>
+              <div
+                className="absolute left-0 right-0 top-0 h-[3px]"
+                style={{ backgroundColor: dropoffPerson.colorAccent }}
+              />
+              <span
+                className="pointer-events-none absolute left-[8px] top-[3px] text-[8px] font-bold leading-none opacity-70"
+                style={{ color: dropoffPerson.colorAccent }}
+                aria-hidden
+              >↑</span>
+            </>
           )}
           {pickupPerson && (
-            <div
-              className="absolute left-0 right-0 bottom-0 h-[3px]"
-              style={{ backgroundColor: pickupPerson.colorAccent }}
-            />
+            <>
+              <div
+                className="absolute left-0 right-0 bottom-0 h-[3px]"
+                style={{ backgroundColor: pickupPerson.colorAccent }}
+              />
+              <span
+                className="pointer-events-none absolute bottom-[3px] left-[8px] text-[8px] font-bold leading-none opacity-70"
+                style={{ color: pickupPerson.colorAccent }}
+                aria-hidden
+              >↓</span>
+            </>
           )}
         </>
       )}

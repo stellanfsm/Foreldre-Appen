@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useReducedMotion } from 'framer-motion'
 import { AppShell } from './components/AppShell'
 import { MobileFrame } from './components/MobileFrame'
@@ -6,7 +6,7 @@ import { BottomNav } from './components/BottomNav'
 import { AuthScreen } from './components/AuthScreen'
 import { SettingsScreen } from './components/SettingsScreen'
 import { MonthView } from './components/MonthView'
-import { LogisticsScreen } from './components/LogisticsScreen'
+import { TasksScreen } from './components/TasksScreen'
 import type { NavTab } from './components/BottomNav'
 import { useScheduleState } from './hooks/useScheduleState'
 import { useAutoFillWeek } from './hooks/useAutoFillWeek'
@@ -23,12 +23,13 @@ import { addCalendarDaysOslo, todayKeyOslo } from './lib/osloCalendar'
 import { useSaveFeedback } from './features/app/hooks/useSaveFeedback'
 import { useInviteAcceptance } from './features/invites/hooks/useInviteAcceptance'
 import { AppNoticeStack } from './features/app/components/AppNoticeStack'
-import { useCalendarDerivedState } from './features/calendar/hooks/useCalendarDerivedState'
 import { CalendarHomeTab } from './features/calendar/CalendarHomeTab'
 import { CalendarOverlays } from './features/calendar/CalendarOverlays'
 import { useEventController } from './features/calendar/hooks/useEventController'
 import { useTasksState } from './hooks/useTasksState'
 import { useTaskController } from './features/tasks/hooks/useTaskController'
+import { OnboardingTour } from './components/OnboardingTour'
+import { loadOnboarding, resetOnboarding } from './lib/onboarding'
 
 function App() {
   useTimeOfDaySurface()
@@ -64,7 +65,6 @@ function App() {
     dayEvents,
     reminderEvents,
     osloTodayDateKey,
-    daySummary,
     hasRawEventsInWeek,
     getVisibleEventsForDate,
     prefetchEventsForDateRange,
@@ -90,7 +90,7 @@ function App() {
   )
   const [hideFamilyBanner, setHideFamilyBanner] = useState(false)
   const { saveFeedback, showSaveFeedback, showSavingFeedback, showSaveError } = useSaveFeedback(hapticsEnabled)
-  const { getTasksForDate, addTask, patchTask, removeTask } = useTasksState(selectedDate)
+  const { tasksByDate, addTask, patchTask, removeTask } = useTasksState(selectedDate)
   const taskController = useTaskController({
     addTask,
     patchTask,
@@ -110,33 +110,28 @@ function App() {
     showSaveFeedback,
     showSaveError,
   })
+  const [showTour, setShowTour] = useState(false)
+  useEffect(() => {
+    if (user && !loadOnboarding().tourCompleted) {
+      const t = setTimeout(() => setShowTour(true), 600)
+      return () => clearTimeout(t)
+    }
+  }, [user])
+
   const { inviteNotice, setInviteNotice, inviteProcessing } = useInviteAcceptance({
     userId: user?.id,
     onAccepted: refetchEffectiveUserId,
   })
-  const {
-    unresolvedConflictCount,
-    completedEvents,
-    visibleActionableEvents,
-    nextEvent,
-    nextEventMinutesUntil,
-    nextEventHasConflict,
-    laterConflictCount,
-    weeklyCollisionCount,
-    weeklyActivityCount,
-    hideTodayActionStrip,
-    setHideTodayActionStrip,
-    showCompletedToday,
-    setShowCompletedToday,
-    showAllCompletedToday,
-    setShowAllCompletedToday,
-  } = useCalendarDerivedState({
-    selectedDate,
-    visibleEvents,
-    backgroundLayoutItems,
-    weekLayoutData,
-    daySummary,
-  })
+  const taskCountByDate = useMemo(
+    () =>
+      Object.fromEntries(
+        Object.entries(tasksByDate).map(([date, tasks]) => [
+          date,
+          tasks.filter((t) => !t.completedAt).length,
+        ])
+      ),
+    [tasksByDate]
+  )
 
   useAutoFillWeek({
     week: weekLayoutData,
@@ -190,7 +185,6 @@ function App() {
     setSelectedDate(today)
     setNavTab('today')
     setShowListView(false)
-    setHideTodayActionStrip(false)
   }
 
   const openAddEvent = (dateOverride: string | null = null) => {
@@ -237,6 +231,10 @@ function App() {
               <SettingsScreen
                 onPersonRemoved={purgePersonEvents}
                 onClearAllEvents={clearAllEvents}
+                onRestartOnboarding={() => {
+                  resetOnboarding()
+                  setShowTour(true)
+                }}
               />
             </div>
           ) : navTab === 'month' ? (
@@ -261,20 +259,14 @@ function App() {
             />
             </div>
           ) : navTab === 'logistics' ? (
-            <LogisticsScreen
+            <TasksScreen
               weekLayoutData={weekLayoutData}
-              loading={weekEventsLoading}
-              mePersonId={mePersonId}
-              onJumpToEvent={(date, event) => {
-                setSelectedDate(date)
-                setSelectedEvent({ event, date })
-                setNavTab('today')
-                setShowListView(false)
-              }}
-              onAssignTransport={(date, event, role, personId) => {
-                void controller.assignTransport(date, event, role, personId)
-              }}
-              onChangeWeek={handleChangeWeek}
+              tasksByDate={tasksByDate}
+              openAddTask={openAddTask}
+              onCompleteTask={(task) => { void taskController.markTaskDone(task).catch(() => {}) }}
+              onUndoCompleteTask={(task) => { void taskController.undoTaskComplete(task).catch(() => {}) }}
+              onEditTask={(task) => { setIsAddingTask(false); setEditingTask(task) }}
+              onDeleteTask={(task) => { void taskController.deleteTask(task).catch(() => {}) }}
             />
           ) : (
             <CalendarHomeTab
@@ -290,45 +282,6 @@ function App() {
               handleJumpToToday={handleJumpToToday}
               saveFeedback={saveFeedback}
               reducedMotion={reducedMotion}
-              weeklyActivityCount={weeklyActivityCount}
-              weeklyCollisionCount={weeklyCollisionCount}
-              unresolvedConflictCount={unresolvedConflictCount}
-              visibleActionableCount={visibleActionableEvents.length}
-              completedCount={completedEvents.length}
-              hideTodayActionStrip={hideTodayActionStrip}
-              setHideTodayActionStrip={setHideTodayActionStrip}
-              nextEvent={nextEvent}
-              nextEventMinutesUntil={nextEventMinutesUntil}
-              nextEventHasConflict={nextEventHasConflict}
-              laterConflictCount={laterConflictCount}
-              onOpenNextEvent={() => {
-                if (!nextEvent) return
-                setSelectedEvent({ event: nextEvent, date: selectedDate })
-              }}
-              onMarkNextDone={async () => {
-                if (!nextEvent) return
-                await controller.markDone(selectedDate, nextEvent).catch(() => {})
-              }}
-              onConfirmNext={async () => {
-                if (!nextEvent) return
-                await controller.confirmEvent(selectedDate, nextEvent).catch(() => {})
-              }}
-              onDelayNext={async () => {
-                if (!nextEvent) return
-                await controller.delayEvent(selectedDate, nextEvent).catch(() => {})
-              }}
-              onMoveNext={async () => {
-                if (!nextEvent) return
-                await controller.moveEvent(selectedDate, nextEvent, addCalendarDaysOslo(selectedDate, 1), 'Aktivitet flyttet til i morgen').catch(() => {})
-              }}
-              completedEvents={completedEvents}
-              showCompletedToday={showCompletedToday}
-              setShowCompletedToday={setShowCompletedToday}
-              showAllCompletedToday={showAllCompletedToday}
-              setShowAllCompletedToday={setShowAllCompletedToday}
-              onUndoComplete={async (event) => {
-                await controller.undoComplete(selectedDate, event).catch(() => {})
-              }}
               weekEventsLoading={weekEventsLoading}
               showNoFamilyEmpty={showNoFamilyEmpty}
               showListView={showListView}
@@ -352,21 +305,9 @@ function App() {
               onMoveWeeklyEvent={async (event, fromDate, toDate) => {
                 await controller.moveEvent(fromDate, event, toDate).catch(() => {})
               }}
-              dayTasks={getTasksForDate(selectedDate)}
               openAddTask={openAddTask}
-              onEditTask={(task) => {
-                setIsAddingTask(false)
-                setEditingTask(task)
-              }}
-              onCompleteTask={(task) => {
-                void taskController.markTaskDone(task).catch(() => {})
-              }}
-              onUndoCompleteTask={(task) => {
-                void taskController.undoTaskComplete(task).catch(() => {})
-              }}
-              onDeleteTask={(task) => {
-                void taskController.deleteTask(task).catch(() => {})
-              }}
+              taskCountByDate={taskCountByDate}
+              dayTasks={tasksByDate[selectedDate] ?? []}
             />
           )}
           </div>
@@ -383,6 +324,9 @@ function App() {
         </div>
       </MobileFrame>
 
+      {showTour && (
+        <OnboardingTour onComplete={() => setShowTour(false)} />
+      )}
       <CalendarOverlays
         selectedEvent={selectedEvent}
         setSelectedEvent={setSelectedEvent}

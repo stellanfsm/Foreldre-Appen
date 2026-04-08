@@ -63,6 +63,7 @@ export function BottomNav({ active, onSelect }: BottomNavProps) {
             <span className="relative z-[40]">{viewLabel(currentView)}</span>
           </button>
           <button
+            id="onb-tasks-tab"
             type="button"
             onClick={() => onSelect?.('logistics')}
             className={`${base} ${active === 'logistics' ? activeText : inactiveText} hover:bg-brandSky/25`}
@@ -75,7 +76,7 @@ export function BottomNav({ active, onSelect }: BottomNavProps) {
                 transition={springSnappy}
               />
             )}
-            <span className="relative z-[40]">Logistikk</span>
+            <span className="relative z-[40]">Oppgaver</span>
           </button>
           <button
             type="button"

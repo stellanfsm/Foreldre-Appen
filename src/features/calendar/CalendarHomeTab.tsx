@@ -1,21 +1,19 @@
-import { motion } from 'framer-motion'
+import { useState } from 'react'
+import { motion, AnimatePresence } from 'framer-motion'
 import { FamilyFilterBar } from '../../components/FamilyFilterBar'
 import { SearchBar } from '../../components/SearchBar'
 import { WeekStrip } from '../../components/WeekStrip'
-import { WeeklyCheckCard } from '../../components/WeeklyCheckCard'
 import { CalendarDayNote } from '../../components/CalendarDayNote'
-import { DailyStatusLine } from '../../components/DailyStatusLine'
-import { TodayActionStrip } from '../../components/TodayActionStrip'
 import { ScheduleLoadingSkeleton } from '../../components/ScheduleLoadingSkeleton'
 import { EmptyState } from '../../components/EmptyState'
 import { WeeklyList } from '../../components/WeeklyList'
 import { TimelineContainer } from '../../components/TimelineContainer'
 import { springSnappy } from '../../lib/motion'
 import { COPY } from '../../lib/norwegianCopy'
+import { todayKeyOslo } from '../../lib/osloCalendar'
 import type { Event, Task, PersonId, TimelineLayoutItem, GapInfo } from '../../types'
 import type { SaveFeedbackState } from '../app/hooks/useSaveFeedback'
 import type { WeekDayLayout } from '../../hooks/useScheduleState'
-import { DayTaskList } from '../tasks/components/DayTaskList'
 
 interface CalendarHomeTabProps {
   selectedPersonIds: PersonId[]
@@ -30,28 +28,6 @@ interface CalendarHomeTabProps {
   handleJumpToToday: () => void
   saveFeedback: SaveFeedbackState
   reducedMotion: boolean
-  weeklyActivityCount: number
-  weeklyCollisionCount: number
-  unresolvedConflictCount: number
-  visibleActionableCount: number
-  completedCount: number
-  hideTodayActionStrip: boolean
-  setHideTodayActionStrip: (hidden: boolean) => void
-  nextEvent: Event | null
-  nextEventMinutesUntil: number | null
-  nextEventHasConflict: boolean
-  laterConflictCount: number
-  onOpenNextEvent: () => void
-  onMarkNextDone: () => Promise<void>
-  onConfirmNext: () => Promise<void>
-  onDelayNext: () => Promise<void>
-  onMoveNext: () => Promise<void>
-  completedEvents: Event[]
-  showCompletedToday: boolean
-  setShowCompletedToday: (value: boolean | ((prev: boolean) => boolean)) => void
-  showAllCompletedToday: boolean
-  setShowAllCompletedToday: (value: boolean | ((prev: boolean) => boolean)) => void
-  onUndoComplete: (event: Event) => Promise<void>
   weekEventsLoading: boolean
   showNoFamilyEmpty: boolean
   showListView: boolean
@@ -65,12 +41,9 @@ interface CalendarHomeTabProps {
   onDragReschedule: (eventId: string, times: { prevStart: string; prevEnd: string; nextStart: string; nextEnd: string }) => Promise<void>
   onDeleteWeeklyEvent: (event: Event, date: string) => Promise<void>
   onMoveWeeklyEvent: (event: Event, fromDate: string, toDate: string) => Promise<void>
-  dayTasks: Task[]
   openAddTask: () => void
-  onEditTask: (task: Task) => void
-  onCompleteTask: (task: Task) => void
-  onUndoCompleteTask: (task: Task) => void
-  onDeleteTask: (task: Task) => void
+  taskCountByDate: Record<string, number>
+  dayTasks: Task[]
 }
 
 export function CalendarHomeTab({
@@ -86,28 +59,6 @@ export function CalendarHomeTab({
   handleJumpToToday,
   saveFeedback,
   reducedMotion,
-  weeklyActivityCount,
-  weeklyCollisionCount,
-  unresolvedConflictCount,
-  visibleActionableCount,
-  completedCount,
-  hideTodayActionStrip,
-  setHideTodayActionStrip,
-  nextEvent,
-  nextEventMinutesUntil,
-  nextEventHasConflict,
-  laterConflictCount,
-  onOpenNextEvent,
-  onMarkNextDone,
-  onConfirmNext,
-  onDelayNext,
-  onMoveNext,
-  completedEvents,
-  showCompletedToday,
-  setShowCompletedToday,
-  showAllCompletedToday,
-  setShowAllCompletedToday,
-  onUndoComplete,
   weekEventsLoading,
   showNoFamilyEmpty,
   showListView,
@@ -121,15 +72,19 @@ export function CalendarHomeTab({
   onDragReschedule,
   onDeleteWeeklyEvent,
   onMoveWeeklyEvent,
-  dayTasks,
   openAddTask,
-  onEditTask,
-  onCompleteTask,
-  onUndoCompleteTask,
-  onDeleteTask,
+  taskCountByDate,
+  dayTasks,
 }: CalendarHomeTabProps) {
+  const [showTodayPanel, setShowTodayPanel] = useState(false)
+  const todayKey = todayKeyOslo()
+  const todayDayData = weekLayoutData.find((d) => d.date === todayKey)
+  const todayEvents = todayDayData?.events ?? []
+  const todayOpenTasks = selectedDate === todayKey ? dayTasks.filter((t) => !t.completedAt) : []
+  const todayHasData = todayEvents.length > 0 || todayOpenTasks.length > 0
+
   return (
-    <div className="mt-3 flex min-h-0 w-full min-w-0 max-w-full flex-1 flex-col overflow-x-hidden px-3 pb-4">
+    <div className="relative mt-3 flex min-h-0 w-full min-w-0 max-w-full flex-1 flex-col overflow-x-hidden px-3 pb-4">
       <div className="flex min-h-0 w-full min-w-0 max-w-full flex-1 flex-col overflow-x-hidden overflow-y-hidden">
         <FamilyFilterBar
           selectedPersonIds={selectedPersonIds}
@@ -139,6 +94,7 @@ export function CalendarHomeTab({
         <div className="flex items-center justify-between gap-3 px-4 pb-1 pt-1">
           <div className="flex shrink-0 gap-2">
             <button
+              id="onb-add-event"
               type="button"
               onClick={() => openAddEvent()}
               className="rounded-full bg-brandTeal px-3.5 py-1.5 text-[13px] font-semibold text-white shadow-planner transition hover:brightness-95 active:translate-y-px active:shadow-planner-press focus:outline-none focus:ring-2 focus:ring-brandTeal focus:ring-offset-2"
@@ -146,6 +102,7 @@ export function CalendarHomeTab({
               + Aktivitet
             </button>
             <button
+              id="onb-add-task"
               type="button"
               onClick={() => openAddTask()}
               className="rounded-full border-2 border-brandTeal px-3.5 py-1.5 text-[13px] font-semibold text-brandTeal shadow-planner-sm transition hover:bg-brandTeal/10 active:translate-y-px active:shadow-planner-press focus:outline-none focus:ring-2 focus:ring-brandTeal focus:ring-offset-2"
@@ -207,84 +164,98 @@ export function CalendarHomeTab({
             </motion.span>
           )}
         </div>
-        <WeekStrip
-          days={weekLayoutData}
-          selectedDate={selectedDate}
-          onSelectDay={setSelectedDate}
-          loading={weekEventsLoading}
-        />
-        <WeeklyCheckCard totalActivities={weeklyActivityCount} collisionCount={weeklyCollisionCount} />
-        <CalendarDayNote date={selectedDate} />
-        <DailyStatusLine
-          unresolvedCollisionCount={unresolvedConflictCount}
-          remainingCount={visibleActionableCount}
-          completedCount={completedCount}
-        />
-        {!hideTodayActionStrip && (
-          <TodayActionStrip
-            nextEvent={nextEvent}
-            minutesUntilNext={nextEventMinutesUntil}
-            nextEventHasConflict={nextEventHasConflict}
-            laterConflictCount={laterConflictCount}
-            moveActionLabel={nextEvent ? `Flytt til i morgen (${nextEvent.start})` : COPY.actions.moveTomorrow}
-            onDismiss={() => setHideTodayActionStrip(true)}
-            onOpenNext={onOpenNextEvent}
-            onMarkDone={onMarkNextDone}
-            onConfirmNext={onConfirmNext}
-            onDelayNext={onDelayNext}
-            onMoveNext={onMoveNext}
+        <div id="onb-week-strip">
+          <WeekStrip
+            days={weekLayoutData}
+            selectedDate={selectedDate}
+            onSelectDay={setSelectedDate}
+            loading={weekEventsLoading}
+            taskCountByDate={taskCountByDate}
           />
-        )}
-        {completedEvents.length > 0 && (
-          <div className="mx-4 mt-2">
+        </div>
+        <CalendarDayNote date={selectedDate} />
+        {todayHasData && (
+          <div className="px-4 pb-1">
             <button
               type="button"
-              onClick={() => {
-                setShowCompletedToday((value) => !value)
-                if (showCompletedToday) setShowAllCompletedToday(false)
-              }}
-              className="min-h-9 rounded-full border border-zinc-300 bg-white px-3 py-1.5 text-[12px] font-medium text-zinc-700"
+              onClick={() => setShowTodayPanel((v) => !v)}
+              className="flex w-full items-center gap-2 py-1 text-left"
             >
-              {showCompletedToday
-                ? `Skjul ferdige (${completedEvents.length})`
-                : `Vis ferdige (${completedEvents.length})`}
-            </button>
-            {showCompletedToday && (
-              <div className="mt-2 space-y-1.5 rounded-card border border-zinc-200 bg-white p-2.5">
-                {(showAllCompletedToday ? completedEvents : completedEvents.slice(0, 5)).map((event) => (
-                  <div key={event.id} className="flex items-center justify-between gap-2">
-                    <p className="text-[12px] text-zinc-600">
-                      {event.start} {event.title}
-                    </p>
-                    <button
-                      type="button"
-                      onClick={() => void onUndoComplete(event)}
-                      className="rounded-full border border-zinc-300 bg-white px-2.5 py-1 text-[11px] font-medium text-zinc-700"
-                    >
-                      Angre ferdig
-                    </button>
-                  </div>
-                ))}
-                {completedEvents.length > 5 && (
-                  <button
-                    type="button"
-                    onClick={() => setShowAllCompletedToday((value) => !value)}
-                    className="min-h-9 w-full rounded-full border border-zinc-300 bg-white px-3 py-1.5 text-[12px] font-medium text-zinc-700"
-                  >
-                    {showAllCompletedToday ? 'Vis færre ferdige' : `Vis alle ferdige (${completedEvents.length})`}
-                  </button>
+              <span className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">I dag</span>
+              <span className="flex-1 text-[11px] text-zinc-500">
+                {todayEvents.length > 0 && `${todayEvents.length} aktivitet${todayEvents.length === 1 ? '' : 'er'}`}
+                {todayEvents.length > 0 && todayOpenTasks.length > 0 && ' · '}
+                {todayOpenTasks.length > 0 && (
+                  <span className="text-amber-600">{todayOpenTasks.length} oppgave{todayOpenTasks.length === 1 ? '' : 'r'}</span>
                 )}
-              </div>
-            )}
+              </span>
+              <motion.svg
+                animate={{ rotate: showTodayPanel ? 180 : 0 }}
+                transition={springSnappy}
+                className="h-3 w-3 shrink-0 text-zinc-400"
+                fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor"
+              >
+                <path strokeLinecap="round" strokeLinejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" />
+              </motion.svg>
+            </button>
+            <AnimatePresence>
+              {showTodayPanel && (
+                <motion.div
+                  initial={{ height: 0, opacity: 0 }}
+                  animate={{ height: 'auto', opacity: 1 }}
+                  exit={{ height: 0, opacity: 0 }}
+                  transition={{ duration: 0.18 }}
+                  className="overflow-hidden"
+                >
+                  <div className="space-y-3 pb-2 pt-1">
+                    {todayEvents.length > 0 && (
+                      <div className="space-y-1">
+                        {todayEvents.map((e) => (
+                          <div key={e.id} className="flex items-center gap-2">
+                            <span className="shrink-0 tabular-nums text-[11px] text-zinc-400">{e.start}–{e.end}</span>
+                            <span className="min-w-0 truncate text-[12px] font-medium text-zinc-800">{e.title}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {todayOpenTasks.length > 0 && (
+                      <div className="space-y-1">
+                        {todayOpenTasks.map((t) => (
+                          <div key={t.id} className="flex items-center gap-2">
+                            <span className="h-1.5 w-1.5 shrink-0 rounded-sm bg-amber-400" />
+                            {t.dueTime && (
+                              <span className="shrink-0 tabular-nums text-[11px] font-semibold text-amber-500">{t.dueTime}</span>
+                            )}
+                            <span className="min-w-0 truncate text-[12px] font-medium text-zinc-800">{t.title}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
           </div>
         )}
-        <DayTaskList
-          tasks={dayTasks}
-          onComplete={onCompleteTask}
-          onUndoComplete={onUndoCompleteTask}
-          onEdit={onEditTask}
-          onDelete={onDeleteTask}
-        />
+        {dayTasks.some((t) => !t.completedAt) && (
+          <div className="flex gap-1.5 overflow-x-auto scrollbar-none px-4 pb-2 pt-1">
+            {dayTasks
+              .filter((t) => !t.completedAt)
+              .sort((a, b) => (a.dueTime ?? '99:99').localeCompare(b.dueTime ?? '99:99'))
+              .map((task) => (
+                <div
+                  key={task.id}
+                  className="flex shrink-0 items-center gap-1.5 rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-[11px] font-medium text-amber-700"
+                >
+                  <span className="h-1.5 w-1.5 shrink-0 rounded-sm bg-amber-400" />
+                  {task.dueTime && (
+                    <span className="font-semibold text-amber-500">{task.dueTime}</span>
+                  )}
+                  <span className="max-w-[110px] truncate">{task.title}</span>
+                </div>
+              ))}
+          </div>
+        )}
         <div className="mt-1 flex min-h-0 flex-1 flex-col overflow-hidden">
           {weekEventsLoading ? (
             <ScheduleLoadingSkeleton />
@@ -312,6 +283,7 @@ export function CalendarHomeTab({
               onSelectEvent={(event) => handleSelectEvent(event, selectedDate)}
               onSelectBackgroundEvent={onSelectBackgroundEvent}
               onDragReschedule={(eventId, times) => onDragReschedule(eventId, times)}
+              dayTasks={dayTasks}
             />
           ) : isDayFilteredEmpty ? (
             <EmptyState context="day" variant="filtered" />

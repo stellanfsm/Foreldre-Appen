@@ -9,9 +9,10 @@ interface WeekDayCardProps {
   isSelected: boolean
   onSelect: () => void
   variants?: Variants
+  openTaskCount?: number
 }
 
-export function WeekDayCard({ day, isSelected, onSelect, variants }: WeekDayCardProps) {
+export function WeekDayCard({ day, isSelected, onSelect, variants, openTaskCount = 0 }: WeekDayCardProps) {
   const { people } = useFamily()
   const dateNum = day.date.slice(8).replace(/^0/, '')
   const norwegianDay = norwegianDayHasCalendarHighlight(day.date)
@@ -59,6 +60,13 @@ export function WeekDayCard({ day, isSelected, onSelect, variants }: WeekDayCard
             aria-hidden
           />
         ))}
+        {openTaskCount > 0 && (
+          <span
+            className="h-1.5 w-1.5 rounded-sm bg-amber-400"
+            title="Oppgaver"
+            aria-hidden
+          />
+        )}
       </div>
     </motion.button>
   )

@@ -11,9 +11,10 @@ import { createInvite, buildInviteUrl, fetchLatestPendingInvite } from '../lib/i
 interface SettingsScreenProps {
   onPersonRemoved?: (personId: string) => void
   onClearAllEvents?: () => Promise<void>
+  onRestartOnboarding?: () => void
 }
 
-export function SettingsScreen({ onPersonRemoved, onClearAllEvents }: SettingsScreenProps) {
+export function SettingsScreen({ onPersonRemoved, onClearAllEvents, onRestartOnboarding }: SettingsScreenProps) {
   const { user, signOut } = useAuth()
   const { hapticsEnabled, setHapticsEnabled } = useUserPreferences()
   const { people: _people } = useFamily()
@@ -29,7 +30,7 @@ export function SettingsScreen({ onPersonRemoved, onClearAllEvents }: SettingsSc
   async function handleCreateInvite() {
     if (!effectiveUserId) return
     setInviteLookupMessage(null)
-    const result = await createInvite(effectiveUserId, user?.email ?? undefined)
+    const result = await createInvite(effectiveUserId)
     if (result) setInviteLink(buildInviteUrl(result.token))
   }
 
@@ -305,6 +306,22 @@ export function SettingsScreen({ onPersonRemoved, onClearAllEvents }: SettingsSc
           </button>
         )}
       </div>
+
+      {onRestartOnboarding && (
+        <div className="mt-6 rounded-xl border border-zinc-200 bg-white p-4 shadow-card">
+          <p className="text-[11px] font-medium uppercase tracking-wider text-zinc-500">Hjelp</p>
+          <p className="mt-2 text-[13px] text-zinc-600">
+            Vil du se gjennomgangen av appen på nytt?
+          </p>
+          <button
+            type="button"
+            onClick={onRestartOnboarding}
+            className="mt-3 rounded-full border border-zinc-300 bg-white px-4 py-2 text-[13px] font-medium text-zinc-800 hover:bg-zinc-50"
+          >
+            Vis gjennomgang på nytt
+          </button>
+        </div>
+      )}
 
       <button
         type="button"
