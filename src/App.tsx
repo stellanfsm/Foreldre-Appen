@@ -17,9 +17,7 @@ import { useEffectiveUserId } from './context/EffectiveUserIdContext'
 import { useUserPreferences } from './context/UserPreferencesContext'
 import { useReminders } from './hooks/useReminders'
 import { useResolvedMePersonId } from './hooks/useResolvedMePersonId'
-import { useUndo } from './context/UndoContext'
 import { useTimeOfDaySurface } from './hooks/useTimeOfDaySurface'
-import { shiftTime } from './lib/time'
 import { startUxTimer, endUxTimer, logUxMetric } from './lib/uxMetrics'
 import { addCalendarDaysOslo, todayKeyOslo } from './lib/osloCalendar'
 import { useSaveFeedback } from './features/app/hooks/useSaveFeedback'
@@ -28,10 +26,10 @@ import { AppNoticeStack } from './features/app/components/AppNoticeStack'
 import { useCalendarDerivedState } from './features/calendar/hooks/useCalendarDerivedState'
 import { CalendarHomeTab } from './features/calendar/CalendarHomeTab'
 import { CalendarOverlays } from './features/calendar/CalendarOverlays'
+import { useEventController } from './features/calendar/hooks/useEventController'
 
 function App() {
   useTimeOfDaySurface()
-  const { showUndo } = useUndo()
   const reducedMotion = useReducedMotion() ?? false
   const { user, loading } = useAuth()
   const { refetch: refetchEffectiveUserId } = useEffectiveUserId()
@@ -88,6 +86,17 @@ function App() {
   )
   const [hideFamilyBanner, setHideFamilyBanner] = useState(false)
   const { saveFeedback, showSaveFeedback, showSavingFeedback, showSaveError } = useSaveFeedback(hapticsEnabled)
+  const controller = useEventController({
+    addEvent,
+    addRecurring,
+    updateEvent,
+    deleteEvent,
+    updateAllInSeries,
+    deleteAllInSeries,
+    showSavingFeedback,
+    showSaveFeedback,
+    showSaveError,
+  })
   const { inviteNotice, setInviteNotice, inviteProcessing } = useInviteAcceptance({
     userId: user?.id,
     onAccepted: refetchEffectiveUserId,
@@ -245,23 +254,7 @@ function App() {
                 setShowListView(false)
               }}
               onAssignTransport={(date, event, role, personId) => {
-                startUxTimer('reassign_participant_flow')
-                const prevMeta = event.metadata ?? {}
-                const prevTransport = prevMeta.transport ?? {}
-                const nextTransport =
-                  role === 'dropoff'
-                    ? { ...prevTransport, dropoffBy: personId ?? undefined }
-                    : { ...prevTransport, pickupBy: personId ?? undefined }
-                const nextMetadata = { ...prevMeta, transport: nextTransport }
-                showSavingFeedback()
-                void updateEvent(date, event.id, { metadata: nextMetadata })
-                  .then(() => {
-                    endUxTimer('reassign_participant_flow', 'time_to_reassign_participant_ms')
-                    showSaveFeedback()
-                  })
-                  .catch(() => {
-                    showSaveError()
-                  })
+                void controller.assignTransport(date, event, role, personId)
               }}
               onChangeWeek={handleChangeWeek}
             />
@@ -296,84 +289,19 @@ function App() {
               }}
               onMarkNextDone={async () => {
                 if (!nextEvent) return
-                showSavingFeedback()
-                try {
-                  const previousMetadata = nextEvent.metadata ?? {}
-                  const nextMetadata = {
-                    ...previousMetadata,
-                    completedAt: new Date().toISOString(),
-                  }
-                  await updateEvent(selectedDate, nextEvent.id, { metadata: nextMetadata })
-                  showUndo({
-                    message: 'Aktivitet markert som ferdig',
-                    onUndo: async () => {
-                      await updateEvent(selectedDate, nextEvent.id, { metadata: previousMetadata })
-                    },
-                  })
-                  showSaveFeedback()
-                } catch {
-                  showSaveError()
-                }
+                await controller.markDone(selectedDate, nextEvent).catch(() => {})
               }}
               onConfirmNext={async () => {
                 if (!nextEvent) return
-                showSavingFeedback()
-                try {
-                  const previousMetadata = nextEvent.metadata ?? {}
-                  const nextMetadata = {
-                    ...previousMetadata,
-                    confirmedAt: new Date().toISOString(),
-                  }
-                  await updateEvent(selectedDate, nextEvent.id, { metadata: nextMetadata })
-                  showUndo({
-                    message: 'Aktivitet bekreftet',
-                    onUndo: async () => {
-                      await updateEvent(selectedDate, nextEvent.id, { metadata: previousMetadata })
-                    },
-                  })
-                  showSaveFeedback()
-                } catch {
-                  showSaveError()
-                }
+                await controller.confirmEvent(selectedDate, nextEvent).catch(() => {})
               }}
               onDelayNext={async () => {
                 if (!nextEvent) return
-                showSavingFeedback()
-                try {
-                  await updateEvent(selectedDate, nextEvent.id, {
-                    start: shiftTime(nextEvent.start, 15),
-                    end: shiftTime(nextEvent.end, 15),
-                  })
-                  showUndo({
-                    message: 'Aktivitet utsatt 15 min',
-                    onUndo: async () => {
-                      await updateEvent(selectedDate, nextEvent.id, {
-                        start: nextEvent.start,
-                        end: nextEvent.end,
-                      })
-                    },
-                  })
-                  showSaveFeedback()
-                } catch {
-                  showSaveError()
-                }
+                await controller.delayEvent(selectedDate, nextEvent).catch(() => {})
               }}
               onMoveNext={async () => {
                 if (!nextEvent) return
-                showSavingFeedback()
-                try {
-                  const tomorrow = addCalendarDaysOslo(selectedDate, 1)
-                  await updateEvent(selectedDate, nextEvent.id, {}, tomorrow)
-                  showUndo({
-                    message: 'Aktivitet flyttet til i morgen',
-                    onUndo: async () => {
-                      await updateEvent(tomorrow, nextEvent.id, {}, selectedDate)
-                    },
-                  })
-                  showSaveFeedback()
-                } catch {
-                  showSaveError()
-                }
+                await controller.moveEvent(selectedDate, nextEvent, addCalendarDaysOslo(selectedDate, 1), 'Aktivitet flyttet til i morgen').catch(() => {})
               }}
               completedEvents={completedEvents}
               showCompletedToday={showCompletedToday}
@@ -381,15 +309,7 @@ function App() {
               showAllCompletedToday={showAllCompletedToday}
               setShowAllCompletedToday={setShowAllCompletedToday}
               onUndoComplete={async (event) => {
-                showSavingFeedback()
-                try {
-                  const nextMetadata = { ...(event.metadata ?? {}) }
-                  delete nextMetadata.completedAt
-                  await updateEvent(selectedDate, event.id, { metadata: nextMetadata })
-                  showSaveFeedback()
-                } catch {
-                  showSaveError()
-                }
+                await controller.undoComplete(selectedDate, event).catch(() => {})
               }}
               weekEventsLoading={weekEventsLoading}
               showNoFamilyEmpty={showNoFamilyEmpty}
@@ -406,57 +326,13 @@ function App() {
                 setSelectedBackgroundEvent({ event, date: selectedDate })
               }}
               onDragReschedule={async (eventId, times) => {
-                showSavingFeedback()
-                try {
-                  await updateEvent(selectedDate, eventId, {
-                    start: times.nextStart,
-                    end: times.nextEnd,
-                  })
-                  showUndo({
-                    message: 'Tid endret',
-                    onUndo: async () => {
-                      await updateEvent(selectedDate, eventId, {
-                        start: times.prevStart,
-                        end: times.prevEnd,
-                      })
-                    },
-                  })
-                  showSaveFeedback()
-                } catch {
-                  showSaveError()
-                }
+                await controller.dragReschedule(selectedDate, eventId, times).catch(() => {})
               }}
               onDeleteWeeklyEvent={async (event, date) => {
-                const snapshot = { ...event }
-                showSavingFeedback()
-                try {
-                  await deleteEvent(date, event.id)
-                  showUndo({
-                    message: `"${snapshot.title}" ble slettet`,
-                    onUndo: async () => {
-                      const { id: _id, ...rest } = snapshot
-                      await addEvent(date, rest)
-                    },
-                  })
-                  showSaveFeedback()
-                } catch {
-                  showSaveError()
-                }
+                await controller.deleteEvent(date, event).catch(() => {})
               }}
               onMoveWeeklyEvent={async (event, fromDate, toDate) => {
-                showSavingFeedback()
-                try {
-                  await updateEvent(fromDate, event.id, {}, toDate)
-                  showUndo({
-                    message: 'Aktivitet flyttet',
-                    onUndo: async () => {
-                      await updateEvent(toDate, event.id, {}, fromDate)
-                    },
-                  })
-                  showSaveFeedback()
-                } catch {
-                  showSaveError()
-                }
+                await controller.moveEvent(fromDate, event, toDate).catch(() => {})
               }}
             />
           )}
@@ -489,16 +365,7 @@ function App() {
         setAddEventDateOverride={setAddEventDateOverride}
         editingEvent={editingEvent}
         setEditingEvent={setEditingEvent}
-        addEvent={addEvent}
-        addRecurring={addRecurring}
-        updateEvent={updateEvent}
-        updateAllInSeries={updateAllInSeries}
-        deleteEvent={deleteEvent}
-        deleteAllInSeries={deleteAllInSeries}
-        showSavingFeedback={showSavingFeedback}
-        showSaveFeedback={showSaveFeedback}
-        showSaveError={showSaveError}
-        showUndo={showUndo}
+        controller={controller}
         onAddFlowSaved={() => endUxTimer('add_event_flow', 'time_to_add_event_ms')}
         onAddFlowClosedWithoutSave={() => logUxMetric('flow_backtracks', 1)}
         onConflictResolved={() => endUxTimer('resolve_conflict_flow', 'time_to_resolve_conflict_ms')}
