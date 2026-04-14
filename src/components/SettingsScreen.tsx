@@ -13,9 +13,15 @@ interface SettingsScreenProps {
   onPersonRemoved?: (personId: string) => void
   onClearAllEvents?: () => Promise<void>
   onRestartOnboarding?: () => void
+  onOpenTankestromImport?: () => void
 }
 
-export function SettingsScreen({ onPersonRemoved, onClearAllEvents, onRestartOnboarding }: SettingsScreenProps) {
+export function SettingsScreen({
+  onPersonRemoved,
+  onClearAllEvents,
+  onRestartOnboarding,
+  onOpenTankestromImport,
+}: SettingsScreenProps) {
   const { user, signOut } = useAuth()
   const { hapticsEnabled, setHapticsEnabled } = useUserPreferences()
   const { people: _people } = useFamily()
@@ -214,6 +220,22 @@ export function SettingsScreen({ onPersonRemoved, onClearAllEvents, onRestartOnb
               </p>
             </div>
           )}
+        </div>
+      )}
+
+      {onOpenTankestromImport && (
+        <div className={`mt-4 ${cardSection} p-4`}>
+          <p className={typSectionCap}>Tankestrøm</p>
+          <p className="mt-2 text-[13px] leading-relaxed text-zinc-600">
+            Last opp dokument eller bilde og få forslag til kalenderhendelser. Du godkjenner før noe lagres.
+          </p>
+          <button
+            type="button"
+            onClick={onOpenTankestromImport}
+            className="mt-3 rounded-xl border border-zinc-300 bg-white px-4 py-2.5 text-[13px] font-medium text-zinc-800 hover:bg-zinc-50"
+          >
+            Importer fra Tankestrøm…
+          </button>
         </div>
       )}
 

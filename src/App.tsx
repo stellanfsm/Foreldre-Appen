@@ -36,6 +36,7 @@ import { OnboardingTour } from './components/OnboardingTour'
 import { DebugOverlay } from './components/DebugOverlay'
 import { loadOnboarding, resetOnboarding } from './lib/onboarding'
 import { FamilySetupScreen, isFamilySetupSkipped } from './components/FamilySetupScreen'
+import { TankestromImportDialog } from './features/tankestrom/TankestromImportDialog'
 
 /** Set to true to re-enable the onboarding tour. */
 const ENABLE_ONBOARDING = false
@@ -171,6 +172,7 @@ function App() {
   }, [user])
 
   const [familySetupDismissed, setFamilySetupDismissed] = useState(false)
+  const [tankestromImportOpen, setTankestromImportOpen] = useState(false)
   useEffect(() => {
     if (user?.id && isFamilySetupSkipped(user.id)) setFamilySetupDismissed(true)
   }, [user?.id])
@@ -319,6 +321,7 @@ function App() {
                   setLastCalendarTab('today')
                   setShowTour(true)
                 }}
+                onOpenTankestromImport={() => setTankestromImportOpen(true)}
               />
             </div>
           ) : navTab === 'month' ? (
@@ -441,6 +444,12 @@ function App() {
         <OnboardingTour onComplete={() => setShowTour(false)} />
       )}
       <DebugOverlay />
+      <TankestromImportDialog
+        open={tankestromImportOpen}
+        onClose={() => setTankestromImportOpen(false)}
+        people={people}
+        createEvent={controller.createEvent}
+      />
       <CalendarOverlays
         selectedEvent={selectedEvent}
         setSelectedEvent={setSelectedEvent}
