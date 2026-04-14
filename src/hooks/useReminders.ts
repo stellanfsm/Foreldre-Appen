@@ -3,11 +3,33 @@ import type { Event } from '../types'
 import { parseTime } from '../lib/time'
 import { todayKeyOslo } from '../lib/osloCalendar'
 
+const SESSION_KEY = 'rmd_fired'
+
+function getFiredFromSession(): Set<string> {
+  try {
+    const raw = sessionStorage.getItem(SESSION_KEY)
+    if (!raw) return new Set()
+    return new Set(JSON.parse(raw) as string[])
+  } catch {
+    return new Set()
+  }
+}
+
+function markFiredInSession(key: string): void {
+  try {
+    const current = getFiredFromSession()
+    current.add(key)
+    sessionStorage.setItem(SESSION_KEY, JSON.stringify(Array.from(current)))
+  } catch {
+    // sessionStorage unavailable (e.g. private browsing on some browsers)
+  }
+}
+
 /**
  * Schedules browser notifications for Oslo-today events that have reminderMinutes set.
  */
 export function useReminders(events: Event[], osloTodayKey: string) {
-  const firedRef = useRef<Set<string>>(new Set())
+  const firedRef = useRef<Set<string>>(getFiredFromSession())
 
   useEffect(() => {
     if (osloTodayKey !== todayKeyOslo()) return
@@ -29,6 +51,7 @@ export function useReminders(events: Event[], osloTodayKey: string) {
         if (eventStartMin > nowMinutes) {
           fireNotification(ev)
           firedRef.current.add(reminderKey)
+          markFiredInSession(reminderKey)
         }
         continue
       }
@@ -37,6 +60,7 @@ export function useReminders(events: Event[], osloTodayKey: string) {
       const timer = setTimeout(() => {
         fireNotification(ev)
         firedRef.current.add(reminderKey)
+        markFiredInSession(reminderKey)
       }, delayMs)
       timers.push(timer)
     }

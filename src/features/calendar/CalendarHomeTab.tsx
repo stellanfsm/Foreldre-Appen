@@ -140,6 +140,7 @@ export function CalendarHomeTab({
               id="onb-jump-today"
               type="button"
               onClick={handleJumpToToday}
+              aria-label="Hopp til i dag"
               className="shrink-0 rounded-xl border border-zinc-200 bg-white px-2.5 py-1.5 text-caption font-medium text-zinc-600 shadow-soft transition hover:bg-zinc-50 active:bg-zinc-100 touch-manipulation"
             >
               I dag
@@ -278,7 +279,8 @@ export function CalendarHomeTab({
           </div>
         )}
         {openTasksWithPerson.length > 0 && (
-          <div className="flex gap-1.5 overflow-x-auto scrollbar-none px-3 pb-1.5 pt-0.5">
+          <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-none px-3 pb-1.5 pt-0.5">
+            <span className="shrink-0 text-[10px] font-semibold uppercase tracking-wide text-zinc-400" aria-hidden>Gjøremål</span>
             {openTasksWithPerson.map(({ task, person }) => (
               <div
                 key={task.id}

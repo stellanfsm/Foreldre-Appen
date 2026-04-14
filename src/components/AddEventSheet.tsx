@@ -4,6 +4,7 @@ import { springDialog } from '../lib/motion'
 import type { PersonId } from '../types'
 import { useFamily } from '../context/FamilyContext'
 import { useConfirmClose } from '../hooks/useConfirmClose'
+import { requestNotificationPermission } from '../hooks/useReminders'
 import { addCalendarDaysOslo } from '../lib/osloCalendar'
 import {
   inputBase, textareaBase, inputLabel,
@@ -120,9 +121,9 @@ function DropdownItem({ label, active, onClick }: { label: string; active: boole
   )
 }
 
-export function AddEventSheet({ date, initialPersonId = 'family', onSave, onClose }: AddEventSheetProps) {
+export function AddEventSheet({ date, initialPersonId, onSave, onClose }: AddEventSheetProps) {
   const { people } = useFamily()
-  const [selectedPersonIds, setSelectedPersonIds] = useState<PersonId[]>([initialPersonId])
+  const [selectedPersonIds, setSelectedPersonIds] = useState<PersonId[]>(initialPersonId ? [initialPersonId] : [])
   const [title, setTitle] = useState('')
   const [start, setStart] = useState('15:00')
   const [end, setEnd] = useState('16:00')
@@ -137,6 +138,9 @@ export function AddEventSheet({ date, initialPersonId = 'family', onSave, onClos
   const [pickupBy, setPickupBy] = useState<PersonId | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
+  const [notifPermission, setNotifPermission] = useState<NotificationPermission>(() =>
+    typeof Notification !== 'undefined' ? Notification.permission : 'denied'
+  )
   const [repeatOpen, setRepeatOpen] = useState(false)
   const [reminderOpen, setReminderOpen] = useState(false)
   const [showCustomReminder, setShowCustomReminder] = useState(false)
@@ -145,17 +149,24 @@ export function AddEventSheet({ date, initialPersonId = 'family', onSave, onClos
   const dialogRef = useRef<HTMLDivElement>(null)
   const previousFocusRef = useRef<HTMLElement | null>(null)
 
-  const isDirty = useMemo(
-    () =>
+  const isDirty = useMemo(() => {
+    const initialLen = initialPersonId ? 1 : 0
+    const initialFirst = initialPersonId ?? null
+    return (
       title.trim() !== ''
       || start !== '15:00'
       || end !== '16:00'
       || isAllDay
-      || selectedPersonIds.length !== 1
-      || (selectedPersonIds[0] ?? null) !== initialPersonId
-      || repeat !== 'none',
-    [title, start, end, isAllDay, selectedPersonIds, initialPersonId, repeat]
-  )
+      || selectedPersonIds.length !== initialLen
+      || (selectedPersonIds[0] ?? null) !== initialFirst
+      || repeat !== 'none'
+      || notes.trim() !== ''
+      || reminderMinutes !== undefined
+      || allDayEndDate !== date
+      || dropoffBy !== null
+      || pickupBy !== null
+    )
+  }, [title, start, end, isAllDay, selectedPersonIds, initialPersonId, repeat, notes, reminderMinutes, allDayEndDate, date, dropoffBy, pickupBy])
   const { guardedClose, confirming, confirmClose, cancelConfirm } = useConfirmClose(isDirty, onClose)
 
   const guardedCloseRef = useRef(guardedClose)
@@ -299,6 +310,16 @@ export function AddEventSheet({ date, initialPersonId = 'family', onSave, onClos
           <h2 className={sheetTitle}>Legg til hendelse</h2>
           <p className={sheetSubtitle}>{formatDisplayDate(date)}</p>
 
+          {confirming && (
+            <div className="rounded-2xl border border-amber-200 bg-amber-50 p-3.5 space-y-3">
+              <p className="text-body-sm font-medium text-amber-900">Du har ulagrede endringer. Forkaste?</p>
+              <div className="flex gap-2">
+                <button type="button" onClick={cancelConfirm} className={`flex-1 ${btnSecondary}`}>Bli her</button>
+                <button type="button" onClick={confirmClose} className={`flex-1 ${btnDanger}`}>Forkast</button>
+              </div>
+            </div>
+          )}
+
           <div className="space-y-1.5">
             <label className={typLabel}>Hvem</label>
             <div className="flex flex-wrap gap-1">
@@ -355,19 +376,6 @@ export function AddEventSheet({ date, initialPersonId = 'family', onSave, onClos
             </span>
           </button>
 
-          <div className="space-y-1.5">
-            <label className={inputLabel} htmlFor="all-day-end">Sluttdato</label>
-            <input
-              id="all-day-end"
-              type="date"
-              className={inputBase}
-              value={allDayEndDate}
-              min={date}
-              onChange={(e) => setAllDayEndDate(e.target.value)}
-            />
-            <p className="text-[11px] text-zinc-500">Velg sluttdato for flerdagers hendelser</p>
-          </div>
-
           {!isAllDay && (
             <div className="flex gap-3">
               <div className="flex-1 space-y-1.5">
@@ -398,6 +406,19 @@ export function AddEventSheet({ date, initialPersonId = 'family', onSave, onClos
               Slutter neste dag kl. {end}
             </p>
           )}
+
+          <div className="space-y-1.5">
+            <label className={inputLabel} htmlFor="all-day-end">Sluttdato</label>
+            <input
+              id="all-day-end"
+              type="date"
+              className={inputBase}
+              value={allDayEndDate}
+              min={date}
+              onChange={(e) => setAllDayEndDate(e.target.value)}
+            />
+            <p className="text-[11px] text-zinc-500">Velg sluttdato for flerdagers hendelser</p>
+          </div>
 
           {/* Progressive disclosure toggle */}
           <button
@@ -550,6 +571,24 @@ export function AddEventSheet({ date, initialPersonId = 'family', onSave, onClos
                 </div>
               </div>
 
+              {reminderMinutes !== undefined && notifPermission !== 'granted' && (
+                <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-[12px] text-amber-800">
+                  <p>Påminnelsen virker ikke uten varslingstillatelse.</p>
+                  {notifPermission !== 'denied' && (
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        const p = await requestNotificationPermission()
+                        setNotifPermission(p)
+                      }}
+                      className="mt-1 font-medium underline underline-offset-2"
+                    >
+                      Gi tillatelse
+                    </button>
+                  )}
+                </div>
+              )}
+
               {/* Notes */}
               <div className="space-y-1.5">
                 <label className={inputLabel} htmlFor="add-notes">Notater (valgfritt)</label>
@@ -588,16 +627,6 @@ export function AddEventSheet({ date, initialPersonId = 'family', onSave, onClos
                 </div>
               </div>
             </>
-          )}
-
-          {confirming && (
-            <div className="rounded-2xl border border-amber-200 bg-amber-50 p-3.5 space-y-3">
-              <p className="text-body-sm font-medium text-amber-900">Du har ulagrede endringer. Forkaste?</p>
-              <div className="flex gap-2">
-                <button type="button" onClick={cancelConfirm} className={`flex-1 ${btnSecondary}`}>Bli her</button>
-                <button type="button" onClick={confirmClose} className={`flex-1 ${btnDanger}`}>Forkast</button>
-              </div>
-            </div>
           )}
 
           {error && <p className="text-caption text-rose-600">{error}</p>}

@@ -362,6 +362,16 @@ export function EditEventSheet({ event, date, onSave, onClose }: EditEventSheetP
         <form className={sheetFormBody} onSubmit={handleSubmit}>
           <h2 className={sheetTitle}>Rediger hendelse</h2>
 
+          {confirming && (
+            <div className="rounded-2xl border border-amber-200 bg-amber-50 p-3.5 space-y-3">
+              <p className="text-body-sm font-medium text-amber-900">Du har ulagrede endringer. Forkaste?</p>
+              <div className="flex gap-2">
+                <button type="button" onClick={cancelConfirm} className={`flex-1 ${btnSecondary}`}>Bli her</button>
+                <button type="button" onClick={confirmClose} className={`flex-1 ${btnDanger}`}>Forkast</button>
+              </div>
+            </div>
+          )}
+
           <div className="space-y-1">
             <label className={inputLabel} htmlFor="edit-date">
               Dato
@@ -574,16 +584,6 @@ export function EditEventSheet({ event, date, onSave, onClose }: EditEventSheetP
                 </div>
               </div>
             </>
-          )}
-
-          {confirming && (
-            <div className="rounded-2xl border border-amber-200 bg-amber-50 p-3.5 space-y-3">
-              <p className="text-body-sm font-medium text-amber-900">Du har ulagrede endringer. Forkaste?</p>
-              <div className="flex gap-2">
-                <button type="button" onClick={cancelConfirm} className={`flex-1 ${btnSecondary}`}>Bli her</button>
-                <button type="button" onClick={confirmClose} className={`flex-1 ${btnDanger}`}>Forkast</button>
-              </div>
-            </div>
           )}
 
           {error && <p className="text-caption text-rose-600">{error}</p>}

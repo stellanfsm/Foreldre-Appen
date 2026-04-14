@@ -20,6 +20,12 @@ function viewLabel(tab: NavTab): string {
   return 'I dag'
 }
 
+function nextViewLabel(tab: 'today' | 'week' | 'month'): string {
+  const idx = VIEW_CYCLE.indexOf(tab)
+  const next = VIEW_CYCLE[(idx + 1) % VIEW_CYCLE.length] as NavTab
+  return viewLabel(next)
+}
+
 export function BottomNav({ active, onSelect, logisticsNotifyCount = 0, lastCalendarTab = 'today' }: BottomNavProps) {
   const base =
     'relative z-0 flex flex-1 items-center justify-center overflow-visible rounded-lg py-3 text-[14px] font-semibold transition-colors'
@@ -47,6 +53,7 @@ export function BottomNav({ active, onSelect, logisticsNotifyCount = 0, lastCale
           <button
             id="onb-nav-cycle"
             type="button"
+            aria-label={calendarActive ? `Bytt til ${nextViewLabel(currentView)}-visning` : `Tilbake til ${viewLabel(lastCalendarTab)}-visning`}
             onClick={() => {
               if (active === 'settings' || active === 'logistics') {
                 onSelect?.(lastCalendarTab)
@@ -65,8 +72,8 @@ export function BottomNav({ active, onSelect, logisticsNotifyCount = 0, lastCale
               />
             )}
             <span className="relative z-[40] inline-flex items-center gap-1">
-              {viewLabel(currentView)}
-              <span className="text-[11px] opacity-40" aria-hidden>↻</span>
+              {calendarActive ? nextViewLabel(currentView) : viewLabel(currentView)}
+              <span className="text-[11px] opacity-60" aria-hidden>↻</span>
             </span>
           </button>
           <button

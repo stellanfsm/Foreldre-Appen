@@ -358,7 +358,7 @@ export function FamilyEditor({ onPersonRemoved }: FamilyEditorProps) {
                     disabled={!!adding || !!editingId || inviteLoadingForId === p.id}
                     className="rounded-xl border border-emerald-200 bg-white px-2.5 py-1 text-caption font-medium text-emerald-700 hover:bg-emerald-50 disabled:opacity-50 focus:outline-none"
                   >
-                    {inviteLoadingForId === p.id ? 'Henter…' : 'Vis invitasjonslenke'}
+                    {inviteLoadingForId === p.id ? 'Henter…' : expandedInviteForId === p.id ? 'Skjul lenke' : 'Vis invitasjonslenke'}
                   </button>
                 )}
               {canEditFamilyMember(p.id) && (
