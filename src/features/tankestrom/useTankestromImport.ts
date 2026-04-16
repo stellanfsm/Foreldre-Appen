@@ -1,11 +1,32 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { Event, Person } from '../../types'
 import type { PortalEventProposal, PortalImportProposalBundle, TankestromEventDraft } from './types'
-import { analyzeDocumentWithTankestrom, analyzeTextWithTankestrom } from '../../lib/tankestromApi'
+import {
+  analyzeDocumentWithTankestrom,
+  analyzeTextWithTankestrom,
+  mergePortalImportProposalBundles,
+} from '../../lib/tankestromApi'
 import { parseTime } from '../../lib/time'
 
 type Step = 'pick' | 'review'
 export type TankestromInputMode = 'file' | 'text'
+
+export type TankestromPendingFileStatus = 'ready' | 'analyzing' | 'done' | 'error'
+
+export interface TankestromPendingFile {
+  id: string
+  file: File
+  status: TankestromPendingFileStatus
+  /** Kort feilmelding eller «Ingen hendelsesforslag» ved status error */
+  statusDetail?: string
+}
+
+function newPendingFileId(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID()
+  }
+  return `${Date.now()}-${Math.random().toString(36).slice(2, 11)}`
+}
 
 const DATE_KEY_RE = /^\d{4}-\d{2}-\d{2}$/
 
@@ -117,7 +138,7 @@ export interface UseTankestromImportOptions {
 export function useTankestromImport({ open, people, createEvent }: UseTankestromImportOptions) {
   const [step, setStep] = useState<Step>('pick')
   const [inputMode, setInputMode] = useState<TankestromInputMode>('file')
-  const [file, setFile] = useState<File | null>(null)
+  const [pendingFiles, setPendingFiles] = useState<TankestromPendingFile[]>([])
   const [textInput, setTextInput] = useState('')
   const [bundle, setBundle] = useState<PortalImportProposalBundle | null>(null)
   const eventProposals = useMemo((): PortalEventProposal[] => {
@@ -129,6 +150,7 @@ export function useTankestromImport({ open, people, createEvent }: UseTankestrom
   const [analyzeLoading, setAnalyzeLoading] = useState(false)
   const [saveLoading, setSaveLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [analyzeWarning, setAnalyzeWarning] = useState<string | null>(null)
 
   const validPersonIds = useMemo(() => new Set(people.map((p) => p.id)), [people])
 
@@ -145,7 +167,7 @@ export function useTankestromImport({ open, people, createEvent }: UseTankestrom
   const reset = useCallback(() => {
     setStep('pick')
     setInputMode('file')
-    setFile(null)
+    setPendingFiles([])
     setTextInput('')
     setBundle(null)
     setSelectedIds(new Set())
@@ -153,20 +175,41 @@ export function useTankestromImport({ open, people, createEvent }: UseTankestrom
     setAnalyzeLoading(false)
     setSaveLoading(false)
     setError(null)
+    setAnalyzeWarning(null)
   }, [])
 
   useEffect(() => {
     if (open) reset()
   }, [open, reset])
 
-  const setFileFromInput = useCallback((f: File | null) => {
-    setFile(f)
+  const addFilesFromList = useCallback((list: FileList | File[]) => {
+    const arr = Array.from(list)
+    if (arr.length === 0) return
     setError(null)
+    setAnalyzeWarning(null)
+    setPendingFiles((prev) => [
+      ...prev,
+      ...arr.map((file) => ({
+        id: newPendingFileId(),
+        file,
+        status: 'ready' as const,
+      })),
+    ])
   }, [])
+
+  const removePendingFile = useCallback((id: string) => {
+    if (analyzeLoading) return
+    setPendingFiles((prev) => prev.filter((p) => p.id !== id))
+    setError(null)
+  }, [analyzeLoading])
+
+  /** Bakoverkompatibilitet: første valgte fil (samme som tidligere enkeltfil). */
+  const file = pendingFiles[0]?.file ?? null
 
   const setInputModeSafe = useCallback((mode: TankestromInputMode) => {
     setInputMode(mode)
     setError(null)
+    setAnalyzeWarning(null)
   }, [])
 
   const setTextInputSafe = useCallback((value: string) => {
@@ -191,10 +234,14 @@ export function useTankestromImport({ open, people, createEvent }: UseTankestrom
     })
   }, [])
 
+  const patchPendingFile = useCallback((id: string, patch: Partial<Pick<TankestromPendingFile, 'status' | 'statusDetail'>>) => {
+    setPendingFiles((prev) => prev.map((p) => (p.id === id ? { ...p, ...patch } : p)))
+  }, [])
+
   const runAnalyze = useCallback(async () => {
     if (inputMode === 'file') {
-      if (!file) {
-        setError('Velg en fil først.')
+      if (pendingFiles.length === 0) {
+        setError('Velg minst én fil.')
         return
       }
     } else if (!textInput.trim()) {
@@ -202,28 +249,83 @@ export function useTankestromImport({ open, people, createEvent }: UseTankestrom
       return
     }
     setError(null)
+    setAnalyzeWarning(null)
     setAnalyzeLoading(true)
     try {
-      const b =
-        inputMode === 'file'
-          ? await analyzeDocumentWithTankestrom(file!)
-          : await analyzeTextWithTankestrom(textInput)
-      const events = b.items.filter((i): i is PortalEventProposal => i.kind === 'event')
-      if (events.length === 0) {
-        setError('Ingen hendelsesforslag i svaret.')
+      if (inputMode === 'text') {
+        const b = await analyzeTextWithTankestrom(textInput)
+        const events = b.items.filter((i): i is PortalEventProposal => i.kind === 'event')
+        if (events.length === 0) {
+          setError('Ingen hendelsesforslag i svaret.')
+          return
+        }
+        setBundle(b)
+        const defaultPersonId = people[0]?.id ?? ''
+        setDraftByProposalId(buildDraftsFromProposals(events, validPersonIds, defaultPersonId))
+        setSelectedIds(new Set(events.map((e) => e.proposalId)))
+        setStep('review')
         return
       }
-      setBundle(b)
+
+      const queue = [...pendingFiles]
+      const bundles: PortalImportProposalBundle[] = []
+      const failureLines: string[] = []
+
+      for (const pf of queue) {
+        patchPendingFile(pf.id, { status: 'analyzing', statusDetail: undefined })
+        try {
+          const b = await analyzeDocumentWithTankestrom(pf.file)
+          const events = b.items.filter((i): i is PortalEventProposal => i.kind === 'event')
+          if (events.length === 0) {
+            patchPendingFile(pf.id, {
+              status: 'error',
+              statusDetail: 'Ingen hendelsesforslag',
+            })
+            failureLines.push(`${pf.file.name}: ingen hendelsesforslag`)
+            continue
+          }
+          bundles.push(b)
+          patchPendingFile(pf.id, { status: 'done', statusDetail: undefined })
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : 'Analyse feilet'
+          patchPendingFile(pf.id, { status: 'error', statusDetail: msg })
+          failureLines.push(`${pf.file.name}: ${msg}`)
+        }
+      }
+
+      if (bundles.length === 0) {
+        setError(
+          failureLines.length > 0
+            ? failureLines.join('\n')
+            : 'Ingen filer ga hendelsesforslag. Prøv andre filer eller tekstmodus.'
+        )
+        return
+      }
+
+      const merged = mergePortalImportProposalBundles(bundles)
+      const events = merged.items.filter((i): i is PortalEventProposal => i.kind === 'event')
+      if (events.length === 0) {
+        setError('Ingen hendelsesforslag etter sammenslåing.')
+        return
+      }
+
+      setBundle(merged)
       const defaultPersonId = people[0]?.id ?? ''
       setDraftByProposalId(buildDraftsFromProposals(events, validPersonIds, defaultPersonId))
       setSelectedIds(new Set(events.map((e) => e.proposalId)))
       setStep('review')
+
+      if (failureLines.length > 0) {
+        setAnalyzeWarning(
+          `${failureLines.length} fil(er) ble hoppet over:\n${failureLines.join('\n')}`
+        )
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Analyse feilet.')
     } finally {
       setAnalyzeLoading(false)
     }
-  }, [file, inputMode, people, textInput, validPersonIds])
+  }, [inputMode, patchPendingFile, pendingFiles, people, textInput, validPersonIds])
 
   const approveSelected = useCallback(async (): Promise<boolean> => {
     if (!bundle || eventProposals.length === 0) return false
@@ -337,7 +439,9 @@ export function useTankestromImport({ open, people, createEvent }: UseTankestrom
     inputMode,
     setInputMode: setInputModeSafe,
     file,
-    setFileFromInput,
+    pendingFiles,
+    addFilesFromList,
+    removePendingFile,
     textInput,
     setTextInput: setTextInputSafe,
     bundle,
@@ -349,6 +453,7 @@ export function useTankestromImport({ open, people, createEvent }: UseTankestrom
     analyzeLoading,
     saveLoading,
     error,
+    analyzeWarning,
     runAnalyze,
     approveSelected,
     people,

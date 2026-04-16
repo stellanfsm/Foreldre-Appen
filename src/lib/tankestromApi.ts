@@ -199,6 +199,37 @@ async function analyzeWithTankestrom(payload: AnalyzePayload): Promise<PortalImp
   return parsePortalImportProposalBundle(json)
 }
 
+function newBatchImportRunId(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID()
+  }
+  return `${Date.now()}-${Math.random().toString(36).slice(2, 11)}`
+}
+
+/**
+ * Slår sammen flere analyse-svar (én POST per fil) til én bundle for import-steget.
+ * Ny `importRunId` knytter hele batchen til én import-økt.
+ */
+export function mergePortalImportProposalBundles(bundles: PortalImportProposalBundle[]): PortalImportProposalBundle {
+  if (bundles.length === 0) {
+    throw new Error('Ingen analyseresultater å slå sammen.')
+  }
+  if (bundles.length === 1) {
+    return bundles[0]!
+  }
+  const items = bundles.flatMap((b) => b.items)
+  const base = bundles[0]!.provenance
+  return {
+    schemaVersion: '1.0.0',
+    provenance: {
+      ...base,
+      importRunId: newBatchImportRunId(),
+      sourceType: `${base.sourceType} · ${bundles.length} filer`,
+    },
+    items,
+  }
+}
+
 /**
  * Laster opp fil til analyse-backend og returnerer typet forslagspakke.
  * Krever VITE_TANKESTROM_ANALYZE_URL og innlogget Supabase-session.

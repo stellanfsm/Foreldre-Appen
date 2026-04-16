@@ -1,7 +1,11 @@
-import { useCallback, useEffect, useMemo, useState, type ChangeEvent } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type DragEvent } from 'react'
 import type { PortalEventProposal } from './types'
 import type { UseEventControllerReturn } from '../calendar/hooks/useEventController'
-import { useTankestromImport, getTankestromDraftFieldErrors } from './useTankestromImport'
+import {
+  useTankestromImport,
+  getTankestromDraftFieldErrors,
+  type TankestromPendingFile,
+} from './useTankestromImport'
 import { cardSection, typSectionCap } from '../../lib/ui'
 import { Button } from '../../components/ui/Button'
 import { Input, Textarea } from '../../components/ui/Input'
@@ -98,6 +102,39 @@ function shouldOfferSourceExpand(full: string | null, preview: string | null): b
   return full.includes('\n\n────────\n\n')
 }
 
+const TANKESTROM_FILE_ACCEPT =
+  'image/*,.pdf,application/pdf,.docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+
+function pendingFileStatusLabel(p: TankestromPendingFile): string {
+  switch (p.status) {
+    case 'ready':
+      return 'Klar'
+    case 'analyzing':
+      return 'Behandler…'
+    case 'done':
+      return 'Ferdig'
+    case 'error':
+      return p.statusDetail ? `Feilet: ${p.statusDetail}` : 'Feilet'
+    default:
+      return ''
+  }
+}
+
+function pendingFileStatusClass(p: TankestromPendingFile): string {
+  switch (p.status) {
+    case 'ready':
+      return 'border-zinc-200 bg-zinc-50 text-zinc-600'
+    case 'analyzing':
+      return 'border-brandTeal/40 bg-brandSky/30 text-brandNavy'
+    case 'done':
+      return 'border-emerald-200 bg-emerald-50 text-emerald-900'
+    case 'error':
+      return 'border-rose-200 bg-rose-50 text-rose-900'
+    default:
+      return 'border-zinc-200 bg-zinc-50 text-zinc-600'
+  }
+}
+
 function reminderLabel(reminderMinutes: number | undefined): string {
   if (reminderMinutes == null) return 'Ingen'
   if (reminderMinutes < 60) return `${reminderMinutes} min før`
@@ -117,10 +154,12 @@ export function TankestromImportDialog({ open, onClose, people, createEvent }: T
     step,
     inputMode,
     setInputMode,
-    setFileFromInput,
-    file,
+    pendingFiles,
+    addFilesFromList,
+    removePendingFile,
     textInput,
     setTextInput,
+    analyzeWarning,
     eventProposals,
     selectedIds,
     toggleProposal,
@@ -135,6 +174,17 @@ export function TankestromImportDialog({ open, onClose, people, createEvent }: T
   } = useTankestromImport({ open, people, createEvent })
 
   const validPersonIds = useMemo(() => new Set(people.map((p) => p.id)), [people])
+
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const [fileDropActive, setFileDropActive] = useState(false)
+
+  const analyzedSourceSummary = useMemo(() => {
+    if (inputMode !== 'file') return null
+    const ok = pendingFiles.filter((p) => p.status === 'done')
+    if (ok.length === 0) return null
+    if (ok.length === 1) return ok[0]!.file.name
+    return `${ok.length} filer`
+  }, [inputMode, pendingFiles])
 
   const [expandedSourceIds, setExpandedSourceIds] = useState<Set<string>>(() => new Set())
   const [expandedDetailIds, setExpandedDetailIds] = useState<Set<string>>(() => new Set())
@@ -229,11 +279,18 @@ export function TankestromImportDialog({ open, onClose, people, createEvent }: T
           {step === 'review' ? (
             <p
               className="truncate px-4 pb-2.5 text-[11px] leading-snug text-zinc-500"
-              title={inputMode === 'file' ? file?.name : undefined}
+              title={
+                inputMode === 'file'
+                  ? pendingFiles
+                      .filter((p) => p.status === 'done')
+                      .map((p) => p.file.name)
+                      .join(', ') || undefined
+                  : undefined
+              }
             >
               <span className="font-medium text-zinc-400">Analysert kilde:</span>{' '}
               <span className="font-semibold text-zinc-700">
-                {inputMode === 'file' ? file?.name ?? 'Fil' : 'Limt inn tekst'}
+                {inputMode === 'file' ? analyzedSourceSummary ?? 'Filer' : 'Limt inn tekst'}
               </span>
             </p>
           ) : null}
@@ -278,21 +335,114 @@ export function TankestromImportDialog({ open, onClose, people, createEvent }: T
 
               {inputMode === 'file' ? (
                 <div className={`${cardSection} p-3`}>
-                  <p className={typSectionCap}>Fil</p>
+                  <p className={typSectionCap}>Filer</p>
+                  <p className="mt-1 text-[12px] leading-snug text-zinc-500">
+                    Velg flere filer på én gang, eller slipp dem i feltet nedenfor.
+                  </p>
                   <input
+                    ref={fileInputRef}
                     type="file"
-                    accept="image/*,.pdf,application/pdf,.docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-                    className="mt-2 block w-full text-[13px] text-zinc-700 file:mr-3 file:rounded-lg file:border-0 file:bg-brandSky file:px-3 file:py-2 file:text-[13px] file:font-medium file:text-brandNavy"
+                    multiple
+                    accept={TANKESTROM_FILE_ACCEPT}
+                    className="sr-only"
+                    aria-label="Velg filer til analyse"
                     onChange={(e) => {
-                      const f = e.target.files?.[0] ?? null
-                      setFileFromInput(f)
+                      const list = e.target.files
+                      if (list && list.length > 0) addFilesFromList(list)
+                      e.target.value = ''
                     }}
                   />
-                  {file && (
-                    <p className="mt-2 truncate text-[12px] text-zinc-500" title={file.name}>
-                      {file.name}
+                  <div
+                    role="button"
+                    tabIndex={0}
+                    className={`mt-3 flex min-h-[100px] cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed px-3 py-4 text-center transition sm:min-h-[112px] ${
+                      fileDropActive
+                        ? 'border-brandTeal bg-brandSky/25 text-brandNavy'
+                        : 'border-zinc-200 bg-zinc-50/80 text-zinc-600 hover:border-zinc-300 hover:bg-zinc-50'
+                    }`}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault()
+                        fileInputRef.current?.click()
+                      }
+                    }}
+                    onClick={() => fileInputRef.current?.click()}
+                    onDragEnter={(e: DragEvent) => {
+                      e.preventDefault()
+                      e.stopPropagation()
+                      setFileDropActive(true)
+                    }}
+                    onDragOver={(e: DragEvent) => {
+                      e.preventDefault()
+                      e.stopPropagation()
+                      setFileDropActive(true)
+                    }}
+                    onDragLeave={(e: DragEvent) => {
+                      e.preventDefault()
+                      e.stopPropagation()
+                      if (!e.currentTarget.contains(e.relatedTarget as Node)) setFileDropActive(false)
+                    }}
+                    onDrop={(e: DragEvent) => {
+                      e.preventDefault()
+                      e.stopPropagation()
+                      setFileDropActive(false)
+                      const list = e.dataTransfer.files
+                      if (list && list.length > 0) addFilesFromList(list)
+                    }}
+                  >
+                    <svg
+                      className="pointer-events-none mb-2 h-8 w-8 text-zinc-400"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      strokeWidth={1.5}
+                      stroke="currentColor"
+                      aria-hidden
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5m-13.5-9L12 3m0 0 4.5 4.5M12 3v13.5"
+                      />
+                    </svg>
+                    <p className="pointer-events-none text-[13px] font-medium text-zinc-800">
+                      Slipp filer her eller trykk for å velge
                     </p>
-                  )}
+                    <p className="pointer-events-none mt-1 text-[11px] text-zinc-500">
+                      PDF, bilder og Word-dokumenter
+                    </p>
+                  </div>
+
+                  {pendingFiles.length > 0 ? (
+                    <ul className="mt-3 max-h-48 space-y-2 overflow-y-auto overscroll-y-contain" aria-label="Valgte filer">
+                      {pendingFiles.map((p) => (
+                        <li
+                          key={p.id}
+                          className={`flex items-start gap-2 rounded-xl border px-2.5 py-2 text-left text-[12px] ${pendingFileStatusClass(p)}`}
+                        >
+                          <div className="min-w-0 flex-1">
+                            <p className="truncate font-medium" title={p.file.name}>
+                              {p.file.name}
+                            </p>
+                            <p className="mt-0.5 text-[11px] opacity-90">{pendingFileStatusLabel(p)}</p>
+                          </div>
+                          <button
+                            type="button"
+                            className="shrink-0 rounded-lg p-1.5 text-current opacity-70 hover:bg-black/5 hover:opacity-100 disabled:pointer-events-none disabled:opacity-40"
+                            aria-label={`Fjern ${p.file.name}`}
+                            disabled={analyzeLoading}
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              removePendingFile(p.id)
+                            }}
+                          >
+                            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" />
+                            </svg>
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : null}
                 </div>
               ) : (
                 <div className={`${cardSection} p-3`}>
@@ -311,6 +461,11 @@ export function TankestromImportDialog({ open, onClose, people, createEvent }: T
             </div>
           ) : (
             <div className="space-y-4">
+              {analyzeWarning ? (
+                <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[12px] leading-snug text-amber-950 whitespace-pre-wrap">
+                  {analyzeWarning}
+                </p>
+              ) : null}
               <div className="rounded-xl border border-brandNavy/15 bg-brandSky/20 px-3 py-2.5">
                 <p className="text-[12px] font-medium leading-snug text-brandNavy">
                   Gå gjennom forslagene nedenfor. Kun <span className="font-semibold">avkryssede</span> kort importeres
@@ -706,9 +861,14 @@ export function TankestromImportDialog({ open, onClose, people, createEvent }: T
               variant="primary"
               className="flex-1"
               loading={analyzeLoading}
-              disabled={!hasPeople || (inputMode === 'file' ? !file : !textInput.trim())}
+              disabled={
+                !hasPeople || (inputMode === 'file' ? pendingFiles.length === 0 : !textInput.trim())
+              }
               onClick={() => {
-                logEvent('tankestrom_analyze_started', {})
+                logEvent('tankestrom_analyze_started', {
+                  mode: inputMode,
+                  fileCount: inputMode === 'file' ? pendingFiles.length : 0,
+                })
                 void runAnalyze()
               }}
             >
