@@ -85,6 +85,12 @@ function buildDraftsFromProposals(
   for (const p of events) {
     const ev = p.event
     const pid = validPersonIds.has(ev.personId) ? ev.personId : defaultPersonId
+    const transport =
+      ev.metadata && typeof ev.metadata === 'object' && !Array.isArray(ev.metadata)
+        ? ((ev.metadata as { transport?: { dropoffBy?: unknown; pickupBy?: unknown } }).transport ?? null)
+        : null
+    const dropoffBy = typeof transport?.dropoffBy === 'string' ? transport.dropoffBy : ''
+    const pickupBy = typeof transport?.pickupBy === 'string' ? transport.pickupBy : ''
     drafts[p.proposalId] = {
       title: ev.title,
       date: ev.date,
@@ -93,6 +99,10 @@ function buildDraftsFromProposals(
       personId: pid,
       location: ev.location ?? '',
       notes: ev.notes ?? '',
+      reminderMinutes: typeof ev.reminderMinutes === 'number' ? ev.reminderMinutes : undefined,
+      includeRecurrence: !!ev.recurrenceGroupId,
+      dropoffBy,
+      pickupBy,
     }
   }
   return drafts
@@ -278,6 +288,23 @@ export function useTankestromImport({ open, people, createEvent }: UseTankestrom
           sourceId: item.sourceId,
           integration,
         }
+        const transportMeta: Record<string, unknown> = {}
+        if (draft.dropoffBy.trim()) transportMeta.dropoffBy = draft.dropoffBy.trim()
+        if (draft.pickupBy.trim()) transportMeta.pickupBy = draft.pickupBy.trim()
+        if (Object.keys(transportMeta).length > 0) {
+          metadata.transport = {
+            ...(baseMeta.transport && typeof baseMeta.transport === 'object' && !Array.isArray(baseMeta.transport)
+              ? (baseMeta.transport as Record<string, unknown>)
+              : {}),
+            ...transportMeta,
+          }
+        } else if (baseMeta.transport && typeof baseMeta.transport === 'object') {
+          const prev = { ...(baseMeta.transport as Record<string, unknown>) }
+          delete prev.dropoffBy
+          delete prev.pickupBy
+          if (Object.keys(prev).length > 0) metadata.transport = prev
+          else delete metadata.transport
+        }
         const input: Omit<Event, 'id'> = {
           personId: draft.personId,
           title: draft.title,
@@ -285,8 +312,8 @@ export function useTankestromImport({ open, people, createEvent }: UseTankestrom
           end: draft.end,
           notes: draft.notes.length > 0 ? draft.notes : undefined,
           location: draft.location.length > 0 ? draft.location : undefined,
-          reminderMinutes: ev.reminderMinutes ?? undefined,
-          recurrenceGroupId: ev.recurrenceGroupId,
+          reminderMinutes: draft.reminderMinutes,
+          recurrenceGroupId: draft.includeRecurrence ? ev.recurrenceGroupId : undefined,
           metadata,
         }
         try {

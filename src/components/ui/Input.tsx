@@ -1,4 +1,4 @@
-import { forwardRef } from 'react'
+import { forwardRef, useEffect, useImperativeHandle, useRef } from 'react'
 import { inputBase, inputLabel, inputHint, inputError as inputErrorCls } from '../../lib/ui'
 
 export interface InputProps extends React.InputHTMLAttributes<HTMLInputElement> {
@@ -55,12 +55,54 @@ export interface TextareaProps
   label?: string
   hint?: string
   error?: string
+  autoResize?: boolean
+  minRows?: number
+  maxRows?: number
 }
 
 export const Textarea = forwardRef<HTMLTextAreaElement, TextareaProps>(
-  ({ label, hint, error, className = '', id, rows = 2, ...props }, ref) => {
+  (
+    { label, hint, error, className = '', id, rows = 2, autoResize = false, minRows, maxRows, onInput, ...props },
+    ref
+  ) => {
     const textareaId = id ?? label?.toLowerCase().replace(/\s+/g, '-')
     const hasError = !!error
+    const innerRef = useRef<HTMLTextAreaElement | null>(null)
+    useImperativeHandle(ref, () => innerRef.current as HTMLTextAreaElement, [])
+
+    const minRowsSafe = Math.max(1, minRows ?? rows)
+    const maxRowsSafe = typeof maxRows === 'number' ? Math.max(minRowsSafe, maxRows) : null
+
+    const resizeToContent = () => {
+      const el = innerRef.current
+      if (!el || !autoResize) return
+
+      // Recalculate from natural content height each time.
+      el.style.height = 'auto'
+
+      const computed = window.getComputedStyle(el)
+      const lineHeight = Number.parseFloat(computed.lineHeight)
+      if (!Number.isFinite(lineHeight) || lineHeight <= 0) {
+        el.style.height = `${el.scrollHeight}px`
+        el.style.overflowY = 'hidden'
+        return
+      }
+
+      const borderTop = Number.parseFloat(computed.borderTopWidth) || 0
+      const borderBottom = Number.parseFloat(computed.borderBottomWidth) || 0
+      const baseBorder = borderTop + borderBottom
+      const minHeight = lineHeight * minRowsSafe + baseBorder
+      const maxHeight = maxRowsSafe ? lineHeight * maxRowsSafe + baseBorder : Number.POSITIVE_INFINITY
+      const nextHeight = Math.min(Math.max(el.scrollHeight, minHeight), maxHeight)
+
+      el.style.height = `${nextHeight}px`
+      el.style.overflowY = el.scrollHeight > maxHeight ? 'auto' : 'hidden'
+    }
+
+    useEffect(() => {
+      resizeToContent()
+    }, [autoResize, minRowsSafe, maxRowsSafe, props.value])
+
     const base =
       'w-full rounded-2xl border border-zinc-200 bg-zinc-50 px-3.5 py-2.5 text-body text-zinc-900 placeholder-zinc-400 outline-none resize-none transition focus:border-brandTeal focus:bg-white focus:ring-1 focus:ring-brandTeal/20'
     return (
@@ -71,7 +113,7 @@ export const Textarea = forwardRef<HTMLTextAreaElement, TextareaProps>(
           </label>
         )}
         <textarea
-          ref={ref}
+          ref={innerRef}
           id={textareaId}
           rows={rows}
           className={`${base} ${hasError ? 'border-rose-400 focus:border-rose-500 focus:ring-rose-400/20' : ''} ${className}`.trim()}
@@ -83,6 +125,10 @@ export const Textarea = forwardRef<HTMLTextAreaElement, TextareaProps>(
                 ? `${textareaId}-hint`
                 : undefined
           }
+          onInput={(e) => {
+            resizeToContent()
+            onInput?.(e)
+          }}
           {...props}
         />
         {hasError && (

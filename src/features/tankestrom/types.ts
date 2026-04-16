@@ -73,4 +73,8 @@ export interface TankestromEventDraft {
   personId: string
   location: string
   notes: string
+  reminderMinutes?: number
+  includeRecurrence: boolean
+  dropoffBy: string
+  pickupBy: string
 }

@@ -45,8 +45,6 @@ function formatNorwegianDateLabel(isoDate: string): string {
 
 /** Kompakt kildegrunnlag fra API (original), ikke nødvendigvis lik redigert notat. */
 function getSourceContextText(item: PortalEventProposal): string | null {
-  const rawNotes = item.event.notes?.trim()
-  if (rawNotes) return rawNotes.length > 200 ? `${rawNotes.slice(0, 197)}…` : rawNotes
   const meta = item.event.metadata
   if (meta && typeof meta === 'object' && !Array.isArray(meta)) {
     const rec = meta as Record<string, unknown>
@@ -75,8 +73,6 @@ function metaFieldHeading(key: (typeof META_SOURCE_KEYS)[number]): string {
 /** Fullt sammensatt kildegrunnlag for utvidet visning (ikke avkortet). */
 function buildFullSourceContextDocument(item: PortalEventProposal): string | null {
   const blocks: string[] = []
-  const notes = item.event.notes?.trim()
-  if (notes) blocks.push(`Notat fra kilde\n${notes}`)
 
   const meta = item.event.metadata
   if (meta && typeof meta === 'object' && !Array.isArray(meta)) {
@@ -85,7 +81,6 @@ function buildFullSourceContextDocument(item: PortalEventProposal): string | nul
       const v = rec[key]
       if (typeof v !== 'string' || !v.trim()) continue
       const t = v.trim()
-      if (notes && t === notes) continue
       blocks.push(`${metaFieldHeading(key)}\n${t}`)
     }
   }
@@ -101,6 +96,13 @@ function shouldOfferSourceExpand(full: string | null, preview: string | null): b
   if (!full || !full.trim()) return false
   if (!preview || full.length > preview.length + 40) return true
   return full.includes('\n\n────────\n\n')
+}
+
+function reminderLabel(reminderMinutes: number | undefined): string {
+  if (reminderMinutes == null) return 'Ingen'
+  if (reminderMinutes < 60) return `${reminderMinutes} min før`
+  if (reminderMinutes % 60 === 0) return `${reminderMinutes / 60} t før`
+  return `${reminderMinutes} min før`
 }
 
 export interface TankestromImportDialogProps {
@@ -135,8 +137,17 @@ export function TankestromImportDialog({ open, onClose, people, createEvent }: T
   const validPersonIds = useMemo(() => new Set(people.map((p) => p.id)), [people])
 
   const [expandedSourceIds, setExpandedSourceIds] = useState<Set<string>>(() => new Set())
+  const [expandedDetailIds, setExpandedDetailIds] = useState<Set<string>>(() => new Set())
   const toggleSourceExpanded = useCallback((proposalId: string) => {
     setExpandedSourceIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(proposalId)) next.delete(proposalId)
+      else next.add(proposalId)
+      return next
+    })
+  }, [])
+  const toggleDetailsExpanded = useCallback((proposalId: string) => {
+    setExpandedDetailIds((prev) => {
       const next = new Set(prev)
       if (next.has(proposalId)) next.delete(proposalId)
       else next.add(proposalId)
@@ -163,7 +174,10 @@ export function TankestromImportDialog({ open, onClose, people, createEvent }: T
   }, [eventProposals.length, selectedIds, draftByProposalId, validPersonIds])
 
   useEffect(() => {
-    if (!open) setExpandedSourceIds(new Set())
+    if (!open) {
+      setExpandedSourceIds(new Set())
+      setExpandedDetailIds(new Set())
+    }
   }, [open])
 
   const handleClose = useCallback(() => {
@@ -335,6 +349,7 @@ export function TankestromImportDialog({ open, onClose, people, createEvent }: T
                   const fullSourceDoc = buildFullSourceContextDocument(item)
                   const showSourceExpandToggle = sourceCtx && shouldOfferSourceExpand(fullSourceDoc, sourceCtx)
                   const sourceExpanded = expandedSourceIds.has(pid)
+                  const detailsExpanded = expandedDetailIds.has(pid)
                   const ts = draft.start.length > 5 ? draft.start.slice(0, 5) : draft.start
                   const te = draft.end.length > 5 ? draft.end.slice(0, 5) : draft.end
                   const hm = /^([01]\d|2[0-3]):[0-5]\d$/
@@ -480,23 +495,15 @@ export function TankestromImportDialog({ open, onClose, people, createEvent }: T
                         </div>
 
                         <div className="rounded-xl border border-zinc-100 bg-zinc-50/80 px-3 py-3">
-                          <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-400">
-                            Sted og notater (valgfritt)
-                          </p>
-                          <div className="mt-2 space-y-2">
-                            <Input
-                              id={`ts-${pid}-location`}
-                              label="Sted"
-                              value={draft.location}
-                              onChange={(e) => updateDraft(pid, { location: e.target.value })}
-                              disabled={disabled}
-                              className="text-[13px] text-zinc-800"
-                              placeholder="F.eks. skole, adresse"
-                            />
+                          <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-400">Notater</p>
+                          <div className="mt-2">
                             <Textarea
                               id={`ts-${pid}-notes`}
                               label="Notater"
-                              rows={2}
+                              rows={3}
+                              autoResize
+                              minRows={3}
+                              maxRows={12}
                               value={draft.notes}
                               onChange={(e: ChangeEvent<HTMLTextAreaElement>) => updateDraft(pid, { notes: e.target.value })}
                               disabled={disabled}
@@ -506,46 +513,168 @@ export function TankestromImportDialog({ open, onClose, people, createEvent }: T
                           </div>
                         </div>
 
-                        {sourceCtx && (
-                          <div className="rounded-lg border border-zinc-200/80 bg-zinc-50/90 px-3 py-2">
-                            <p className="text-[10px] font-semibold uppercase tracking-wide text-zinc-400">
-                              Kildegrunnlag (fra AI)
-                            </p>
-                            <p className="mt-1 line-clamp-2 text-[12px] leading-relaxed text-zinc-600">{sourceCtx}</p>
-                            {showSourceExpandToggle && fullSourceDoc ? (
-                              <>
-                                <button
-                                  type="button"
-                                  className="mt-2 text-left text-[12px] font-semibold text-brandNavy underline decoration-brandNavy/30 underline-offset-2 hover:decoration-brandNavy"
-                                  onClick={() => toggleSourceExpanded(pid)}
-                                  aria-expanded={sourceExpanded}
-                                  aria-controls={`ts-source-expanded-${pid}`}
-                                >
-                                  {sourceExpanded ? 'Vis mindre' : 'Vis mer av kildegrunnlag'}
-                                </button>
-                                {sourceExpanded ? (
-                                  <div
-                                    id={`ts-source-expanded-${pid}`}
-                                    className="mt-3 border-t border-zinc-200/90 pt-3"
+                        <button
+                          type="button"
+                          onClick={() => toggleDetailsExpanded(pid)}
+                          className="flex w-full items-center justify-between rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2.5 text-left text-[12px] font-medium text-zinc-700 transition hover:bg-zinc-100"
+                          aria-expanded={detailsExpanded}
+                          aria-controls={`ts-extra-details-${pid}`}
+                        >
+                          <span>{detailsExpanded ? 'Skjul ekstradetaljer' : 'Vis ekstradetaljer'}</span>
+                          <svg
+                            className={`h-4 w-4 text-zinc-500 transition-transform ${detailsExpanded ? 'rotate-180' : ''}`}
+                            fill="none"
+                            viewBox="0 0 24 24"
+                            strokeWidth={2.5}
+                            stroke="currentColor"
+                          >
+                            <path strokeLinecap="round" strokeLinejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" />
+                          </svg>
+                        </button>
+
+                        {detailsExpanded ? (
+                          <div id={`ts-extra-details-${pid}`} className="space-y-3 rounded-xl border border-zinc-100 bg-zinc-50/60 px-3 py-3">
+                            <Input
+                              id={`ts-${pid}-location`}
+                              label="Sted"
+                              value={draft.location}
+                              onChange={(e) => updateDraft(pid, { location: e.target.value })}
+                              disabled={disabled}
+                              className="text-[13px] text-zinc-800"
+                              placeholder="F.eks. skole, adresse"
+                            />
+                            <div className="space-y-1">
+                              <label htmlFor={`ts-${pid}-reminder`} className="block text-caption font-medium text-zinc-600">
+                                Påminnelse
+                              </label>
+                              <select
+                                id={`ts-${pid}-reminder`}
+                                className="w-full rounded-2xl border border-zinc-200 bg-zinc-50 px-3.5 py-2.5 text-body text-zinc-900 outline-none transition focus:bg-white focus:border-brandTeal focus:ring-1 focus:ring-brandTeal/20 disabled:opacity-50"
+                                value={draft.reminderMinutes == null ? '' : String(draft.reminderMinutes)}
+                                onChange={(e) =>
+                                  updateDraft(pid, {
+                                    reminderMinutes: e.target.value === '' ? undefined : Number(e.target.value),
+                                  })
+                                }
+                                disabled={disabled}
+                              >
+                                <option value="">Ingen</option>
+                                <option value="5">5 min før</option>
+                                <option value="15">15 min før</option>
+                                <option value="30">30 min før</option>
+                                <option value="60">1 time før</option>
+                                <option value="120">2 timer før</option>
+                                <option value="1440">24 timer før</option>
+                              </select>
+                              <p className="text-[11px] text-zinc-500">
+                                Valgt: <span className="font-medium text-zinc-700">{reminderLabel(draft.reminderMinutes)}</span>
+                              </p>
+                            </div>
+
+                            <div className="space-y-1 rounded-lg border border-zinc-200/90 bg-white/70 px-2.5 py-2">
+                              <p className="text-caption font-medium text-zinc-600">Gjentakelse</p>
+                              {item.event.recurrenceGroupId ? (
+                                <label className="flex items-center gap-2 text-[12px] text-zinc-700">
+                                  <input
+                                    type="checkbox"
+                                    className="h-4 w-4 rounded border-zinc-300 text-brandTeal focus:ring-brandTeal/30"
+                                    checked={draft.includeRecurrence}
+                                    onChange={(e) => updateDraft(pid, { includeRecurrence: e.target.checked })}
+                                    disabled={disabled}
+                                  />
+                                  Behold gjentakelse fra forslag
+                                </label>
+                              ) : (
+                                <p className="text-[12px] text-zinc-500">Ingen gjentakelse i dette forslaget.</p>
+                              )}
+                            </div>
+
+                            <div className="space-y-2 rounded-lg border border-zinc-200/90 bg-white/70 px-2.5 py-2">
+                              <p className="text-caption font-medium text-zinc-600">Levering og henting</p>
+                              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                                <div>
+                                  <label htmlFor={`ts-${pid}-dropoff`} className="mb-1 block text-[11px] font-medium text-zinc-500">
+                                    Levert av
+                                  </label>
+                                  <select
+                                    id={`ts-${pid}-dropoff`}
+                                    className="w-full rounded-xl border border-zinc-200 bg-white px-2.5 py-2 text-[13px] text-zinc-900 outline-none transition focus:border-brandTeal focus:ring-1 focus:ring-brandTeal/20 disabled:opacity-50"
+                                    value={draft.dropoffBy}
+                                    onChange={(e) => updateDraft(pid, { dropoffBy: e.target.value })}
+                                    disabled={disabled}
                                   >
-                                    <p className="text-[10px] font-semibold uppercase tracking-wide text-zinc-400">
-                                      Utvidet kildegrunnlag
-                                    </p>
-                                    <div
-                                      className="mt-1.5 max-h-56 overflow-y-auto overscroll-y-contain rounded-md border border-zinc-100 bg-white px-2.5 py-2 text-[12px] leading-relaxed text-zinc-700 whitespace-pre-wrap break-words"
-                                      role="region"
-                                      aria-label="Fullt kildegrunnlag fra AI"
+                                    <option value="">Ingen</option>
+                                    {people.map((p) => (
+                                      <option key={p.id} value={p.id}>
+                                        {p.name}
+                                      </option>
+                                    ))}
+                                  </select>
+                                </div>
+                                <div>
+                                  <label htmlFor={`ts-${pid}-pickup`} className="mb-1 block text-[11px] font-medium text-zinc-500">
+                                    Hentes av
+                                  </label>
+                                  <select
+                                    id={`ts-${pid}-pickup`}
+                                    className="w-full rounded-xl border border-zinc-200 bg-white px-2.5 py-2 text-[13px] text-zinc-900 outline-none transition focus:border-brandTeal focus:ring-1 focus:ring-brandTeal/20 disabled:opacity-50"
+                                    value={draft.pickupBy}
+                                    onChange={(e) => updateDraft(pid, { pickupBy: e.target.value })}
+                                    disabled={disabled}
+                                  >
+                                    <option value="">Ingen</option>
+                                    {people.map((p) => (
+                                      <option key={p.id} value={p.id}>
+                                        {p.name}
+                                      </option>
+                                    ))}
+                                  </select>
+                                </div>
+                              </div>
+                            </div>
+
+                            {sourceCtx && (
+                              <div className="rounded-lg border border-zinc-200/80 bg-zinc-50/90 px-3 py-2">
+                                <p className="text-[10px] font-semibold uppercase tracking-wide text-zinc-400">
+                                  Kildegrunnlag (fra AI)
+                                </p>
+                                <p className="mt-1 line-clamp-2 text-[12px] leading-relaxed text-zinc-600">{sourceCtx}</p>
+                                {showSourceExpandToggle && fullSourceDoc ? (
+                                  <>
+                                    <button
+                                      type="button"
+                                      className="mt-2 text-left text-[12px] font-semibold text-brandNavy underline decoration-brandNavy/30 underline-offset-2 hover:decoration-brandNavy"
+                                      onClick={() => toggleSourceExpanded(pid)}
+                                      aria-expanded={sourceExpanded}
+                                      aria-controls={`ts-source-expanded-${pid}`}
                                     >
-                                      {fullSourceDoc.length > 12000
-                                        ? `${fullSourceDoc.slice(0, 11997)}…`
-                                        : fullSourceDoc}
-                                    </div>
-                                  </div>
+                                      {sourceExpanded ? 'Vis mindre' : 'Vis mer av kildegrunnlag'}
+                                    </button>
+                                    {sourceExpanded ? (
+                                      <div
+                                        id={`ts-source-expanded-${pid}`}
+                                        className="mt-3 border-t border-zinc-200/90 pt-3"
+                                      >
+                                        <p className="text-[10px] font-semibold uppercase tracking-wide text-zinc-400">
+                                          Utvidet kildegrunnlag
+                                        </p>
+                                        <div
+                                          className="mt-1.5 max-h-56 overflow-y-auto overscroll-y-contain rounded-md border border-zinc-100 bg-white px-2.5 py-2 text-[12px] leading-relaxed text-zinc-700 whitespace-pre-wrap break-words"
+                                          role="region"
+                                          aria-label="Fullt kildegrunnlag fra AI"
+                                        >
+                                          {fullSourceDoc.length > 12000
+                                            ? `${fullSourceDoc.slice(0, 11997)}…`
+                                            : fullSourceDoc}
+                                        </div>
+                                      </div>
+                                    ) : null}
+                                  </>
                                 ) : null}
-                              </>
-                            ) : null}
+                              </div>
+                            )}
                           </div>
-                        )}
+                        ) : null}
                       </div>
                     </li>
                   )
