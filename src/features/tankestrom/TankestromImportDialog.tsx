@@ -142,6 +142,68 @@ function reminderLabel(reminderMinutes: number | undefined): string {
   return `${reminderMinutes} min før`
 }
 
+interface ParsedNoteSections {
+  todo: string[]
+  notes: string[]
+}
+
+function canonicalNoteLine(line: string): string {
+  return line
+    .trim()
+    .replace(/^[\-*•\u2022]+\s*/, '')
+    .replace(/^\[(?: |x|X)\]\s*/, '')
+    .replace(/^notater?\s*:\s*/i, '')
+    .replace(/^gj[øo]rem[åa]l(?:\s*\/\s*husk)?\s*:\s*/i, '')
+    .replace(/^husk\s*:\s*/i, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase()
+}
+
+function parseNoteSections(rawNotes: string): ParsedNoteSections {
+  const lines = rawNotes
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter(Boolean)
+
+  const todo: string[] = []
+  const notes: string[] = []
+  const seen = new Set<string>()
+  let section: 'todo' | 'notes' = 'notes'
+
+  const pushUnique = (target: string[], value: string) => {
+    const cleaned = value.trim()
+    if (!cleaned) return
+    const key = canonicalNoteLine(cleaned)
+    if (!key || seen.has(key)) return
+    seen.add(key)
+    target.push(cleaned)
+  }
+
+  for (const line of lines) {
+    if (/^gj[øo]rem[åa]l(?:\s*\/\s*husk)?\s*:?\s*$/i.test(line) || /^husk\s*:?\s*$/i.test(line)) {
+      section = 'todo'
+      continue
+    }
+    if (/^notater?\s*:?\s*$/i.test(line)) {
+      section = 'notes'
+      continue
+    }
+
+    const cleaned = line
+      .replace(/^notater?\s*:\s*/i, '')
+      .replace(/^gj[øo]rem[åa]l(?:\s*\/\s*husk)?\s*:\s*/i, '')
+      .replace(/^husk\s*:\s*/i, '')
+      .trim()
+
+    const looksLikeTodo = /^(\[[ xX]\]|[-*•\u2022])\s+/.test(line)
+    if (section === 'todo' || looksLikeTodo) pushUnique(todo, cleaned)
+    else pushUnique(notes, cleaned)
+  }
+
+  return { todo, notes }
+}
+
 export interface TankestromImportDialogProps {
   open: boolean
   onClose: () => void
@@ -510,6 +572,7 @@ export function TankestromImportDialog({ open, onClose, people, createEvent }: T
                   const hm = /^([01]\d|2[0-3]):[0-5]\d$/
                   const timeLabel =
                     hm.test(ts) && hm.test(te) ? formatTimeRange(ts, te) : ts && te ? `${ts} – ${te}` : '—'
+                  const noteSections = parseNoteSections(draft.notes)
 
                   return (
                     <li
@@ -566,11 +629,22 @@ export function TankestromImportDialog({ open, onClose, people, createEvent }: T
                                 <span className="font-medium text-zinc-400">Sted:</span> {draft.location.trim()}
                               </p>
                             ) : null}
-                            {draft.notes.trim() ? (
-                              <p className="line-clamp-2">
-                                <span className="font-medium text-zinc-400">Notat:</span> {draft.notes.trim()}
-                              </p>
-                            ) : null}
+                            {(noteSections.todo.length > 0 || noteSections.notes.length > 0) && (
+                              <div className="space-y-1 pt-0.5">
+                                {noteSections.todo.length > 0 ? (
+                                  <p className="line-clamp-2">
+                                    <span className="font-medium text-zinc-500">Gjøremål / husk:</span>{' '}
+                                    {noteSections.todo.join(' · ')}
+                                  </p>
+                                ) : null}
+                                {noteSections.notes.length > 0 ? (
+                                  <p className="line-clamp-2">
+                                    <span className="font-medium text-zinc-500">Notater:</span>{' '}
+                                    {noteSections.notes.join(' · ')}
+                                  </p>
+                                ) : null}
+                              </div>
+                            )}
                           </div>
                         )}
                       </div>
@@ -649,8 +723,10 @@ export function TankestromImportDialog({ open, onClose, people, createEvent }: T
                           )}
                         </div>
 
-                        <div className="rounded-xl border border-zinc-100 bg-zinc-50/80 px-3 py-3">
-                          <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-400">Notater</p>
+                        <div className="rounded-xl border border-rose-100 bg-rose-50/50 px-3 py-3">
+                          <p className="inline-flex items-center rounded-full border border-rose-200 bg-rose-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-rose-700">
+                            Notater
+                          </p>
                           <div className="mt-2">
                             <Textarea
                               id={`ts-${pid}-notes`}
