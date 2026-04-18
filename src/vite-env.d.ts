@@ -1,5 +1,8 @@
 /// <reference types="vite/client" />
 
+/** TODO: remove build fingerprint after deploy verification (see vite.config.ts define) */
+declare const __APP_BUILD_FINGERPRINT__: string
+
 interface ImportMetaEnv {
   readonly VITE_SUPABASE_URL?: string
   readonly VITE_SUPABASE_ANON_KEY?: string
