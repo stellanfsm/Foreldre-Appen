@@ -289,6 +289,12 @@ function eventDraftFromTaskDraft(
 export interface SchoolProfileReviewState {
   draft: ChildSchoolProfile
   meta: { confidence: number; originalSourceType: string }
+  /**
+   * TODO: remove school import debug after feilsøking
+   * JSON av `ChildSchoolProfile` rett etter `parseChildSchoolProfile` / første `cloneSchoolProfile` (lag 2 → 3).
+   * Ikke identisk med rå HTTP-body fra Tankestrøm (den lagres ikke i klienten).
+   */
+  parsedProfileSnapshotJson: string
 }
 
 export interface UseTankestromImportOptions {
@@ -499,10 +505,19 @@ export function useTankestromImport({
               ? primary.suggestedPersonId
               : (childIds[0] ?? '')
           setSchoolProfileChildId(initialChild)
+          const parsedProfileSnapshotJson = JSON.stringify(primary.schoolProfile, null, 2)
           setSchoolReview({
             draft: cloneSchoolProfile(primary.schoolProfile),
             meta: { confidence: primary.confidence, originalSourceType: primary.originalSourceType },
+            parsedProfileSnapshotJson,
           })
+          if (import.meta.env.VITE_DEBUG_SCHOOL_IMPORT === 'true') {
+            console.debug('[tankestrom school import] text path: parsed profile (etter API)', {
+              gradeBand: primary.schoolProfile.gradeBand,
+              weekdays: primary.schoolProfile.weekdays,
+              snapshotJsonLength: parsedProfileSnapshotJson.length,
+            })
+          }
           setDraftByProposalId({})
           setSelectedIds(new Set())
           if (schoolItems.length > 1) {
@@ -570,10 +585,19 @@ export function useTankestromImport({
             ? primary.suggestedPersonId
             : (childIds[0] ?? '')
         setSchoolProfileChildId(initialChild)
+        const parsedProfileSnapshotJson = JSON.stringify(primary.schoolProfile, null, 2)
         setSchoolReview({
           draft: cloneSchoolProfile(primary.schoolProfile),
           meta: { confidence: primary.confidence, originalSourceType: primary.originalSourceType },
+          parsedProfileSnapshotJson,
         })
+        if (import.meta.env.VITE_DEBUG_SCHOOL_IMPORT === 'true') {
+          console.debug('[tankestrom school import] file path: parsed profile (etter API)', {
+            gradeBand: primary.schoolProfile.gradeBand,
+            weekdays: primary.schoolProfile.weekdays,
+            snapshotJsonLength: parsedProfileSnapshotJson.length,
+          })
+        }
         setDraftByProposalId({})
         setSelectedIds(new Set())
         const extra =

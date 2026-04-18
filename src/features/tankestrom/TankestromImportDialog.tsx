@@ -1,6 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type DragEvent } from 'react'
 import type { PortalEventProposal, PortalProposalItem } from './types'
-import type { Person, SchoolContext, Task } from '../../types'
+import type {
+  ChildSchoolDayPlan,
+  ChildSchoolProfile,
+  Person,
+  SchoolContext,
+  SchoolLessonSlot,
+  Task,
+  WeekdayMonFri,
+} from '../../types'
 import type { UseEventControllerReturn } from '../calendar/hooks/useEventController'
 import {
   useTankestromImport,
@@ -55,6 +63,151 @@ function confidenceBadgeStyle(confidence: number): { label: string; className: s
     label: `${pct}% – bør sjekkes`,
     className: 'border-zinc-300 bg-zinc-100 text-zinc-800',
   }
+}
+
+/** Mandag–fredag (tallnøkkel matcher `WeekdayMonFri`). */
+const WD_LABEL_NB: Record<number, string> = {
+  0: 'Mandag',
+  1: 'Tirsdag',
+  2: 'Onsdag',
+  3: 'Torsdag',
+  4: 'Fredag',
+}
+
+const DEBUG_SCHOOL_IMPORT_PANEL =
+  import.meta.env.DEV || import.meta.env.VITE_DEBUG_SCHOOL_IMPORT === 'true'
+
+function describeSchoolDayPlanShort(plan: ChildSchoolDayPlan): string {
+  if (plan.useSimpleDay) {
+    return `enkel dag ${plan.schoolStart ?? '?'}–${plan.schoolEnd ?? '?'}`
+  }
+  return `${(plan.lessons ?? []).length} timer`
+}
+
+function formatLessonSlotOneLine(L: SchoolLessonSlot): string {
+  const lab = L.customLabel ? ` «${L.customLabel}»` : ''
+  return `${L.subjectKey}${lab} · ${L.start}–${L.end}`
+}
+
+/** Kompakt per-dag-oppsummering av `ChildSchoolProfile` (parsed/draft). */
+function formatSchoolImportWeekdayDebug(profile: ChildSchoolProfile): string {
+  const lines: string[] = []
+  for (let wd = 0; wd <= 4; wd++) {
+    const plan = profile.weekdays[wd as WeekdayMonFri]
+    const name = WD_LABEL_NB[wd] ?? `Dag ${wd}`
+    if (!plan) {
+      lines.push(`${name}: (ingen dagplan i modellen)`)
+      continue
+    }
+    if (plan.useSimpleDay) {
+      const ss = plan.schoolStart ?? '(mangler schoolStart)'
+      const se = plan.schoolEnd ?? '(mangler schoolEnd)'
+      lines.push(`${name}: Enkel dag · modell: ${ss}–${se}`)
+    } else {
+      const lessons = plan.lessons ?? []
+      lines.push(`${name}: ${lessons.length} timer (Timer-modus)`)
+      lessons.forEach((L, i) => {
+        const lab = L.customLabel ? ` «${L.customLabel}»` : ''
+        lines.push(`  ${i + 1}. ${L.subjectKey}${lab} · ${L.start}–${L.end}`)
+      })
+    }
+  }
+  return lines.join('\n')
+}
+
+/**
+ * Menneskelesbar diff: parsed snapshot (etter API) vs gjeldende draft.
+ * Retning: «snapshot → draft» der det er avvik.
+ */
+function formatSchoolImportSnapshotDraftDiff(
+  snapshot: ChildSchoolProfile | null,
+  draft: ChildSchoolProfile
+): string {
+  if (!snapshot) return '(Ingen gyldig snapshot — kan ikke sammenligne.)'
+  const lines: string[] = []
+  for (let wd = 0; wd <= 4; wd++) {
+    const name = WD_LABEL_NB[wd] ?? `Dag ${wd}`
+    const sPlan = snapshot.weekdays[wd as WeekdayMonFri]
+    const dPlan = draft.weekdays[wd as WeekdayMonFri]
+    if (!sPlan && !dPlan) {
+      lines.push(`${name}: ingen dagplan (snapshot eller draft)`)
+      continue
+    }
+    if (!sPlan && dPlan) {
+      lines.push(`${name}: KUN I DRAFT · ${describeSchoolDayPlanShort(dPlan)}`)
+      if (!dPlan.useSimpleDay) {
+        ;(dPlan.lessons ?? []).forEach((L, i) => {
+          lines.push(`    draft time ${i + 1}: ${formatLessonSlotOneLine(L)}`)
+        })
+      }
+      continue
+    }
+    if (sPlan && !dPlan) {
+      lines.push(`${name}: KUN I SNAPSHOT · ${describeSchoolDayPlanShort(sPlan)}`)
+      if (!sPlan.useSimpleDay) {
+        ;(sPlan.lessons ?? []).forEach((L, i) => {
+          lines.push(`    snapshot time ${i + 1}: ${formatLessonSlotOneLine(L)}`)
+        })
+      }
+      continue
+    }
+    const s = sPlan!
+    const d = dPlan!
+    if (JSON.stringify(s) === JSON.stringify(d)) {
+      lines.push(`${name}: lik`)
+      continue
+    }
+    lines.push(`${name}: AVVIK (snapshot → draft)`)
+    if (s.useSimpleDay !== d.useSimpleDay) {
+      lines.push(
+        `  modus: ${s.useSimpleDay ? 'enkel dag' : 'timer'} → ${d.useSimpleDay ? 'enkel dag' : 'timer'}`
+      )
+    }
+    if (s.useSimpleDay && d.useSimpleDay) {
+      if (s.schoolStart !== d.schoolStart) {
+        lines.push(`  schoolStart: «${s.schoolStart ?? '(mangler)'}» → «${d.schoolStart ?? '(mangler)'}»`)
+      }
+      if (s.schoolEnd !== d.schoolEnd) {
+        lines.push(`  schoolEnd: «${s.schoolEnd ?? '(mangler)'}» → «${d.schoolEnd ?? '(mangler)'}»`)
+      }
+    }
+    if (!s.useSimpleDay && !d.useSimpleDay) {
+      const sl = s.lessons ?? []
+      const dl = d.lessons ?? []
+      if (sl.length !== dl.length) {
+        lines.push(`  antall timer: ${sl.length} → ${dl.length}`)
+      }
+      const max = Math.max(sl.length, dl.length)
+      for (let i = 0; i < max; i++) {
+        const a = sl[i]
+        const b = dl[i]
+        if (!a) {
+          lines.push(`  time ${i + 1}: kun i draft: ${b ? formatLessonSlotOneLine(b) : '?'}`)
+          continue
+        }
+        if (!b) {
+          lines.push(`  time ${i + 1}: kun i snapshot: ${formatLessonSlotOneLine(a)}`)
+          continue
+        }
+        const bits: string[] = []
+        if (a.subjectKey !== b.subjectKey) {
+          bits.push(`fag «${a.subjectKey}» → «${b.subjectKey}»`)
+        }
+        const ac = a.customLabel ?? ''
+        const bc = b.customLabel ?? ''
+        if (ac !== bc) {
+          bits.push(`etikett «${ac || '(ingen)'}» → «${bc || '(ingen)'}»`)
+        }
+        if (a.start !== b.start) bits.push(`start ${a.start} → ${b.start}`)
+        if (a.end !== b.end) bits.push(`slutt ${a.end} → ${b.end}`)
+        if (bits.length > 0) lines.push(`  time ${i + 1}: ${bits.join('; ')}`)
+      }
+    }
+  }
+  if (snapshot.gradeBand !== draft.gradeBand) {
+    lines.push(`Trinn (gradeBand): snapshot «${snapshot.gradeBand}» → draft «${draft.gradeBand}»`)
+  }
+  return lines.join('\n')
 }
 
 function formatNorwegianDateLabel(isoDate: string): string {
@@ -319,13 +472,33 @@ export function TankestromImportDialog({
     [schoolReview?.draft]
   )
 
-  const WD_LABEL_NB: Record<number, string> = {
-    0: 'Mandag',
-    1: 'Tirsdag',
-    2: 'Onsdag',
-    3: 'Torsdag',
-    4: 'Fredag',
-  }
+  const schoolImportDebugPanel = useMemo(() => {
+    if (!schoolReview || !DEBUG_SCHOOL_IMPORT_PANEL) return null
+    const snapshot = schoolReview.parsedProfileSnapshotJson
+    const draftJson = JSON.stringify(schoolReview.draft, null, 2)
+    const draftMatchesParsedSnapshot = draftJson === snapshot
+    let snapshotProfile: ChildSchoolProfile | null = null
+    try {
+      snapshotProfile = JSON.parse(snapshot) as ChildSchoolProfile
+    } catch {
+      snapshotProfile = null
+    }
+    const draftLines = formatSchoolImportWeekdayDebug(schoolReview.draft)
+    const snapshotLines = snapshotProfile
+      ? formatSchoolImportWeekdayDebug(snapshotProfile)
+      : '(ugyldig snapshot-JSON)'
+    const summariesMatch = draftLines === snapshotLines
+    const snapshotDraftDiff = formatSchoolImportSnapshotDraftDiff(snapshotProfile, schoolReview.draft)
+    return {
+      snapshot,
+      draftJson,
+      draftMatchesParsedSnapshot,
+      draftLines,
+      snapshotLines,
+      summariesMatch,
+      snapshotDraftDiff,
+    }
+  }, [schoolReview])
 
   if (!open) return null
 
@@ -362,22 +535,38 @@ export function TankestromImportDialog({
             </button>
           </div>
           {step === 'review' ? (
-            <p
-              className="truncate px-4 pb-2.5 text-[11px] leading-snug text-zinc-500"
-              title={
-                inputMode === 'file'
-                  ? pendingFiles
-                      .filter((p) => p.status === 'done')
-                      .map((p) => p.file.name)
-                      .join(', ') || undefined
-                  : undefined
-              }
-            >
-              <span className="font-medium text-zinc-400">Analysert kilde:</span>{' '}
-              <span className="font-semibold text-zinc-700">
-                {inputMode === 'file' ? analyzedSourceSummary ?? 'Filer' : 'Limt inn tekst'}
-              </span>
-            </p>
+            <>
+              <p
+                className="truncate px-4 pb-2.5 text-[11px] leading-snug text-zinc-500"
+                title={
+                  inputMode === 'file'
+                    ? pendingFiles
+                        .filter((p) => p.status === 'done')
+                        .map((p) => p.file.name)
+                        .join(', ') || undefined
+                    : undefined
+                }
+              >
+                <span className="font-medium text-zinc-400">Analysert kilde:</span>{' '}
+                <span className="font-semibold text-zinc-700">
+                  {inputMode === 'file' ? analyzedSourceSummary ?? 'Filer' : 'Limt inn tekst'}
+                </span>
+              </p>
+              {DEBUG_SCHOOL_IMPORT_PANEL && schoolReview ? (
+                <div
+                  role="status"
+                  aria-live="polite"
+                  className="mx-4 mb-2 flex items-center justify-center gap-2 rounded-lg border-2 border-violet-500 bg-violet-100 px-2 py-2 shadow-sm"
+                >
+                  <span className="rounded bg-violet-600 px-1.5 py-0.5 text-[9px] font-black uppercase tracking-wide text-white">
+                    Debug
+                  </span>
+                  <span className="text-center text-[11px] font-semibold leading-tight text-violet-950">
+                    Skole-import-feilsøk er på — du ser parsed snapshot vs draft under
+                  </span>
+                </div>
+              ) : null}
+            </>
           ) : null}
         </div>
 
@@ -652,6 +841,82 @@ export function TankestromImportDialog({
                       ))}
                     </ul>
                   </div>
+                ) : null}
+                {schoolImportDebugPanel ? (
+                  <details className="mb-3 rounded-lg border-2 border-violet-400 bg-violet-50/70 px-3 py-2 shadow-sm open:shadow-md">
+                    <summary className="cursor-pointer select-none text-[12px] font-semibold text-violet-950">
+                      <span className="mr-2 inline-flex rounded bg-violet-600 px-1.5 py-0.5 align-middle text-[9px] font-bold uppercase tracking-wide text-white">
+                        Debug
+                      </span>
+                      Feilsøk timeplan-import (parsed snapshot vs draft)
+                    </summary>
+                    <div className="mt-2 space-y-2 text-[11px] leading-snug text-zinc-800">
+                      <p>
+                        Rå HTTP-body fra Tankestrøm lagres ikke i klienten. Under er{' '}
+                        <span className="font-medium">lag 2</span> (tolket profil rett etter parse, som JSON) og{' '}
+                        <span className="font-medium">draft</span> (det skjemaet får — ved åpning klonet fra lag 2).
+                      </p>
+                      <p className="rounded-md border border-zinc-200/90 bg-white/90 px-2 py-1.5 text-[10px] text-zinc-600">
+                        «Neste time foreslås fra forrige sluttid. Standard varighet: 60 min.» er statisk hjelpetekst i
+                        «Timer»-modus. Den kjører ikke ved import og oppretter ikke timer; den beskriver redigering når du
+                        endrer en sluttid.
+                      </p>
+                      <p className="tabular-nums">
+                        Draft JSON identisk med parsed snapshot:{' '}
+                        <span className="font-mono font-semibold">
+                          {schoolImportDebugPanel.draftMatchesParsedSnapshot ? 'ja' : 'nei'}
+                        </span>
+                        {!schoolImportDebugPanel.summariesMatch ? (
+                          <span className="text-zinc-500"> · Per-dag-oppsummering avviker</span>
+                        ) : null}
+                      </p>
+                      <details className="rounded-md border border-amber-200/90 bg-amber-50/50 open:bg-amber-50/70">
+                        <summary className="cursor-pointer px-2 py-1.5 text-[11px] font-semibold text-amber-950">
+                          Avvik per dag og per time (snapshot → draft)
+                        </summary>
+                        <pre className="max-h-48 overflow-auto border-t border-amber-100/80 bg-white/90 p-2 text-[10px] font-mono leading-snug whitespace-pre-wrap text-zinc-900">
+                          {schoolImportDebugPanel.snapshotDraftDiff}
+                        </pre>
+                      </details>
+                      <p className="text-[10px] text-zinc-500">
+                        Tips: Åpne nettleserens devtools (F12) → Console. Med{' '}
+                        <code className="rounded bg-zinc-100 px-0.5">VITE_DEBUG_SCHOOL_IMPORT=true</code> logges snapshot-lengde
+                        ved import; du kan også lime inn JSON fra «Full JSON» under i konsollen som{' '}
+                        <code className="rounded bg-zinc-100 px-0.5">JSON.parse(...)</code> for å inspisere objekter per ukedag.
+                      </p>
+                      <div className="grid gap-2 sm:grid-cols-2">
+                        <div>
+                          <p className="mb-0.5 font-medium text-zinc-700">Parsed snapshot (per dag)</p>
+                          <pre className="max-h-36 overflow-auto rounded-md border border-zinc-200 bg-white p-2 text-[10px] font-mono whitespace-pre-wrap text-zinc-800">
+                            {schoolImportDebugPanel.snapshotLines}
+                          </pre>
+                        </div>
+                        <div>
+                          <p className="mb-0.5 font-medium text-zinc-700">Nåværende draft (per dag)</p>
+                          <pre className="max-h-36 overflow-auto rounded-md border border-zinc-200 bg-white p-2 text-[10px] font-mono whitespace-pre-wrap text-zinc-800">
+                            {schoolImportDebugPanel.draftLines}
+                          </pre>
+                        </div>
+                      </div>
+                      <details className="rounded-md border border-zinc-200 bg-white/70">
+                        <summary className="cursor-pointer px-2 py-1.5 text-[11px] font-medium text-zinc-700">
+                          Full JSON: snapshot vs draft
+                        </summary>
+                        <div className="grid max-h-56 gap-2 overflow-hidden border-t border-zinc-100 p-2 sm:grid-cols-2">
+                          <pre className="max-h-52 overflow-auto rounded border border-zinc-100 bg-zinc-50/80 p-2 text-[9px] font-mono leading-tight whitespace-pre-wrap text-zinc-800">
+                            {schoolImportDebugPanel.snapshot}
+                          </pre>
+                          <pre className="max-h-52 overflow-auto rounded border border-zinc-100 bg-zinc-50/80 p-2 text-[9px] font-mono leading-tight whitespace-pre-wrap text-zinc-800">
+                            {schoolImportDebugPanel.draftJson}
+                          </pre>
+                        </div>
+                      </details>
+                      <p className="text-[10px] text-zinc-500">
+                        I «Enkel dag» kan skjemaet vise gate-tider i feltene når modellen mangler schoolStart/schoolEnd —
+                        det er visningsfallback til du lagrer endring; sjekk JSON over for faktiske feltverdier.
+                      </p>
+                    </div>
+                  </details>
                 ) : null}
                 <div className="max-h-[min(50vh,420px)] overflow-y-auto overscroll-y-contain pr-1">
                   <SchoolProfileFields value={schoolReview.draft} onChange={setSchoolProfileDraft} />
