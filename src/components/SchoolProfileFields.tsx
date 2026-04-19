@@ -5,6 +5,8 @@ import {
   DEFAULT_SCHOOL_GATE_BY_BAND,
   GRADE_BAND_LABELS,
   SUBJECTS_BY_BAND,
+  isKnownSubjectKeyForBand,
+  subjectLabelForKey,
 } from '../data/norwegianSubjects'
 
 const WD_LABELS: Record<WeekdayMonFri, string> = {
@@ -270,6 +272,12 @@ export function SchoolProfileFields({ value, onChange }: SchoolProfileFieldsProp
                         }}
                         className="min-h-10 min-w-0 flex-1 rounded border border-zinc-200 px-2 py-1 text-[12px]"
                       >
+                        {!isKnownSubjectKeyForBand(band, L.subjectKey) ? (
+                          <option value={L.subjectKey}>
+                            {subjectLabelForKey(band, L.subjectKey, L.customLabel)}{' '}
+                            (fra import)
+                          </option>
+                        ) : null}
                         {subjects.map((s) => (
                           <option key={s.key} value={s.key}>
                             {s.label}

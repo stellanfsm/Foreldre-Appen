@@ -15,6 +15,7 @@ import type {
   SchoolLessonSlot,
   WeekdayMonFri,
 } from '../types'
+import { resolveSubjectKey } from './schoolContext'
 
 function isRecord(x: unknown): x is Record<string, unknown> {
   return typeof x === 'object' && x !== null && !Array.isArray(x)
@@ -54,7 +55,9 @@ function parseHmOptional(x: unknown, fieldPath: string): string | undefined {
 
 function parseLessonSlot(raw: unknown, idx: number, wdLabel: string): SchoolLessonSlot {
   if (!isRecord(raw)) throw new Error(`Ugyldig svar: weekdays[${wdLabel}].lessons[${idx}]`)
-  const subjectKey = asString(raw.subjectKey, `weekdays[${wdLabel}].lessons[${idx}].subjectKey`)
+  const rawSubjectKey = asString(raw.subjectKey, `weekdays[${wdLabel}].lessons[${idx}].subjectKey`)
+  const resolved = resolveSubjectKey(rawSubjectKey)
+  const subjectKey = resolved.subjectKey ?? rawSubjectKey.trim()
   const start = parseHmRequired(raw.start, `weekdays[${wdLabel}].lessons[${idx}].start`)
   const end = parseHmRequired(raw.end, `weekdays[${wdLabel}].lessons[${idx}].end`)
   const customLabel = asOptionalString(raw.customLabel)

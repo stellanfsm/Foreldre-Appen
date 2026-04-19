@@ -30,6 +30,50 @@ describe('parseChildSchoolProfile', () => {
     expect(p.weekdays[0]?.lessons?.[0]?.subjectKey).toBe('matematikk')
   })
 
+  it('normaliserer subjectKey som finnes i alias (f.eks. kroppsoving → kroppsøving)', () => {
+    const p = parseChildSchoolProfile(
+      {
+        gradeBand: '5-7',
+        weekdays: {
+          0: {
+            useSimpleDay: false,
+            lessons: [
+              {
+                subjectKey: 'kroppsoving',
+                start: '08:15',
+                end: '09:45',
+                customLabel: 'Kroppsøving',
+              },
+            ],
+          },
+        },
+      },
+      'test'
+    )
+    expect(p.weekdays[0]?.lessons?.[0]?.subjectKey).toBe('kroppsøving')
+    expect(p.weekdays[0]?.lessons?.[0]?.customLabel).toBe('Kroppsøving')
+  })
+
+  it('bevarer ukjente subjectKey som ikke har alias (f.eks. k_og_h)', () => {
+    const p = parseChildSchoolProfile(
+      {
+        gradeBand: '5-7',
+        weekdays: {
+          4: {
+            useSimpleDay: false,
+            lessons: [
+              { subjectKey: 'k_og_h', start: '10:00', end: '11:00', customLabel: 'K&H' },
+              { subjectKey: 'utv', start: '12:00', end: '13:00', customLabel: 'UTV' },
+            ],
+          },
+        },
+      },
+      'test'
+    )
+    expect(p.weekdays[4]?.lessons?.[0]?.subjectKey).toBe('k_og_h')
+    expect(p.weekdays[4]?.lessons?.[1]?.subjectKey).toBe('utv')
+  })
+
   it('avviser ugyldig gradeBand', () => {
     expect(() =>
       parseChildSchoolProfile({ gradeBand: 'vg99', weekdays: {} }, 'x')

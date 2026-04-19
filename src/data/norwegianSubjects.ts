@@ -108,6 +108,12 @@ export const SUBJECTS_BY_BAND: Record<NorwegianGradeBand, SubjectOption[]> = {
 /** Lesson uses `customLabel` when subjectKey is this */
 export const CUSTOM_SUBJECT_KEY = 'custom'
 
+/** Om `subjectKey` finnes i faglisten for valgt trinn (eller er «Annet fag»-nøkkelen). */
+export function isKnownSubjectKeyForBand(band: NorwegianGradeBand, key: string): boolean {
+  if (key === CUSTOM_SUBJECT_KEY) return true
+  return SUBJECTS_BY_BAND[band].some((s) => s.key === key)
+}
+
 export function subjectLabelForKey(band: NorwegianGradeBand, key: string, customLabel?: string): string {
   if (key === CUSTOM_SUBJECT_KEY) return (customLabel?.trim() || 'Annet fag')
   if (customLabel?.trim()) return customLabel.trim()
