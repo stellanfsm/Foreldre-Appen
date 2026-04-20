@@ -461,15 +461,6 @@ export function SchoolProfileFields({ value, onChange }: SchoolProfileFieldsProp
                           </button>
                         </div>
                       )}
-                      {L.subjectKey === CUSTOM_SUBJECT_KEY && (
-                        <input
-                          type="text"
-                          value={L.customLabel ?? ''}
-                          onChange={(e) => updateLesson(wd, i, { customLabel: e.target.value })}
-                          placeholder="Skriv inn fagnavn"
-                          className="w-full rounded border border-zinc-200 px-2 py-1.5 text-[12px]"
-                        />
-                      )}
                     </div>
                   ))}
                   <div className="flex items-center justify-between">
