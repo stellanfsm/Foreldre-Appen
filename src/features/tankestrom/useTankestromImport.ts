@@ -446,7 +446,16 @@ export function useTankestromImport({
   }, [])
 
   const setSchoolProfileDraft = useCallback((next: ChildSchoolProfile) => {
-    setSchoolReview((prev) => (prev ? { ...prev, draft: next } : null))
+    setSchoolReview((prev) => {
+      if (!prev) return null
+      if (import.meta.env.DEV || import.meta.env.VITE_DEBUG_SCHOOL_IMPORT === 'true') {
+        console.debug('[school import draft update]', {
+          before: prev.draft,
+          after: next,
+        })
+      }
+      return { ...prev, draft: next }
+    })
   }, [])
 
   const setProposalImportKind = useCallback(

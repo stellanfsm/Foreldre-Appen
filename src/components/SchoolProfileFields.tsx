@@ -40,10 +40,21 @@ export function SchoolProfileFields({ value, onChange }: SchoolProfileFieldsProp
   const subjects = useMemo(() => SUBJECTS_BY_BAND[band], [band])
   const defaultLessonMinutes = band.startsWith('vg') ? 45 : 60
   const lessonStartRefs = useRef<Record<string, HTMLInputElement | null>>({})
+  const debugSchoolImport = import.meta.env.DEV || import.meta.env.VITE_DEBUG_SCHOOL_IMPORT === 'true'
+  const harmonizeRunRef = useRef(0)
 
   useEffect(() => {
+    harmonizeRunRef.current += 1
+    const runId = harmonizeRunRef.current
     let changed = false
     const nextWeekdays = { ...value.weekdays }
+
+    if (debugSchoolImport) {
+      console.debug('[school import harmonize] run:start', {
+        runId,
+        band,
+      })
+    }
 
     for (const wd of [0, 1, 2, 3, 4] as WeekdayMonFri[]) {
       const plan = value.weekdays[wd]
@@ -56,6 +67,15 @@ export function SchoolProfileFields({ value, onChange }: SchoolProfileFieldsProp
         const custom = lesson.customLabel?.trim()
         if (!custom || lesson.subjectKey === CUSTOM_SUBJECT_KEY) continue
         const inferred = matchSubjectFromText(band, custom)
+        if (debugSchoolImport) {
+          console.debug('[school import harmonize] lesson:check', {
+            runId,
+            weekday: wd,
+            lessonIndex: i,
+            before: { subjectKey: lesson.subjectKey, customLabel: lesson.customLabel },
+            match: inferred,
+          })
+        }
         if (!inferred || inferred.subjectKey === lesson.subjectKey) continue
 
         // Import kan sette faktisk fag i customLabel (f.eks. "Valgfag") mens subjectKey er feil.
@@ -65,11 +85,12 @@ export function SchoolProfileFields({ value, onChange }: SchoolProfileFieldsProp
         if (inferred.matchType === 'exact') {
           lesson.customLabel = undefined
         }
-        if (import.meta.env.DEV || import.meta.env.VITE_DEBUG_SCHOOL_IMPORT === 'true') {
-          console.debug('[school import harmonize lesson]', {
+        if (debugSchoolImport) {
+          console.debug('[school import harmonize] lesson:apply', {
+            runId,
             weekday: wd,
             lessonIndex: i,
-            matchType: inferred.matchType,
+            match: inferred,
             before,
             after: { subjectKey: lesson.subjectKey, customLabel: lesson.customLabel },
           })
@@ -84,9 +105,50 @@ export function SchoolProfileFields({ value, onChange }: SchoolProfileFieldsProp
     }
 
     if (changed) {
+      if (debugSchoolImport) {
+        console.debug('[school import harmonize] run:commit', {
+          runId,
+          weekdays: nextWeekdays,
+        })
+      }
       onChange({ ...value, weekdays: nextWeekdays })
+    } else if (debugSchoolImport) {
+      console.debug('[school import harmonize] run:no-change', { runId })
     }
-  }, [band, onChange, value])
+  }, [band, debugSchoolImport, onChange, value])
+
+  useEffect(() => {
+    if (!debugSchoolImport) return
+    const mismatches: Array<{
+      weekday: WeekdayMonFri
+      lessonIndex: number
+      subjectKey: string
+      customLabel?: string
+      match: ReturnType<typeof matchSubjectFromText>
+    }> = []
+    for (const wd of [0, 1, 2, 3, 4] as WeekdayMonFri[]) {
+      const plan = value.weekdays[wd]
+      if (!plan || plan.useSimpleDay || !plan.lessons?.length) continue
+      for (let i = 0; i < plan.lessons.length; i++) {
+        const lesson = plan.lessons[i]!
+        const custom = lesson.customLabel?.trim()
+        if (!custom || lesson.subjectKey === CUSTOM_SUBJECT_KEY) continue
+        const match = matchSubjectFromText(band, custom)
+        if (match && match.subjectKey !== lesson.subjectKey) {
+          mismatches.push({
+            weekday: wd,
+            lessonIndex: i,
+            subjectKey: lesson.subjectKey,
+            customLabel: lesson.customLabel,
+            match,
+          })
+        }
+      }
+    }
+    if (mismatches.length > 0) {
+      console.debug('[school import harmonize] render:mismatches-still-visible', mismatches)
+    }
+  }, [band, debugSchoolImport, value])
 
   function setBand(next: NorwegianGradeBand) {
     onChange({ ...value, gradeBand: next })
