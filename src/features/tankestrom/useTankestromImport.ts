@@ -453,6 +453,9 @@ export function useTankestromImport({
           before: prev.draft,
           after: next,
         })
+        // #region agent log
+        fetch('http://127.0.0.1:7535/ingest/049b3e24-eef8-4d09-b78d-4e257b02a969',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'4d90a0'},body:JSON.stringify({sessionId:'4d90a0',runId:'school-review-trace-v1',hypothesisId:'H4',location:'useTankestromImport.ts:452',message:'setSchoolProfileDraft called',data:{before:prev.draft,after:next},timestamp:Date.now()})}).catch(()=>{})
+        // #endregion
       }
       return { ...prev, draft: next }
     })
@@ -520,6 +523,9 @@ export function useTankestromImport({
             meta: { confidence: primary.confidence, originalSourceType: primary.originalSourceType },
             parsedProfileSnapshotJson,
           })
+          // #region agent log
+          fetch('http://127.0.0.1:7535/ingest/049b3e24-eef8-4d09-b78d-4e257b02a969',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'4d90a0'},body:JSON.stringify({sessionId:'4d90a0',runId:'school-review-trace-v1',hypothesisId:'H1',location:'useTankestromImport.ts:518',message:'setSchoolReview from parsed snapshot (text mode)',data:{gradeBand:primary.schoolProfile.gradeBand,weekdays:primary.schoolProfile.weekdays},timestamp:Date.now()})}).catch(()=>{})
+          // #endregion
           if (import.meta.env.VITE_DEBUG_SCHOOL_IMPORT === 'true') {
             console.debug('[tankestrom school import] text path: parsed profile (etter API)', {
               gradeBand: primary.schoolProfile.gradeBand,
@@ -600,6 +606,9 @@ export function useTankestromImport({
           meta: { confidence: primary.confidence, originalSourceType: primary.originalSourceType },
           parsedProfileSnapshotJson,
         })
+        // #region agent log
+        fetch('http://127.0.0.1:7535/ingest/049b3e24-eef8-4d09-b78d-4e257b02a969',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'4d90a0'},body:JSON.stringify({sessionId:'4d90a0',runId:'school-review-trace-v1',hypothesisId:'H1',location:'useTankestromImport.ts:598',message:'setSchoolReview from parsed snapshot (file mode)',data:{gradeBand:primary.schoolProfile.gradeBand,weekdays:primary.schoolProfile.weekdays},timestamp:Date.now()})}).catch(()=>{})
+        // #endregion
         if (import.meta.env.VITE_DEBUG_SCHOOL_IMPORT === 'true') {
           console.debug('[tankestrom school import] file path: parsed profile (etter API)', {
             gradeBand: primary.schoolProfile.gradeBand,
