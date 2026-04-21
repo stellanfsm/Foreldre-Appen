@@ -471,15 +471,6 @@ export function TankestromImportDialog({
     () => (schoolReview ? detectLessonConflicts(schoolReview.draft) : []),
     [schoolReview?.draft]
   )
-  const schoolReviewModeLines = useMemo(() => {
-    if (!schoolReview) return []
-    return ([0, 1, 2, 3, 4] as WeekdayMonFri[]).map((wd) => {
-      const plan = schoolReview.draft.weekdays[wd]
-      const mode = plan?.useSimpleDay !== false || !plan?.lessons?.length ? 'simple' : 'lessons'
-      const dayName = WD_LABEL_NB[wd] ?? `Dag ${wd}`
-      return `${dayName}: ${mode}`
-    })
-  }, [schoolReview])
 
   const schoolImportDebugPanel = useMemo(() => {
     if (!schoolReview || !DEBUG_SCHOOL_IMPORT_PANEL) return null
@@ -796,12 +787,6 @@ export function TankestromImportDialog({
                     )
                   })()}
                 </p>
-                <div className="mb-2 rounded-lg border border-violet-200 bg-violet-50 px-2 py-1.5 text-[10px] leading-snug text-violet-950">
-                  <p className="font-semibold">
-                    Debug: schoolReview-branch aktiv · SchoolProfileFields rendres under
-                  </p>
-                  <p className="mt-0.5">{schoolReviewModeLines.join(' · ')}</p>
-                </div>
                 {schoolLessonConflicts.length > 0 ? (
                   <div className="mb-3 rounded-xl border border-amber-300/80 bg-amber-50 px-3 py-3">
                     <p className="text-[12px] font-semibold text-amber-950">Velg spor (parallelle timer)</p>

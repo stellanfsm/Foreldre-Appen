@@ -275,11 +275,6 @@ export function SchoolProfileFields({ value, onChange }: SchoolProfileFieldsProp
 
   return (
     <div className="space-y-3 rounded-xl border border-zinc-200 bg-white/80 px-3 py-3 md:px-4 md:py-4">
-      {(import.meta.env.DEV || import.meta.env.VITE_DEBUG_SCHOOL_IMPORT === 'true') && (
-        <p className="rounded border border-violet-200 bg-violet-50 px-2 py-1 text-[10px] text-violet-950">
-          Debug: SchoolProfileFields aktiv · mobil-layout styres av base-klasser (uten md:)
-        </p>
-      )}
       <p className="text-[12px] font-medium text-zinc-800">Skolerute (bakgrunn)</p>
       <p className="text-[11px] leading-relaxed text-zinc-600">
         Basert på typiske tider i norsk grunnskole (LK20) — tilpass lokalt. Vises svakt; avtaler og hendelser
@@ -385,67 +380,69 @@ export function SchoolProfileFields({ value, onChange }: SchoolProfileFieldsProp
                     Neste time foreslås fra forrige sluttid. Standard varighet: {defaultLessonMinutes} min.
                   </p>
                   {(plan?.lessons ?? []).map((L, i) => (
-                    <div key={i} className="flex flex-col gap-1">
-                      <div className="flex flex-wrap items-center gap-2">
-                      <select
-                        value={L.subjectKey === CUSTOM_SUBJECT_KEY ? CUSTOM_SUBJECT_KEY : L.subjectKey}
-                        onChange={(e) => {
-                          const v = e.target.value
-                          if (v === L.subjectKey) return
-                          if (v === CUSTOM_SUBJECT_KEY) {
-                            updateLesson(wd, i, {
-                              subjectKey: CUSTOM_SUBJECT_KEY,
-                              customLabel: L.customLabel ?? '',
-                            })
-                          } else {
-                            updateLesson(wd, i, { subjectKey: v, customLabel: undefined })
-                          }
-                        }}
-                        className="min-h-10 min-w-0 basis-full rounded border border-zinc-200 px-2 py-1 text-[12px] md:basis-auto md:flex-1"
-                      >
-                        {!isKnownSubjectKeyForBand(band, L.subjectKey) ? (
-                          <option value={L.subjectKey}>
-                            {subjectLabelForKey(band, L.subjectKey, L.customLabel)}{' '}
-                            (fra import)
-                          </option>
-                        ) : null}
-                        {subjects.map((s) => (
-                          <option key={s.key} value={s.key}>
-                            {s.label}
-                          </option>
-                        ))}
-                        <option value={CUSTOM_SUBJECT_KEY}>Annet fag…</option>
-                      </select>
-                      <input
-                        type="time"
-                        step={60}
-                        value={L.start}
-                        onChange={(e) => updateLesson(wd, i, { start: e.target.value })}
-                        ref={(el) => {
-                          lessonStartRefs.current[`${wd}-${i}-start`] = el
-                        }}
-                        className="h-10 w-[90px] rounded border border-zinc-200 px-2 py-1 text-[12px] md:w-[116px]"
-                      />
-                      <input
-                        type="time"
-                        step={60}
-                        value={L.end}
-                        onChange={(e) => {
-                          updateLesson(wd, i, { end: e.target.value })
-                          const nextKey = `${wd}-${i + 1}-start`
-                          window.requestAnimationFrame(() => {
-                            lessonStartRefs.current[nextKey]?.focus()
-                          })
-                        }}
-                        className="h-10 w-[90px] rounded border border-zinc-200 px-2 py-1 text-[12px] md:w-[116px]"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => removeLesson(wd, i)}
-                        className="ml-auto inline-flex h-9 min-w-9 items-center justify-center rounded-full border border-red-200 px-2 text-[13px] font-semibold text-red-600 md:ml-0"
-                      >
-                        ×
-                      </button>
+                    <div key={i} className="flex flex-col gap-1.5">
+                      <div className="flex flex-col gap-1.5 md:flex-row md:items-center md:gap-2">
+                        <select
+                          value={L.subjectKey === CUSTOM_SUBJECT_KEY ? CUSTOM_SUBJECT_KEY : L.subjectKey}
+                          onChange={(e) => {
+                            const v = e.target.value
+                            if (v === L.subjectKey) return
+                            if (v === CUSTOM_SUBJECT_KEY) {
+                              updateLesson(wd, i, {
+                                subjectKey: CUSTOM_SUBJECT_KEY,
+                                customLabel: L.customLabel ?? '',
+                              })
+                            } else {
+                              updateLesson(wd, i, { subjectKey: v, customLabel: undefined })
+                            }
+                          }}
+                          className="min-h-10 w-full min-w-0 rounded border border-zinc-200 px-2 py-1 text-[12px] md:flex-1"
+                        >
+                          {!isKnownSubjectKeyForBand(band, L.subjectKey) ? (
+                            <option value={L.subjectKey}>
+                              {subjectLabelForKey(band, L.subjectKey, L.customLabel)}{' '}
+                              (fra import)
+                            </option>
+                          ) : null}
+                          {subjects.map((s) => (
+                            <option key={s.key} value={s.key}>
+                              {s.label}
+                            </option>
+                          ))}
+                          <option value={CUSTOM_SUBJECT_KEY}>Annet fag…</option>
+                        </select>
+                        <div className="flex min-w-0 flex-nowrap items-center gap-1.5">
+                          <input
+                            type="time"
+                            step={60}
+                            value={L.start}
+                            onChange={(e) => updateLesson(wd, i, { start: e.target.value })}
+                            ref={(el) => {
+                              lessonStartRefs.current[`${wd}-${i}-start`] = el
+                            }}
+                            className="h-9 w-[4.75rem] shrink-0 rounded border border-zinc-200 px-1 py-1 text-[11px] tabular-nums md:h-10 md:w-[108px] md:px-2 md:text-[12px]"
+                          />
+                          <input
+                            type="time"
+                            step={60}
+                            value={L.end}
+                            onChange={(e) => {
+                              updateLesson(wd, i, { end: e.target.value })
+                              const nextKey = `${wd}-${i + 1}-start`
+                              window.requestAnimationFrame(() => {
+                                lessonStartRefs.current[nextKey]?.focus()
+                              })
+                            }}
+                            className="h-9 w-[4.75rem] shrink-0 rounded border border-zinc-200 px-1 py-1 text-[11px] tabular-nums md:h-10 md:w-[108px] md:px-2 md:text-[12px]"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => removeLesson(wd, i)}
+                            className="ml-auto inline-flex h-9 min-w-9 shrink-0 items-center justify-center rounded-full border border-red-200 px-2 text-[13px] font-semibold text-red-600 md:ml-0"
+                          >
+                            ×
+                          </button>
+                        </div>
                       </div>
                       {i < (plan?.lessons?.length ?? 0) - 1 && (
                         <div className="flex items-center gap-1.5">
