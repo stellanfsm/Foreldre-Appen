@@ -1,5 +1,16 @@
+import { useMemo, useState } from 'react'
 import { motion } from 'framer-motion'
-import type { ChildSchoolDayPlan, Event, Person, SchoolContext, SchoolLessonSlot, Task, WeekdayMonFri } from '../types'
+import type {
+  ChildSchoolDayPlan,
+  Event,
+  Person,
+  SchoolContext,
+  SchoolLessonSlot,
+  SchoolWeekOverlayDayAction,
+  SchoolWeekOverlaySubjectUpdate,
+  Task,
+  WeekdayMonFri,
+} from '../types'
 import { springDialog } from '../lib/motion'
 import { sheetPanel, sheetHandle, sheetHandleBar, sheetDetailBody, typSectionCap, btnRowAction } from '../lib/ui'
 import { useFamily } from '../context/FamilyContext'
@@ -43,6 +54,169 @@ interface BackgroundDetailSheetProps {
 interface SchoolItemEntry {
   event: Event
   ctx: SchoolContext
+}
+
+type OverlaySectionKey =
+  | 'iTimen'
+  | 'lekse'
+  | 'huskTaMed'
+  | 'proveVurdering'
+  | 'ressurser'
+  | 'ekstraBeskjed'
+
+const OVERLAY_SECTION_LABELS: Record<OverlaySectionKey, string> = {
+  iTimen: 'I timen',
+  lekse: 'Lekse',
+  huskTaMed: 'Husk / ta med',
+  proveVurdering: 'Prøve / vurdering',
+  ressurser: 'Ressurser',
+  ekstraBeskjed: 'Ekstra beskjed',
+}
+
+const OVERLAY_SECTION_KEYS: OverlaySectionKey[] = [
+  'iTimen',
+  'lekse',
+  'huskTaMed',
+  'proveVurdering',
+  'ressurser',
+  'ekstraBeskjed',
+]
+
+function normalizeOverlayDayAction(event: Event): SchoolWeekOverlayDayAction | null {
+  const raw = event.metadata?.schoolWeekOverlayDay
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null
+  const candidate = raw as Partial<SchoolWeekOverlayDayAction>
+  if (
+    candidate.action !== 'replace_school_block' &&
+    candidate.action !== 'remove_school_block' &&
+    candidate.action !== 'enrich_existing_school_block' &&
+    candidate.action !== 'none'
+  ) {
+    return null
+  }
+  const updates = Array.isArray(candidate.subjectUpdates)
+    ? candidate.subjectUpdates.filter((u): u is SchoolWeekOverlaySubjectUpdate => !!u && typeof u === 'object')
+    : []
+  return {
+    action: candidate.action,
+    reason: candidate.reason,
+    summary: candidate.summary,
+    subjectUpdates: updates,
+  }
+}
+
+function normalizeOverlayMeta(event: Event): { overlayId: string; weekYear: number; weekNumber: number; dayIndex: number } | null {
+  const raw = event.metadata?.schoolWeekOverlayMeta
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null
+  const candidate = raw as Partial<{ overlayId: string; weekYear: number; weekNumber: number; dayIndex: number }>
+  if (!candidate.overlayId || typeof candidate.overlayId !== 'string') return null
+  if (
+    typeof candidate.weekYear !== 'number' ||
+    typeof candidate.weekNumber !== 'number' ||
+    typeof candidate.dayIndex !== 'number'
+  ) {
+    return null
+  }
+  return {
+    overlayId: candidate.overlayId,
+    weekYear: candidate.weekYear,
+    weekNumber: candidate.weekNumber,
+    dayIndex: candidate.dayIndex,
+  }
+}
+
+function overlayUpdatesForLesson(
+  lesson: SchoolLessonSlot | undefined,
+  updates: SchoolWeekOverlaySubjectUpdate[]
+): Array<{ update: SchoolWeekOverlaySubjectUpdate; updateIndex: number }> {
+  if (!lesson) return []
+  const lessonCustom = (lesson.customLabel ?? '').trim().toLocaleLowerCase('nb-NO')
+  return updates
+    .map((u, idx) => ({ update: u, updateIndex: idx }))
+    .filter(({ update: u }) => {
+      if (u.subjectKey !== lesson.subjectKey) return false
+      const custom = (u.customLabel ?? '').trim().toLocaleLowerCase('nb-NO')
+      if (!custom || !lessonCustom) return true
+      return custom === lessonCustom
+    })
+}
+
+function normalizeSectionsForEdit(
+  sections: Record<string, string[]> | undefined
+): Partial<Record<OverlaySectionKey, string>> {
+  const out: Partial<Record<OverlaySectionKey, string>> = {}
+  for (const key of OVERLAY_SECTION_KEYS) {
+    const lines = sections?.[key] ?? []
+    if (lines.length > 0) out[key] = lines.join('\n')
+  }
+  return out
+}
+
+function splitSectionTextToLines(text: string): string[] {
+  return text
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0)
+}
+
+function sectionKeysWithData(sections: Partial<Record<OverlaySectionKey, string>>): OverlaySectionKey[] {
+  return OVERLAY_SECTION_KEYS.filter((k) => (sections[k] ?? '').trim().length > 0)
+}
+
+function sectionKeysMissing(sections: Partial<Record<OverlaySectionKey, string>>): OverlaySectionKey[] {
+  const shown = new Set(sectionKeysWithData(sections))
+  return OVERLAY_SECTION_KEYS.filter((k) => !shown.has(k))
+}
+
+function sectionsForReadOnly(
+  sections: Record<string, string[]> | undefined
+): Array<{ key: OverlaySectionKey; lines: string[] }> {
+  const out: Array<{ key: OverlaySectionKey; lines: string[] }> = []
+  for (const key of OVERLAY_SECTION_KEYS) {
+    const lines = (sections?.[key] ?? []).filter((line) => line.trim().length > 0)
+    if (lines.length > 0) out.push({ key, lines })
+  }
+  return out
+}
+
+function updateOverlaySectionsOnPerson(
+  person: Person,
+  overlayMeta: { overlayId: string; weekYear: number; weekNumber: number; dayIndex: number },
+  subjectUpdateIndex: number,
+  sections: Partial<Record<OverlaySectionKey, string>>
+): Person['school'] | null {
+  const school = person.school
+  if (!school?.weekOverlays?.length) return null
+  const nextOverlays = school.weekOverlays.map((overlay) => {
+    if (overlay.id !== overlayMeta.overlayId) return overlay
+    if (overlay.weekYear !== overlayMeta.weekYear || overlay.weekNumber !== overlayMeta.weekNumber) return overlay
+    const dayAction = overlay.dailyActions[overlayMeta.dayIndex]
+    if (!dayAction) return overlay
+    const nextSubjectUpdates = dayAction.subjectUpdates.map((u, idx) => {
+      if (idx !== subjectUpdateIndex) return u
+      const mappedSections: Record<string, string[]> = {}
+      for (const sectionKey of OVERLAY_SECTION_KEYS) {
+        const text = sections[sectionKey] ?? ''
+        const lines = splitSectionTextToLines(text)
+        if (lines.length > 0) mappedSections[sectionKey] = lines
+      }
+      return {
+        ...u,
+        sections: Object.keys(mappedSections).length > 0 ? mappedSections : undefined,
+      }
+    })
+    return {
+      ...overlay,
+      dailyActions: {
+        ...overlay.dailyActions,
+        [overlayMeta.dayIndex]: {
+          ...dayAction,
+          subjectUpdates: nextSubjectUpdates,
+        },
+      },
+    }
+  })
+  return { ...school, weekOverlays: nextOverlays }
 }
 
 type TimeRow = {
@@ -132,7 +306,7 @@ export function BackgroundDetailSheet({
   onResolveConflict,
   onClose,
 }: BackgroundDetailSheetProps) {
-  const { people } = useFamily()
+  const { people, updatePerson } = useFamily()
   if (!event) return null
 
   const person = people.find((p) => p.id === event.personId)
@@ -171,6 +345,22 @@ export function BackgroundDetailSheet({
   const relevantForeground = foregroundEvents.sort((a, b) => a.start.localeCompare(b.start))
 
   const schoolPlan = isSchool ? getSchoolDayPlan(person, date) : undefined
+  const weekOverlayDayAction = isSchool ? normalizeOverlayDayAction(event) : null
+  const weekOverlayMeta = isSchool ? normalizeOverlayMeta(event) : null
+  const weekOverlaySummaryLines = useMemo(() => {
+    if (!person.school?.weekOverlays?.length || !weekOverlayMeta) return []
+    const overlay = person.school.weekOverlays.find(
+      (w) =>
+        w.id === weekOverlayMeta.overlayId &&
+        w.weekYear === weekOverlayMeta.weekYear &&
+        w.weekNumber === weekOverlayMeta.weekNumber
+    )
+    return (overlay?.weeklySummary ?? []).filter((line) => line.trim().length > 0).slice(0, 3)
+  }, [person.school?.weekOverlays, weekOverlayMeta])
+  const [editingOverlayKey, setEditingOverlayKey] = useState<string | null>(null)
+  const [overlayDraftSections, setOverlayDraftSections] = useState<Partial<Record<OverlaySectionKey, string>>>({})
+  const [overlaySaveError, setOverlaySaveError] = useState<string | null>(null)
+  const [overlaySaving, setOverlaySaving] = useState(false)
   const schoolItems: SchoolItemEntry[] = isSchool
     ? (dayEvents ?? foregroundEvents)
         .filter((ev) => ev.personId === person.id)
@@ -228,6 +418,16 @@ export function BackgroundDetailSheet({
                 </span>
               ) : null}
             </div>
+            {isSchool && weekOverlaySummaryLines.length > 0 ? (
+              <div className="mt-2 rounded-lg border border-indigo-200 bg-indigo-50/60 px-2.5 py-2">
+                <p className="text-[10px] font-semibold uppercase tracking-wide text-indigo-900">Ukeoppsummering</p>
+                <ul className="mt-1 list-disc space-y-0.5 pl-4 text-[11px] text-indigo-950">
+                  {weekOverlaySummaryLines.map((line, idx) => (
+                    <li key={`${line}-${idx}`}>{line}</li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
 
             <div className="mt-4 space-y-2">
               {rows.map((r, idx) => {
@@ -262,6 +462,150 @@ export function BackgroundDetailSheet({
                           </li>
                         ))}
                       </ul>
+                    ) : null}
+                    {isSchool && weekOverlayDayAction?.subjectUpdates?.length ? (
+                      <div className="mt-2 rounded-lg border border-indigo-200 bg-indigo-50/70 p-2">
+                        <p className="text-[10px] font-semibold uppercase tracking-wide text-indigo-900">Uke-overlay</p>
+                        {overlayUpdatesForLesson(r.lesson, weekOverlayDayAction.subjectUpdates).length > 0 ? (
+                          <ul className="mt-1 space-y-1">
+                            {overlayUpdatesForLesson(r.lesson, weekOverlayDayAction.subjectUpdates).map(
+                              ({ update, updateIndex }) => {
+                                const itemKey = `${idx}-${updateIndex}-${update.subjectKey}`
+                                const inEdit = editingOverlayKey === itemKey
+                                const draft =
+                                  inEdit && Object.keys(overlayDraftSections).length > 0
+                                    ? overlayDraftSections
+                                    : normalizeSectionsForEdit(update.sections)
+                                const shownSections = sectionKeysWithData(draft)
+                                const readOnlySections = sectionsForReadOnly(update.sections)
+                                const missing = sectionKeysMissing(draft)
+                                return (
+                                  <li key={itemKey} className="rounded-md border border-indigo-200 bg-white/85 px-2 py-1.5 text-[11px] text-indigo-950">
+                                    <div className="flex items-center justify-between gap-2">
+                                      <p className="font-medium">
+                                        {update.customLabel ? `${update.customLabel} (${update.subjectKey})` : update.subjectKey}
+                                      </p>
+                                      {!inEdit ? (
+                                        <button
+                                          type="button"
+                                          className="rounded border border-indigo-300 bg-white px-2 py-0.5 text-[10px] font-semibold text-indigo-900"
+                                          onClick={() => {
+                                            setEditingOverlayKey(itemKey)
+                                            setOverlayDraftSections(normalizeSectionsForEdit(update.sections))
+                                            setOverlaySaveError(null)
+                                          }}
+                                        >
+                                          Rediger
+                                        </button>
+                                      ) : null}
+                                    </div>
+                                    {!inEdit ? (
+                                      readOnlySections.length > 0 ? (
+                                        <ul className="mt-1 space-y-1">
+                                          {readOnlySections.map(({ key, lines }) => (
+                                            <li key={key}>
+                                              <p className="font-medium text-indigo-900">{OVERLAY_SECTION_LABELS[key]}</p>
+                                              <ul className="list-disc pl-4 text-indigo-900">
+                                                {lines.map((line, i) => (
+                                                  <li key={`${key}-${i}`}>{line}</li>
+                                                ))}
+                                              </ul>
+                                            </li>
+                                          ))}
+                                        </ul>
+                                      ) : (
+                                        <p className="mt-1 text-[11px] text-indigo-900/80">Ingen seksjoner registrert.</p>
+                                      )
+                                    ) : (
+                                      <div className="mt-1.5 space-y-1.5">
+                                        {shownSections.map((key) => (
+                                          <label key={key} className="block">
+                                            <span className="mb-0.5 block text-[10px] font-semibold uppercase tracking-wide text-indigo-900">
+                                              {OVERLAY_SECTION_LABELS[key]}
+                                            </span>
+                                            <textarea
+                                              rows={2}
+                                              value={draft[key] ?? ''}
+                                              onChange={(e) =>
+                                                setOverlayDraftSections((prev) => ({ ...prev, [key]: e.target.value }))
+                                              }
+                                              className="w-full rounded border border-indigo-200 bg-white px-2 py-1 text-[11px] text-zinc-900"
+                                            />
+                                          </label>
+                                        ))}
+                                        {missing.length > 0 ? (
+                                          <button
+                                            type="button"
+                                            className="rounded border border-indigo-300 bg-white px-2 py-0.5 text-[10px] font-semibold text-indigo-900"
+                                            onClick={() =>
+                                              setOverlayDraftSections((prev) => ({ ...prev, [missing[0]!]: '' }))
+                                            }
+                                          >
+                                            + Legg til felt: {OVERLAY_SECTION_LABELS[missing[0]!]}
+                                          </button>
+                                        ) : null}
+                                        {overlaySaveError ? (
+                                          <p className="text-[10px] text-rose-700">{overlaySaveError}</p>
+                                        ) : null}
+                                        <div className="flex gap-1.5">
+                                          <button
+                                            type="button"
+                                            className="rounded border border-indigo-300 bg-indigo-600 px-2 py-0.5 text-[10px] font-semibold text-white disabled:opacity-60"
+                                            disabled={overlaySaving}
+                                            onClick={async () => {
+                                              if (!weekOverlayMeta) {
+                                                setOverlaySaveError('Mangler uke-overlay metadata for lagring.')
+                                                return
+                                              }
+                                              const nextSchool = updateOverlaySectionsOnPerson(
+                                                person,
+                                                weekOverlayMeta,
+                                                updateIndex,
+                                                draft
+                                              )
+                                              if (!nextSchool) {
+                                                setOverlaySaveError('Fant ikke riktig uke-overlay på barnet.')
+                                                return
+                                              }
+                                              setOverlaySaving(true)
+                                              setOverlaySaveError(null)
+                                              try {
+                                                await updatePerson(person.id, { school: nextSchool })
+                                                setEditingOverlayKey(null)
+                                              } catch (e) {
+                                                setOverlaySaveError(
+                                                  e instanceof Error ? e.message : 'Kunne ikke lagre uke-overlay.'
+                                                )
+                                              } finally {
+                                                setOverlaySaving(false)
+                                              }
+                                            }}
+                                          >
+                                            Lagre
+                                          </button>
+                                          <button
+                                            type="button"
+                                            className="rounded border border-zinc-300 bg-white px-2 py-0.5 text-[10px] font-semibold text-zinc-700"
+                                            onClick={() => {
+                                              setEditingOverlayKey(null)
+                                              setOverlayDraftSections({})
+                                              setOverlaySaveError(null)
+                                            }}
+                                          >
+                                            Avbryt
+                                          </button>
+                                        </div>
+                                      </div>
+                                    )}
+                                  </li>
+                                )
+                              }
+                            )}
+                          </ul>
+                        ) : (
+                          <p className="mt-1 text-[11px] text-indigo-900/80">Ingen fagspesifikke tillegg for denne raden.</p>
+                        )}
+                      </div>
                     ) : null}
                     {conflicts.length > 0 ? (
                       <div className="mt-2 space-y-1.5">
@@ -388,6 +732,20 @@ export function BackgroundDetailSheet({
                       </li>
                     )
                   })}
+                </ul>
+              </div>
+            ) : null}
+            {isSchool && weekOverlayDayAction?.subjectUpdates?.length ? (
+              <div className="mt-4">
+                <p className={typSectionCap}>Uke-overlay (ikke koblet til spesifikk time)</p>
+                <ul className="mt-2 space-y-1.5">
+                  {weekOverlayDayAction.subjectUpdates.map((u, idx) => (
+                    <li key={`${u.subjectKey}-${idx}`} className="rounded-lg border border-indigo-200 bg-indigo-50/70 px-2.5 py-1.5">
+                      <p className="text-[12px] font-semibold text-indigo-950">
+                        {u.customLabel ? `${u.customLabel} (${u.subjectKey})` : u.subjectKey}
+                      </p>
+                    </li>
+                  ))}
                 </ul>
               </div>
             ) : null}

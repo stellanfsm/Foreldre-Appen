@@ -243,3 +243,88 @@ describe('parsePortalImportProposalBundle — school_profile', () => {
     ).toThrow(/kan ikke kombineres/)
   })
 })
+
+describe('parsePortalImportProposalBundle — schoolWeekOverlayProposal', () => {
+  it('parser toppnivå schoolWeekOverlayProposal additivt med items[]', () => {
+    const bundle = parsePortalImportProposalBundle({
+      schemaVersion: '1.0.0',
+      provenance,
+      items: [
+        {
+          proposalId: '11111111-1111-4111-8111-111111111111',
+          kind: 'event',
+          sourceId: 'src-event-1',
+          originalSourceType: 'pdf',
+          confidence: 0.81,
+          event: {
+            date: '2026-04-08',
+            personId: 'child-1',
+            title: 'Matte',
+            start: '08:15',
+            end: '09:15',
+          },
+        },
+      ],
+      schoolWeekOverlayProposal: {
+        proposalId: '22222222-2222-4222-8222-222222222222',
+        kind: 'school_week_overlay',
+        schemaVersion: '1.0.0',
+        confidence: 0.71,
+        sourceTitle: 'A-plan uke 14 10B',
+        originalSourceType: 'pdf',
+        weekNumber: 14,
+        classLabel: '10B',
+        weeklySummary: ['Heldagsprøve torsdag', 'Fri fredag'],
+        dailyActions: {
+          3: {
+            action: 'replace_school_block',
+            reason: 'Heldagsprøve i matematikk',
+            summary: 'Heldagsprøve i matematikk',
+            subjectUpdates: [
+              {
+                subjectKey: 'matematikk',
+                customLabel: null,
+                sections: {
+                  proveVurdering: ['Heldagsprøve i matematikk'],
+                },
+              },
+            ],
+          },
+          4: {
+            action: 'remove_school_block',
+            reason: 'Fri',
+            summary: 'Fri',
+            subjectUpdates: [],
+          },
+        },
+      },
+    })
+
+    expect(bundle.items).toHaveLength(1)
+    expect(bundle.schoolWeekOverlayProposal).toBeTruthy()
+    expect(bundle.schoolWeekOverlayProposal?.kind).toBe('school_week_overlay')
+    expect(bundle.schoolWeekOverlayProposal?.weekNumber).toBe(14)
+    expect(bundle.schoolWeekOverlayProposal?.dailyActions[3]?.action).toBe('replace_school_block')
+    expect(bundle.schoolWeekOverlayProposal?.dailyActions[4]?.action).toBe('remove_school_block')
+  })
+
+  it('aksepterer overlay uten items', () => {
+    const bundle = parsePortalImportProposalBundle({
+      schemaVersion: '1.0.0',
+      provenance,
+      items: [],
+      schoolWeekOverlayProposal: {
+        proposalId: '33333333-3333-4333-8333-333333333333',
+        kind: 'school_week_overlay',
+        schemaVersion: '1.0.0',
+        confidence: 0.6,
+        originalSourceType: 'pdf',
+        weeklySummary: [],
+        dailyActions: {},
+      },
+    })
+
+    expect(bundle.items).toHaveLength(0)
+    expect(bundle.schoolWeekOverlayProposal?.proposalId).toBe('33333333-3333-4333-8333-333333333333')
+  })
+})

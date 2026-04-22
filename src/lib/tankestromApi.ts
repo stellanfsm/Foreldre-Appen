@@ -5,8 +5,12 @@ import type {
   PortalImportProvenance,
   PortalProposalItem,
   PortalSchoolProfileProposal,
+  PortalSchoolWeekOverlayProposal,
   PortalSourceSystem,
   PortalTaskProposal,
+  SchoolWeekOverlayAction,
+  SchoolWeekOverlayDailyAction,
+  SchoolWeekOverlaySubjectUpdate,
 } from '../features/tankestrom/types'
 import type {
   ChildSchoolDayPlan,
@@ -277,6 +281,135 @@ function parseTaskPayload(raw: unknown): PortalTaskProposal['task'] {
   return out
 }
 
+function parseStringArray(raw: unknown, fieldPath: string): string[] {
+  if (!Array.isArray(raw)) throw new Error(`Ugyldig svar: ${fieldPath} må være en liste`)
+  return raw
+    .map((v, idx) => {
+      if (typeof v !== 'string') throw new Error(`Ugyldig svar: ${fieldPath}[${idx}] må være tekst`)
+      return v.trim()
+    })
+    .filter((v) => v.length > 0)
+}
+
+function parseOverlaySections(raw: unknown, fieldPath: string): Record<string, string[]> | undefined {
+  if (raw == null) return undefined
+  if (!isRecord(raw)) throw new Error(`Ugyldig svar: ${fieldPath} må være et objekt`)
+  const out: Record<string, string[]> = {}
+  for (const [key, value] of Object.entries(raw)) {
+    out[key] = parseStringArray(value, `${fieldPath}.${key}`)
+  }
+  return out
+}
+
+function parseOverlaySubjectUpdate(raw: unknown, fieldPath: string): SchoolWeekOverlaySubjectUpdate {
+  if (!isRecord(raw)) throw new Error(`Ugyldig svar: ${fieldPath} må være et objekt`)
+  const out: SchoolWeekOverlaySubjectUpdate = {
+    subjectKey: asString(raw.subjectKey, `${fieldPath}.subjectKey`),
+  }
+  const customLabel = asOptionalString(raw.customLabel)
+  if (customLabel !== undefined) out.customLabel = customLabel
+  const sections = parseOverlaySections(raw.sections, `${fieldPath}.sections`)
+  if (sections) out.sections = sections
+  return out
+}
+
+function parseOverlayAction(raw: unknown, fieldPath: string): SchoolWeekOverlayAction {
+  const action = asString(raw, fieldPath)
+  if (
+    action !== 'replace_school_block' &&
+    action !== 'remove_school_block' &&
+    action !== 'enrich_existing_school_block' &&
+    action !== 'none'
+  ) {
+    throw new Error(`Ugyldig svar: ${fieldPath} har ukjent action "${action}"`)
+  }
+  return action
+}
+
+function parseOverlayDailyAction(raw: unknown, fieldPath: string): SchoolWeekOverlayDailyAction {
+  if (!isRecord(raw)) throw new Error(`Ugyldig svar: ${fieldPath} må være et objekt`)
+  const action = parseOverlayAction(raw.action, `${fieldPath}.action`)
+  const reason = asOptionalString(raw.reason)
+  const summary = asOptionalString(raw.summary)
+  const updatesRaw = raw.subjectUpdates
+  if (!Array.isArray(updatesRaw)) {
+    throw new Error(`Ugyldig svar: ${fieldPath}.subjectUpdates må være en liste`)
+  }
+  const subjectUpdates = updatesRaw.map((entry, idx) =>
+    parseOverlaySubjectUpdate(entry, `${fieldPath}.subjectUpdates[${idx}]`)
+  )
+  return { action, reason, summary, subjectUpdates }
+}
+
+function parseTopLevelSchoolWeekOverlayProposal(raw: unknown): PortalSchoolWeekOverlayProposal {
+  if (!isRecord(raw)) throw new Error('Ugyldig svar: schoolWeekOverlayProposal må være et objekt')
+  const proposalId = asString(raw.proposalId, 'schoolWeekOverlayProposal.proposalId')
+  const kind = asString(raw.kind, 'schoolWeekOverlayProposal.kind')
+  if (kind !== 'school_week_overlay') {
+    throw new Error(`Ugyldig svar: schoolWeekOverlayProposal.kind må være "school_week_overlay"`)
+  }
+  const schemaVersion = asString(raw.schemaVersion, 'schoolWeekOverlayProposal.schemaVersion')
+  if (schemaVersion !== '1.0.0') {
+    throw new Error(`Ugyldig svar: schoolWeekOverlayProposal.schemaVersion må være "1.0.0"`)
+  }
+  const confidence = asNumber01(raw.confidence, 'schoolWeekOverlayProposal.confidence')
+  const originalSourceType = asString(raw.originalSourceType, 'schoolWeekOverlayProposal.originalSourceType')
+  const weeklySummary = raw.weeklySummary == null ? [] : parseStringArray(raw.weeklySummary, 'schoolWeekOverlayProposal.weeklySummary')
+  const out: PortalSchoolWeekOverlayProposal = {
+    proposalId,
+    kind: 'school_week_overlay',
+    schemaVersion: '1.0.0',
+    confidence,
+    originalSourceType,
+    weeklySummary,
+    dailyActions: {},
+  }
+  const sourceTitle = asOptionalString(raw.sourceTitle)
+  if (sourceTitle !== undefined) out.sourceTitle = sourceTitle
+  if (raw.weekNumber != null) {
+    if (typeof raw.weekNumber !== 'number' || !Number.isInteger(raw.weekNumber) || raw.weekNumber < 1 || raw.weekNumber > 53) {
+      throw new Error('Ugyldig svar: schoolWeekOverlayProposal.weekNumber må være heltall 1–53')
+    }
+    out.weekNumber = raw.weekNumber
+  }
+  const classLabel = asOptionalString(raw.classLabel)
+  if (classLabel !== undefined) out.classLabel = classLabel
+  if (raw.languageTrack != null) {
+    if (!isRecord(raw.languageTrack)) throw new Error('Ugyldig svar: schoolWeekOverlayProposal.languageTrack')
+    out.languageTrack = {
+      resolvedTrack: asOptionalString(raw.languageTrack.resolvedTrack),
+      confidence:
+        raw.languageTrack.confidence == null
+          ? undefined
+          : asNumber01(raw.languageTrack.confidence, 'schoolWeekOverlayProposal.languageTrack.confidence'),
+      reason: asOptionalString(raw.languageTrack.reason),
+    }
+  }
+  if (raw.profileMatch != null) {
+    if (!isRecord(raw.profileMatch)) throw new Error('Ugyldig svar: schoolWeekOverlayProposal.profileMatch')
+    out.profileMatch = {
+      confidence:
+        raw.profileMatch.confidence == null
+          ? undefined
+          : asNumber01(raw.profileMatch.confidence, 'schoolWeekOverlayProposal.profileMatch.confidence'),
+      reason: asOptionalString(raw.profileMatch.reason),
+    }
+  }
+  if (raw.dailyActions != null) {
+    if (!isRecord(raw.dailyActions)) throw new Error('Ugyldig svar: schoolWeekOverlayProposal.dailyActions må være et objekt')
+    const parsed: Partial<Record<number, SchoolWeekOverlayDailyAction>> = {}
+    for (const [dayKey, value] of Object.entries(raw.dailyActions)) {
+      const day = Number(dayKey)
+      if (!Number.isInteger(day) || day < 0 || day > 6) {
+        throw new Error(`Ugyldig svar: schoolWeekOverlayProposal.dailyActions["${dayKey}"] må være ukedag 0–6`)
+      }
+      parsed[day] = parseOverlayDailyAction(value, `schoolWeekOverlayProposal.dailyActions["${dayKey}"]`)
+    }
+    out.dailyActions = parsed
+  }
+  return out
+}
+
 /** Parser ett forslag til event, task eller school_profile. */
 function tryParseProposalItem(raw: unknown, index: number): PortalProposalItem {
   if (!isRecord(raw)) throw new Error(`Forslag #${index + 1}: mangler felter`)
@@ -375,13 +508,16 @@ export function parsePortalImportProposalBundle(data: unknown): PortalImportProp
     items.push(parseTopLevelSchoolProfileToItem(topLevelSchoolPayload, provenance))
   }
 
-  if (items.length === 0) {
+  const schoolWeekOverlayProposal =
+    data.schoolWeekOverlayProposal == null ? undefined : parseTopLevelSchoolWeekOverlayProposal(data.schoolWeekOverlayProposal)
+
+  if (items.length === 0 && !schoolWeekOverlayProposal) {
     throw new Error(
-      'Ugyldig svar: items må inneholde minst ett forslag, eller toppnivåfeltet schoolProfile / schoolProfileProposal må være satt'
+      'Ugyldig svar: items må inneholde minst ett forslag, eller toppnivåfeltet schoolProfile / schoolProfileProposal / schoolWeekOverlayProposal må være satt'
     )
   }
   assertBundleItemKindsCoherent(items)
-  return { schemaVersion: '1.0.0', provenance, items }
+  return { schemaVersion: '1.0.0', provenance, items, schoolWeekOverlayProposal }
 }
 
 type AnalyzePayload =
@@ -453,6 +589,7 @@ export function mergePortalImportProposalBundles(bundles: PortalImportProposalBu
     return bundles[0]!
   }
   const items = bundles.flatMap((b) => b.items)
+  const overlay = bundles.map((b) => b.schoolWeekOverlayProposal).find((p) => p != null)
   assertBundleItemKindsCoherent(items)
   const base = bundles[0]!.provenance
   return {
@@ -463,6 +600,7 @@ export function mergePortalImportProposalBundles(bundles: PortalImportProposalBu
       sourceType: `${base.sourceType} · ${bundles.length} filer`,
     },
     items,
+    schoolWeekOverlayProposal: overlay,
   }
 }
 

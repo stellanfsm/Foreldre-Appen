@@ -169,4 +169,77 @@ describe('buildBackgroundEventsForDate — override-logikk', () => {
     expect(out).toHaveLength(1)
     expect(out[0].title).toBe('Skole')
   })
+
+  it('school week overlay: remove_school_block skjuler skole den aktuelle uka', () => {
+    const child = makeChild({
+      school: {
+        ...makeChild().school!,
+        weekOverlays: [
+          {
+            id: 'ov-1',
+            weekYear: 2026,
+            weekNumber: 17,
+            dailyActions: {
+              0: { action: 'remove_school_block', subjectUpdates: [] },
+            },
+          },
+        ],
+      },
+    })
+    const out = buildBackgroundEventsForDate(MONDAY, [child], [])
+    expect(out).toHaveLength(0)
+  })
+
+  it('school week overlay: replace_school_block gir spesialtittel', () => {
+    const child = makeChild({
+      school: {
+        ...makeChild().school!,
+        weekOverlays: [
+          {
+            id: 'ov-2',
+            weekYear: 2026,
+            weekNumber: 17,
+            dailyActions: {
+              0: {
+                action: 'replace_school_block',
+                summary: 'Heldagsprøve matematikk',
+                subjectUpdates: [{ subjectKey: 'matematikk' }],
+              },
+            },
+          },
+        ],
+      },
+    })
+    const out = buildBackgroundEventsForDate(MONDAY, [child], [])
+    expect(out).toHaveLength(1)
+    expect(out[0].title).toBe('Heldagsprøve matematikk')
+    expect(out[0].metadata?.backgroundSubkind).toBe('school_day_override')
+  })
+
+  it('school week overlay: enrich_existing_school_block beholder tittel "Skole"', () => {
+    const child = makeChild({
+      school: {
+        ...makeChild().school!,
+        weekOverlays: [
+          {
+            id: 'ov-3',
+            weekYear: 2026,
+            weekNumber: 17,
+            dailyActions: {
+              0: {
+                action: 'enrich_existing_school_block',
+                summary: 'Tyskprøve',
+                subjectUpdates: [{ subjectKey: 'fremmedspråk', customLabel: 'Tysk' }],
+              },
+            },
+          },
+        ],
+      },
+    })
+    const out = buildBackgroundEventsForDate(MONDAY, [child], [])
+    expect(out).toHaveLength(1)
+    expect(out[0].title).toBe('Skole')
+    const day = out[0].metadata?.schoolWeekOverlayDay as { action?: string } | undefined
+    expect(day?.action).toBe('enrich_existing_school_block')
+  })
 })

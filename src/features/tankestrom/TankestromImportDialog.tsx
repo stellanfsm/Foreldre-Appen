@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type DragEvent } from 'react'
-import type { PortalEventProposal, PortalProposalItem } from './types'
+import type { PortalEventProposal, PortalProposalItem, PortalSchoolWeekOverlayProposal } from './types'
 import type {
   ChildSchoolDayPlan,
   ChildSchoolProfile,
@@ -65,13 +65,81 @@ function confidenceBadgeStyle(confidence: number): { label: string; className: s
   }
 }
 
-/** Mandag–fredag (tallnøkkel matcher `WeekdayMonFri`). */
+/** Ukedager (0=man … 6=søn). */
 const WD_LABEL_NB: Record<number, string> = {
   0: 'Mandag',
   1: 'Tirsdag',
   2: 'Onsdag',
   3: 'Torsdag',
   4: 'Fredag',
+  5: 'Lørdag',
+  6: 'Søndag',
+}
+
+function overlayActionLabel(action: string): string {
+  if (action === 'replace_school_block') return 'Erstatter skoledag-blokk'
+  if (action === 'remove_school_block') return 'Fjerner skoledag-blokk'
+  if (action === 'enrich_existing_school_block') return 'Beriker eksisterende skoleblokk'
+  return 'Ingen endring'
+}
+
+function SchoolWeekOverlayReviewCard({ overlay }: { overlay: PortalSchoolWeekOverlayProposal }) {
+  const dayEntries = Object.entries(overlay.dailyActions)
+    .map(([day, details]) => ({ day: Number(day), details }))
+    .filter((x): x is { day: number; details: NonNullable<typeof x.details> } => !!x.details)
+    .sort((a, b) => a.day - b.day)
+
+  return (
+    <div className="rounded-xl border border-indigo-200 bg-indigo-50/70 px-3 py-3">
+      <p className="text-[12px] font-semibold text-indigo-950">Uke-overlay-forslag</p>
+      <p className="mt-1 text-[11px] leading-snug text-indigo-900/90">
+        Midlertidige ukeendringer oppdaget i A-planen. Dette er kun review i denne versjonen.
+      </p>
+      <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-indigo-900">
+        {overlay.weekNumber != null ? (
+          <span className="inline-flex rounded-full border border-indigo-300 bg-white px-2 py-0.5 font-semibold">
+            Uke {overlay.weekNumber}
+          </span>
+        ) : null}
+        {overlay.classLabel ? (
+          <span className="inline-flex rounded-full border border-indigo-300 bg-white px-2 py-0.5 font-semibold">
+            Klasse {overlay.classLabel}
+          </span>
+        ) : null}
+        <span className="inline-flex rounded-full border border-indigo-300 bg-white px-2 py-0.5">
+          Kilde: {overlay.sourceTitle ?? overlay.originalSourceType}
+        </span>
+      </div>
+      {overlay.weeklySummary.length > 0 ? (
+        <ul className="mt-2 list-disc space-y-0.5 pl-4 text-[11px] text-indigo-950">
+          {overlay.weeklySummary.map((line, idx) => (
+            <li key={`${line}-${idx}`}>{line}</li>
+          ))}
+        </ul>
+      ) : null}
+      {dayEntries.length > 0 ? (
+        <ul className="mt-3 space-y-2">
+          {dayEntries.map(({ day, details }) => (
+            <li key={day} className="rounded-lg border border-indigo-200 bg-white/85 px-2.5 py-2">
+              <p className="text-[12px] font-medium text-zinc-900">
+                {WD_LABEL_NB[day] ?? `Dag ${day}`} · {overlayActionLabel(details.action)}
+              </p>
+              {details.summary ? <p className="mt-0.5 text-[11px] text-zinc-700">{details.summary}</p> : null}
+              {details.subjectUpdates.length > 0 ? (
+                <ul className="mt-1.5 list-disc space-y-0.5 pl-4 text-[11px] text-zinc-700">
+                  {details.subjectUpdates.map((u, idx) => (
+                    <li key={`${u.subjectKey}-${idx}`}>
+                      {u.customLabel ? `${u.customLabel} (${u.subjectKey})` : u.subjectKey}
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </div>
+  )
 }
 
 const DEBUG_SCHOOL_IMPORT_PANEL =
@@ -363,6 +431,7 @@ export function TankestromImportDialog({
     removePendingFile,
     textInput,
     setTextInput,
+    bundle,
     analyzeWarning,
     calendarProposalItems,
     selectedIds,
@@ -377,8 +446,10 @@ export function TankestromImportDialog({
     runAnalyze,
     approveSelected,
     saveSchoolProfile,
+    saveSchoolWeekOverlay,
     canApproveSelection,
     canSaveSchoolProfile,
+    canSaveSchoolWeekOverlay,
     schoolReview,
     schoolProfileChildId,
     setSchoolProfileChildId,
@@ -465,12 +536,21 @@ export function TankestromImportDialog({
     }
   }, [saveSchoolProfile, onClose, schoolProfileChildId])
 
+  const handleSaveSchoolWeekOverlay = useCallback(async () => {
+    const ok = await saveSchoolWeekOverlay()
+    if (ok) {
+      logEvent('tankestrom_school_week_overlay_saved', { childId: schoolProfileChildId })
+      onClose()
+    }
+  }, [saveSchoolWeekOverlay, onClose, schoolProfileChildId])
+
   const childrenList = useMemo(() => people.filter((p) => p.memberKind === 'child'), [people])
 
   const schoolLessonConflicts = useMemo(
     () => (schoolReview ? detectLessonConflicts(schoolReview.draft) : []),
     [schoolReview?.draft]
   )
+  const schoolWeekOverlayProposal = bundle?.schoolWeekOverlayProposal ?? null
 
   const schoolImportDebugPanel = useMemo(() => {
     if (!schoolReview || !DEBUG_SCHOOL_IMPORT_PANEL) return null
@@ -737,6 +817,37 @@ export function TankestromImportDialog({
             </div>
           ) : schoolReview ? (
             <div className="space-y-4">
+              {schoolWeekOverlayProposal ? (
+                <>
+                  <SchoolWeekOverlayReviewCard overlay={schoolWeekOverlayProposal} />
+                  <div>
+                    <label htmlFor="ts-overlay-child" className="text-[12px] font-medium text-zinc-700">
+                      Knytt uke-overlay til barn
+                    </label>
+                    {childrenList.length === 0 ? (
+                      <p className="mt-1 text-[12px] text-amber-800">
+                        Legg til minst ett barn under Innstillinger for å lagre uke-overlay.
+                      </p>
+                    ) : (
+                      <select
+                        id="ts-overlay-child"
+                        className="mt-1.5 w-full rounded-xl border border-zinc-200 bg-white px-3 py-2.5 text-[14px] text-zinc-900"
+                        value={schoolProfileChildId}
+                        onChange={(e) => setSchoolProfileChildId(e.target.value)}
+                      >
+                        {childrenList.map((c) => (
+                          <option key={c.id} value={c.id}>
+                            {c.name}
+                          </option>
+                        ))}
+                      </select>
+                    )}
+                    <p className="mt-1 text-[11px] text-zinc-500">
+                      Lagrer uke-spesifikt override på barnets eksisterende skoleprofil (ikke som egen kalenderaktivitet).
+                    </p>
+                  </div>
+                </>
+              ) : null}
               {analyzeWarning ? (
                 <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[12px] leading-snug text-amber-950 whitespace-pre-wrap">
                   {analyzeWarning}
@@ -945,6 +1056,9 @@ export function TankestromImportDialog({
             </div>
           ) : (
             <div className="space-y-4">
+              {schoolWeekOverlayProposal ? (
+                <SchoolWeekOverlayReviewCard overlay={schoolWeekOverlayProposal} />
+              ) : null}
               {analyzeWarning ? (
                 <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[12px] leading-snug text-amber-950 whitespace-pre-wrap">
                   {analyzeWarning}
@@ -1644,10 +1758,16 @@ export function TankestromImportDialog({
               variant="primary"
               className="flex-1"
               loading={saveLoading}
-              disabled={!hasPeople || !canApproveSelection}
-              onClick={() => void handleApprove()}
+              disabled={
+                schoolWeekOverlayProposal
+                  ? !hasPeople || !canSaveSchoolWeekOverlay
+                  : !hasPeople || !canApproveSelection
+              }
+              onClick={() =>
+                schoolWeekOverlayProposal ? void handleSaveSchoolWeekOverlay() : void handleApprove()
+              }
             >
-              Importer valgte ({selectedIds.size})
+              {schoolWeekOverlayProposal ? 'Lagre uke-overlay' : `Importer valgte (${selectedIds.size})`}
             </Button>
           )}
         </div>

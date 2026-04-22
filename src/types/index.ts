@@ -33,6 +33,48 @@ export interface ChildSchoolProfile {
   gradeBand: NorwegianGradeBand
   /** Per Mon–Fri; omit weekend — no school blocks */
   weekdays: Partial<Record<WeekdayMonFri, ChildSchoolDayPlan>>
+  /** Uke-spesifikke avvik fra normal skoleprofil (A-plan/Tankestrøm overlay). */
+  weekOverlays?: SchoolWeekOverlay[]
+}
+
+export type SchoolWeekOverlayAction =
+  | 'remove_school_block'
+  | 'replace_school_block'
+  | 'enrich_existing_school_block'
+  | 'none'
+
+export interface SchoolWeekOverlaySubjectUpdate {
+  subjectKey: string
+  customLabel?: string
+  sections?: Record<string, string[]>
+}
+
+export interface SchoolWeekOverlayDayAction {
+  action: SchoolWeekOverlayAction
+  reason?: string
+  summary?: string
+  subjectUpdates: SchoolWeekOverlaySubjectUpdate[]
+}
+
+export interface SchoolWeekOverlay {
+  id: string
+  weekYear: number
+  weekNumber: number
+  sourceTitle?: string
+  originalSourceType?: string
+  weeklySummary?: string[]
+  classLabel?: string
+  languageTrack?: {
+    resolvedTrack?: string
+    confidence?: number
+    reason?: string
+  }
+  profileMatch?: {
+    confidence?: number
+    reason?: string
+  }
+  dailyActions: Partial<Record<number, SchoolWeekOverlayDayAction>>
+  appliedAt?: string
 }
 
 export interface ParentWorkProfile {
@@ -174,6 +216,15 @@ export interface EventMetadata {
    * Leses av `buildBackgroundEventsForDate` sammen med dagens events.
    */
   schoolDayOverride?: SchoolDayOverride;
+  /** Knytter en syntetisk skoleblokk til uke-overlay-kilden som ble brukt for dagen. */
+  schoolWeekOverlayMeta?: {
+    overlayId: string
+    weekYear: number
+    weekNumber: number
+    dayIndex: number
+  }
+  /** Konkrete dagsregler fra uke-overlay (for visning i detaljsheet). */
+  schoolWeekOverlayDay?: SchoolWeekOverlayDayAction
   /** Free-form metadata reserved for future automation features. */
   [key: string]: unknown;
 }

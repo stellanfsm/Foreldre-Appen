@@ -1,9 +1,75 @@
-import type { Event, Person, PersonId, SchoolDayOverride, WeekdayMonFri } from '../types'
+import type {
+  Event,
+  Person,
+  PersonId,
+  SchoolDayOverride,
+  SchoolWeekOverlayDayAction,
+  SchoolWeekOverlaySubjectUpdate,
+  WeekdayMonFri,
+} from '../types'
 import { DEFAULT_SCHOOL_GATE_BY_BAND } from '../data/norwegianSubjects'
 import { dateKeyToWeekdayMon0 } from './weekday'
 import { pickSchoolDayOverrideForChild } from './schoolContext'
+import { getISOWeek, getISOWeekYear } from './isoWeek'
 
 type BackgroundSubkind = 'school_day' | 'school_day_override' | 'school_lesson' | 'school_break' | 'work_day'
+
+function normalizeSubjectUpdates(subjectUpdates: SchoolWeekOverlaySubjectUpdate[] | undefined): SchoolWeekOverlaySubjectUpdate[] {
+  return (subjectUpdates ?? []).map((u) => ({
+    subjectKey: u.subjectKey,
+    customLabel: u.customLabel,
+    sections: u.sections,
+  }))
+}
+
+function buildSpecialSchoolTitle(action: SchoolWeekOverlayDayAction): string {
+  const summary = action.summary?.trim()
+  const reason = action.reason?.trim()
+  if (summary) return summary
+  if (reason) return reason
+  const first = action.subjectUpdates[0]
+  if (first?.customLabel?.trim()) return first.customLabel.trim()
+  if (first?.subjectKey?.trim()) return `Spesialdag: ${first.subjectKey.trim()}`
+  return 'Spesialdag'
+}
+
+type ResolvedSchoolWeekOverlayDay = {
+  action: SchoolWeekOverlayDayAction
+  overlayId: string
+  weekYear: number
+  weekNumber: number
+  dayIndex: number
+}
+
+function findSchoolWeekOverlayDayAction(person: Person, dateKey: string): ResolvedSchoolWeekOverlayDay | null {
+  const school = person.school
+  if (!school?.weekOverlays?.length) return null
+  const date = new Date(`${dateKey}T12:00:00`)
+  if (Number.isNaN(date.getTime())) return null
+  const weekNumber = getISOWeek(date)
+  const weekYear = getISOWeekYear(date)
+  const dayMon0 = dateKeyToWeekdayMon0(dateKey)
+  if (dayMon0 < 0 || dayMon0 > 6) return null
+  for (let i = school.weekOverlays.length - 1; i >= 0; i--) {
+    const overlay = school.weekOverlays[i]!
+    if (overlay.weekYear !== weekYear || overlay.weekNumber !== weekNumber) continue
+    const action = overlay.dailyActions[dayMon0]
+      if (!action) continue
+      return {
+        action: {
+          action: action.action,
+          reason: action.reason,
+          summary: action.summary,
+          subjectUpdates: normalizeSubjectUpdates(action.subjectUpdates),
+        },
+        overlayId: overlay.id,
+        weekYear: overlay.weekYear,
+        weekNumber: overlay.weekNumber,
+        dayIndex: dayMon0,
+      }
+  }
+  return null
+}
 
 function makeBackgroundEvent(
   personId: PersonId,
@@ -91,6 +157,37 @@ export function buildBackgroundEventsForDate(
         dayEnd = lessons[lessons.length - 1]?.end ?? dayEnd
       }
 
+      const weekOverlayDay = findSchoolWeekOverlayDayAction(p, dateKey)
+      if (weekOverlayDay) {
+        if (weekOverlayDay.action.action === 'remove_school_block') {
+          continue
+        }
+        if (weekOverlayDay.action.action === 'replace_school_block') {
+          out.push(
+            makeBackgroundEvent(
+              p.id,
+              dateKey,
+              dayStart,
+              dayEnd,
+              buildSpecialSchoolTitle(weekOverlayDay.action),
+              'school',
+              'day-override-week',
+              'school_day_override',
+              {
+                schoolWeekOverlayDay: weekOverlayDay.action,
+                schoolWeekOverlayMeta: {
+                  overlayId: weekOverlayDay.overlayId,
+                  weekYear: weekOverlayDay.weekYear,
+                  weekNumber: weekOverlayDay.weekNumber,
+                  dayIndex: weekOverlayDay.dayIndex,
+                },
+              }
+            )
+          )
+          continue
+        }
+      }
+
       const picked = pickSchoolDayOverrideForChild(dayEvents, p.id)
       if (picked) {
         const { override, event: sourceEvent } = picked
@@ -120,7 +217,19 @@ export function buildBackgroundEventsForDate(
       // ---- Normal (ingen override eller adjust som ikke kunne anvendes) ----
       if (plan === undefined) {
         out.push(
-          makeBackgroundEvent(p.id, dateKey, gates.start, gates.end, 'Skole', 'school', 'day', 'school_day')
+          makeBackgroundEvent(p.id, dateKey, gates.start, gates.end, 'Skole', 'school', 'day', 'school_day', {
+            schoolWeekOverlayDay:
+              weekOverlayDay?.action.action === 'enrich_existing_school_block' ? weekOverlayDay.action : undefined,
+            schoolWeekOverlayMeta:
+              weekOverlayDay?.action.action === 'enrich_existing_school_block'
+                ? {
+                    overlayId: weekOverlayDay.overlayId,
+                    weekYear: weekOverlayDay.weekYear,
+                    weekNumber: weekOverlayDay.weekNumber,
+                    dayIndex: weekOverlayDay.dayIndex,
+                  }
+                : undefined,
+          })
         )
         continue
       }
@@ -129,10 +238,38 @@ export function buildBackgroundEventsForDate(
       const end = plan.schoolEnd ?? gates.end
 
       if (plan.useSimpleDay || !plan.lessons?.length) {
-        out.push(makeBackgroundEvent(p.id, dateKey, start, end, 'Skole', 'school', 'day', 'school_day'))
+        out.push(
+          makeBackgroundEvent(p.id, dateKey, start, end, 'Skole', 'school', 'day', 'school_day', {
+            schoolWeekOverlayDay:
+              weekOverlayDay?.action.action === 'enrich_existing_school_block' ? weekOverlayDay.action : undefined,
+            schoolWeekOverlayMeta:
+              weekOverlayDay?.action.action === 'enrich_existing_school_block'
+                ? {
+                    overlayId: weekOverlayDay.overlayId,
+                    weekYear: weekOverlayDay.weekYear,
+                    weekNumber: weekOverlayDay.weekNumber,
+                    dayIndex: weekOverlayDay.dayIndex,
+                  }
+                : undefined,
+          })
+        )
       } else {
         // Lesson-based plans should still look like one continuous school day block.
-        out.push(makeBackgroundEvent(p.id, dateKey, dayStart, dayEnd, 'Skole', 'school', 'day', 'school_day'))
+        out.push(
+          makeBackgroundEvent(p.id, dateKey, dayStart, dayEnd, 'Skole', 'school', 'day', 'school_day', {
+            schoolWeekOverlayDay:
+              weekOverlayDay?.action.action === 'enrich_existing_school_block' ? weekOverlayDay.action : undefined,
+            schoolWeekOverlayMeta:
+              weekOverlayDay?.action.action === 'enrich_existing_school_block'
+                ? {
+                    overlayId: weekOverlayDay.overlayId,
+                    weekYear: weekOverlayDay.weekYear,
+                    weekNumber: weekOverlayDay.weekNumber,
+                    dayIndex: weekOverlayDay.dayIndex,
+                  }
+                : undefined,
+          })
+        )
       }
     }
 

@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import type { ChildSchoolProfile, Event, Person, Task } from '../../types'
+import type { ChildSchoolProfile, Event, Person, SchoolWeekOverlay, SchoolWeekOverlaySubjectUpdate, Task } from '../../types'
 import type {
   PortalEventProposal,
   PortalImportProposalBundle,
   PortalProposalItem,
   PortalSchoolProfileProposal,
+  PortalSchoolWeekOverlayProposal,
   PortalTaskProposal,
   TankestromEventDraft,
   TankestromImportDraft,
@@ -17,6 +18,7 @@ import {
 } from '../../lib/tankestromApi'
 import { detectLessonConflicts } from '../../lib/schoolProfileConflicts'
 import { parseTime } from '../../lib/time'
+import { getISOWeek, getISOWeekYear } from '../../lib/isoWeek'
 
 type Step = 'pick' | 'review'
 export type TankestromInputMode = 'file' | 'text'
@@ -239,6 +241,53 @@ function isSchoolProfileBundle(bundle: PortalImportProposalBundle): boolean {
   return bundle.items.length > 0 && bundle.items.every((i) => i.kind === 'school_profile')
 }
 
+function filterSubjectUpdatesByLanguageTrack(
+  updates: SchoolWeekOverlaySubjectUpdate[],
+  resolvedTrack: string | undefined
+): SchoolWeekOverlaySubjectUpdate[] {
+  const track = resolvedTrack?.trim().toLocaleLowerCase('nb-NO')
+  if (!track) return updates
+  return updates.filter((u) => {
+    if (u.subjectKey !== 'fremmedspråk') return true
+    const custom = u.customLabel?.trim().toLocaleLowerCase('nb-NO')
+    if (custom && custom.includes(track)) return true
+    const sectionLines = Object.values(u.sections ?? {}).flatMap((v) => v ?? [])
+    if (sectionLines.length === 0) return true
+    return sectionLines.some((line) => line.toLocaleLowerCase('nb-NO').includes(track))
+  })
+}
+
+function overlayToChildWeekOverlay(proposal: PortalSchoolWeekOverlayProposal): SchoolWeekOverlay {
+  const now = new Date()
+  const fallbackWeekNumber = proposal.weekNumber ?? getISOWeek(now)
+  const mappedDailyActions: SchoolWeekOverlay['dailyActions'] = {}
+  const resolvedTrack = proposal.languageTrack?.resolvedTrack
+  for (const [dayRaw, action] of Object.entries(proposal.dailyActions)) {
+    if (!action) continue
+    const day = Number(dayRaw)
+    if (!Number.isInteger(day) || day < 0 || day > 6) continue
+    mappedDailyActions[day] = {
+      action: action.action,
+      reason: action.reason,
+      summary: action.summary,
+      subjectUpdates: filterSubjectUpdatesByLanguageTrack(action.subjectUpdates, resolvedTrack),
+    }
+  }
+  return {
+    id: proposal.proposalId,
+    weekYear: getISOWeekYear(now),
+    weekNumber: fallbackWeekNumber,
+    sourceTitle: proposal.sourceTitle,
+    originalSourceType: proposal.originalSourceType,
+    weeklySummary: proposal.weeklySummary,
+    classLabel: proposal.classLabel,
+    languageTrack: proposal.languageTrack,
+    profileMatch: proposal.profileMatch,
+    dailyActions: mappedDailyActions,
+    appliedAt: new Date().toISOString(),
+  }
+}
+
 function cloneSchoolProfile(profile: ChildSchoolProfile): ChildSchoolProfile {
   return JSON.parse(JSON.stringify(profile)) as ChildSchoolProfile
 }
@@ -364,6 +413,15 @@ export function useTankestromImport({
     const child = people.find((p) => p.id === cid && p.memberKind === 'child')
     return !!child
   }, [schoolReview, schoolProfileChildId, people, updatePerson])
+
+  const canSaveSchoolWeekOverlay = useMemo(() => {
+    const overlay = bundle?.schoolWeekOverlayProposal
+    if (!overlay || !updatePerson) return false
+    const cid = schoolProfileChildId.trim()
+    if (!cid) return false
+    const child = people.find((p) => p.id === cid && p.memberKind === 'child')
+    return !!child
+  }, [bundle?.schoolWeekOverlayProposal, schoolProfileChildId, people, updatePerson])
 
   const reset = useCallback(() => {
     setStep('pick')
@@ -542,7 +600,12 @@ export function useTankestromImport({
           return
         }
         setSchoolReview(null)
-        setSchoolProfileChildId('')
+        if (b.schoolWeekOverlayProposal) {
+          const childIds = people.filter((p) => p.memberKind === 'child').map((p) => p.id)
+          setSchoolProfileChildId(childIds[0] ?? '')
+        } else {
+          setSchoolProfileChildId('')
+        }
         const defaultPersonId = people[0]?.id ?? ''
         setDraftByProposalId(buildDraftsFromItems(b.items, validPersonIds, defaultPersonId, people))
         setSelectedIds(new Set(b.items.map((i) => i.proposalId)))
@@ -632,7 +695,12 @@ export function useTankestromImport({
       }
 
       setSchoolReview(null)
-      setSchoolProfileChildId('')
+      if (merged.schoolWeekOverlayProposal) {
+        const childIds = people.filter((p) => p.memberKind === 'child').map((p) => p.id)
+        setSchoolProfileChildId(childIds[0] ?? '')
+      } else {
+        setSchoolProfileChildId('')
+      }
       const defaultPersonId = people[0]?.id ?? ''
       setDraftByProposalId(buildDraftsFromItems(merged.items, validPersonIds, defaultPersonId, people))
       setSelectedIds(new Set(merged.items.map((i) => i.proposalId)))
@@ -673,6 +741,47 @@ export function useTankestromImport({
       setSaveLoading(false)
     }
   }, [schoolReview, schoolProfileChildId, people, updatePerson])
+
+  const saveSchoolWeekOverlay = useCallback(async (): Promise<boolean> => {
+    const overlay = bundle?.schoolWeekOverlayProposal
+    if (!overlay || !updatePerson) {
+      setError('Lagring av uke-overlay er ikke tilgjengelig.')
+      return false
+    }
+    const cid = schoolProfileChildId.trim()
+    const child = people.find((p) => p.id === cid && p.memberKind === 'child')
+    if (!child) {
+      setError('Velg hvilket barn uke-overlayen skal lagres til.')
+      return false
+    }
+    const existingSchool = child.school
+    if (!existingSchool) {
+      setError('Barnet mangler skoleprofil. Lagre skoleprofil først.')
+      return false
+    }
+
+    const nextOverlay = overlayToChildWeekOverlay(overlay)
+    const existingOverlays = existingSchool.weekOverlays ?? []
+    const remaining = existingOverlays.filter(
+      (o) => !(o.weekYear === nextOverlay.weekYear && o.weekNumber === nextOverlay.weekNumber)
+    )
+    const nextSchool: ChildSchoolProfile = {
+      ...existingSchool,
+      weekOverlays: [...remaining, nextOverlay],
+    }
+
+    setError(null)
+    setSaveLoading(true)
+    try {
+      await updatePerson(cid, { school: nextSchool })
+      return true
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Kunne ikke lagre uke-overlay.')
+      return false
+    } finally {
+      setSaveLoading(false)
+    }
+  }, [bundle?.schoolWeekOverlayProposal, schoolProfileChildId, people, updatePerson])
 
   const approveSelected = useCallback(async (): Promise<boolean> => {
     if (schoolReview) return false
@@ -838,9 +947,11 @@ export function useTankestromImport({
     people,
     canApproveSelection,
     canSaveSchoolProfile,
+    canSaveSchoolWeekOverlay,
     schoolReview,
     schoolProfileChildId,
     setSchoolProfileChildId,
     setSchoolProfileDraft,
+    saveSchoolWeekOverlay,
   }
 }

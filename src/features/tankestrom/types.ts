@@ -3,7 +3,12 @@
  * Portalen støtter kind: "event", "task" (gjøremål) og "school_profile" (fast timeplan → skoleprofil).
  */
 
-import type { ChildSchoolProfile } from '../../types'
+import type {
+  ChildSchoolProfile,
+  SchoolWeekOverlayAction,
+  SchoolWeekOverlayDayAction,
+  SchoolWeekOverlaySubjectUpdate,
+} from '../../types'
 
 export type PortalImportSchemaVersion = '1.0.0'
 
@@ -68,10 +73,39 @@ export interface PortalSchoolProfileProposal extends PortalProposalItemBase {
 
 export type PortalProposalItem = PortalEventProposal | PortalTaskProposal | PortalSchoolProfileProposal
 
+export interface SchoolWeekOverlayDailyAction extends SchoolWeekOverlayDayAction {}
+
+export interface SchoolWeekOverlayLanguageTrack {
+  resolvedTrack?: string
+  confidence?: number
+  reason?: string
+}
+
+export interface SchoolWeekOverlayProfileMatch {
+  confidence?: number
+  reason?: string
+}
+
+export interface PortalSchoolWeekOverlayProposal {
+  proposalId: string
+  kind: 'school_week_overlay'
+  schemaVersion: PortalImportSchemaVersion
+  confidence: number
+  sourceTitle?: string
+  originalSourceType: string
+  weekNumber?: number
+  classLabel?: string
+  weeklySummary: string[]
+  languageTrack?: SchoolWeekOverlayLanguageTrack
+  profileMatch?: SchoolWeekOverlayProfileMatch
+  dailyActions: Partial<Record<number, SchoolWeekOverlayDailyAction>>
+}
+
 export interface PortalImportProposalBundle {
   schemaVersion: PortalImportSchemaVersion
   provenance: PortalImportProvenance
   items: PortalProposalItem[]
+  schoolWeekOverlayProposal?: PortalSchoolWeekOverlayProposal
 }
 
 /** Lokalt redigerbart utkast per forslag før import (speiler det brukeren kan endre i UI). */
