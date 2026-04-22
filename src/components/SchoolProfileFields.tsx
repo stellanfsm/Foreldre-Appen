@@ -400,7 +400,7 @@ export function SchoolProfileFields({ value, onChange }: SchoolProfileFieldsProp
                   </p>
                   {(plan?.lessons ?? []).map((L, i) => (
                     <div key={i} className="flex flex-col gap-1.5">
-                      <div className="flex flex-col gap-1.5 md:flex-row md:items-center md:gap-2">
+                      <div className="flex flex-col gap-1.5 lg:flex-row lg:items-center lg:gap-2">
                         <select
                           value={L.subjectKey === CUSTOM_SUBJECT_KEY ? CUSTOM_SUBJECT_KEY : L.subjectKey}
                           onChange={(e) => {
