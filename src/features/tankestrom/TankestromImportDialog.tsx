@@ -12,6 +12,7 @@ import type {
 import type { UseEventControllerReturn } from '../calendar/hooks/useEventController'
 import {
   useTankestromImport,
+  filterSubjectUpdatesByLanguageTrack,
   getTankestromDraftFieldErrors,
   getTankestromTaskFieldErrors,
   type TankestromPendingFile,
@@ -83,6 +84,9 @@ function overlayActionLabel(action: string): string {
   return 'Ingen endring'
 }
 
+const DEBUG_SCHOOL_IMPORT_PANEL =
+  import.meta.env.DEV || import.meta.env.VITE_DEBUG_SCHOOL_IMPORT === 'true'
+
 function normOverlayText(s: string): string {
   return s
     .trim()
@@ -90,23 +94,273 @@ function normOverlayText(s: string): string {
     .replace(/\s+/g, ' ')
 }
 
-function collectOverlaySectionLines(
-  details: NonNullable<PortalSchoolWeekOverlayProposal['dailyActions'][number]>
-): string[] {
-  const out: string[] = []
-  for (const u of details.subjectUpdates) {
-    if (!u.sections) continue
-    for (const lines of Object.values(u.sections)) {
-      for (const line of lines ?? []) {
-        const t = line.trim()
-        if (t) out.push(t)
-      }
+/** Kompakt språk-token for aggressiv filtrering i overlay-review (linjer som tydelig handler om fremmedspråk). */
+const REVIEW_FOREIGN_LANG_LEXEMES: ReadonlyArray<{ canon: string; pattern: RegExp }> = [
+  { canon: 'spansk', pattern: /\bspansk\b|spanish/i },
+  { canon: 'tysk', pattern: /\btysk\b|tyskland|german|deutsch/i },
+  { canon: 'fransk', pattern: /\bfransk\b|french/i },
+  { canon: 'russisk', pattern: /\brussisk\b|russian/i },
+  { canon: 'italiensk', pattern: /\bitaliensk\b|italian/i },
+  { canon: 'mandarin', pattern: /\bmandarin\b|kinesisk|kinamål/i },
+  { canon: 'japansk', pattern: /\bjapansk\b|japanese/i },
+  { canon: 'arabisk', pattern: /\barabisk\b|arabic/i },
+]
+
+const OVERLAY_LABEL_BLOB_RE = /(høydepunkter|husk|notater|frister)\s*:/i
+
+const OVERLAY_ADMIN_LINE_RES: RegExp[] = [
+  /fravær/i,
+  /fraværs/i,
+  /melde\s+fravær/i,
+  /kontaktlærer/i,
+  /kontakt\s*lærer/i,
+  /skolemelding/i,
+  /skolearena/i,
+  /\bfronter\b/i,
+  /its[\s-]*learning/i,
+  /foresatte/i,
+  /foreldre\s+må/i,
+  /må\s+melde\s+seg/i,
+  /innlogging/i,
+  /innsyns/i,
+  /søknad\s+om/i,
+]
+
+const SUBJECT_INVENTORY_KEYWORDS = new Set<string>(
+  [
+    'norsk',
+    'engelsk',
+    'matematikk',
+    'matte',
+    'naturfag',
+    'samfunnsfag',
+    'samfunnskunnskap',
+    'krle',
+    'rle',
+    'musikk',
+    'kunst',
+    'håndverk',
+    'kroppsøving',
+    'gym',
+    'fremmedspråk',
+    'fysikk',
+    'kjemi',
+    'biologi',
+    'historie',
+    'geografi',
+    'filosofi',
+    'psykologi',
+    'økonomi',
+    'programfag',
+    'fellesfag',
+    'valgfag',
+    'arbeidslivsfag',
+    'religion',
+    'etikk',
+  ].map((s) => normOverlayText(s))
+)
+
+const MAX_OVERLAY_WEEKLY_SUMMARY_LINE_LEN = 130
+
+function inferLanguageTrackFromChildSchool(school: ChildSchoolProfile | undefined): string | undefined {
+  if (!school?.weekdays) return undefined
+  for (const plan of Object.values(school.weekdays)) {
+    if (!plan?.lessons) continue
+    for (const l of plan.lessons) {
+      if (l.subjectKey === 'fremmedspråk' && l.customLabel?.trim()) return l.customLabel.trim()
     }
+  }
+  return undefined
+}
+
+function foreignLanguageTokensInLine(line: string): Set<string> {
+  const out = new Set<string>()
+  for (const { canon, pattern } of REVIEW_FOREIGN_LANG_LEXEMES) {
+    if (pattern.test(line)) out.add(canon)
   }
   return out
 }
 
-function SchoolWeekOverlayReviewCard({ overlay }: { overlay: PortalSchoolWeekOverlayProposal }) {
+function resolvedTrackCanon(track: string | undefined): string | undefined {
+  const t = track?.trim()
+  if (!t) return undefined
+  return t.toLocaleLowerCase('nb-NO')
+}
+
+function overlayLineAllowedForLanguageTrack(line: string, resolvedTrack: string | undefined): boolean {
+  const canon = resolvedTrackCanon(resolvedTrack)
+  if (!canon) return true
+  const mentioned = foreignLanguageTokensInLine(line)
+  if (mentioned.size === 0) return true
+  if (mentioned.has(canon)) return true
+  return false
+}
+
+function isAdminOverlayLine(line: string): boolean {
+  return OVERLAY_ADMIN_LINE_RES.some((re) => re.test(line))
+}
+
+function hasOverlayLabelBlobPattern(text: string): boolean {
+  return OVERLAY_LABEL_BLOB_RE.test(text)
+}
+
+function stripOverlayLabelPrefixes(text: string): string {
+  return text
+    .replace(/(høydepunkter|husk|notater|frister)\s*:/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function tokensFromOverlayLine(line: string): string[] {
+  return normOverlayText(line)
+    .split(/[,.;•·|/]+|\bog\b/)
+    .map((x) => x.trim())
+    .filter(Boolean)
+}
+
+function isSubjectInventoryNoiseLine(line: string): boolean {
+  const t = line.trim()
+  if (t.length < 8 || t.length > 220) return false
+  const tokens = tokensFromOverlayLine(t)
+  if (tokens.length < 3) return false
+  let subjectHits = 0
+  for (const tok of tokens) {
+    const n = normOverlayText(tok)
+    if (n.length < 2) continue
+    for (const kw of SUBJECT_INVENTORY_KEYWORDS) {
+      if (n === kw || n.includes(kw) || kw.includes(n)) {
+        subjectHits++
+        break
+      }
+    }
+  }
+  if (subjectHits < 3) return false
+  const infoHints =
+    /\b(lekse|husk|prøve|vurdering|innlevering|møte|kl\.?\s*\d|klokka|øving|kapittel|kap\.|bok|notat|mappen|ta med|glemme|avlyst|endret|flyttet)\b/i.test(
+      t
+    )
+  return !infoHints
+}
+
+function dropSubstringRedundantOverlayLines(lines: string[]): string[] {
+  const norms = lines.map(normOverlayText)
+  return lines.filter((_line, i) => {
+    const n = norms[i]!
+    if (n.length < 16) return true
+    return !lines.some((_other, j) => {
+      if (i === j) return false
+      const no = norms[j]!
+      return no.length > n.length + 12 && no.includes(n)
+    })
+  })
+}
+
+function collectOverlaySectionLinesFromDetails(
+  details: NonNullable<PortalSchoolWeekOverlayProposal['dailyActions'][number]>,
+  resolvedTrack: string | undefined
+): string[] {
+  const filteredUpdates = filterSubjectUpdatesByLanguageTrack(details.subjectUpdates, resolvedTrack)
+  const out: string[] = []
+  for (const u of filteredUpdates) {
+    if (!u.sections) continue
+    for (const lines of Object.values(u.sections)) {
+      for (const line of lines ?? []) {
+        const t = line.trim()
+        if (!t) continue
+        if (!overlayLineAllowedForLanguageTrack(t, resolvedTrack)) continue
+        if (isAdminOverlayLine(t)) continue
+        if (isSubjectInventoryNoiseLine(t)) continue
+        out.push(t)
+      }
+    }
+  }
+  const deduped = out.filter(
+    (line, idx, arr) => arr.findIndex((x) => normOverlayText(x) === normOverlayText(line)) === idx
+  )
+  return dropSubstringRedundantOverlayLines(deduped)
+}
+
+function headlineOverlapsStructuredContent(headline: string, sectionNormSet: Set<string>): boolean {
+  const hFull = normOverlayText(headline)
+  if (sectionNormSet.has(hFull)) return true
+  const stripped = normOverlayText(stripOverlayLabelPrefixes(headline))
+  if (stripped && sectionNormSet.has(stripped)) return true
+  if (stripped.length >= 10) {
+    for (const sn of sectionNormSet) {
+      if (sn.length >= stripped.length + 6 && sn.includes(stripped)) return true
+    }
+  }
+  return false
+}
+
+type HeadlineSuppressReasons = {
+  suppressedBecauseLabeledBlob: boolean
+  suppressedBecauseAdminText: boolean
+  suppressedBecauseNonMatchingLanguage: boolean
+  suppressedBecauseDuplicate: boolean
+}
+
+function analyzeHeadlineSuppression(
+  headline: string,
+  hasStructuredSections: boolean,
+  sectionNormSet: Set<string>,
+  resolvedTrack: string | undefined
+): { show: boolean; reasons: HeadlineSuppressReasons } {
+  const reasons: HeadlineSuppressReasons = {
+    suppressedBecauseLabeledBlob: false,
+    suppressedBecauseAdminText: false,
+    suppressedBecauseNonMatchingLanguage: false,
+    suppressedBecauseDuplicate: false,
+  }
+  if (!headline.trim()) return { show: false, reasons }
+
+  if (hasStructuredSections && hasOverlayLabelBlobPattern(headline)) {
+    reasons.suppressedBecauseLabeledBlob = true
+  }
+  if (isAdminOverlayLine(headline)) {
+    reasons.suppressedBecauseAdminText = true
+  }
+  const canon = resolvedTrackCanon(resolvedTrack)
+  if (canon) {
+    const mentioned = foreignLanguageTokensInLine(headline)
+    if (mentioned.size > 0 && !mentioned.has(canon)) {
+      reasons.suppressedBecauseNonMatchingLanguage = true
+    }
+  }
+  if (hasStructuredSections && headlineOverlapsStructuredContent(headline, sectionNormSet)) {
+    reasons.suppressedBecauseDuplicate = true
+  }
+
+  const show = !Object.values(reasons).some(Boolean)
+  return { show, reasons }
+}
+
+function filterWeeklySummaryLine(
+  line: string,
+  resolvedTrack: string | undefined
+): { ok: boolean; reason?: string } {
+  const t = line.trim()
+  if (!t) return { ok: false, reason: 'empty' }
+  if (t.length > MAX_OVERLAY_WEEKLY_SUMMARY_LINE_LEN) return { ok: false, reason: 'tooLong' }
+  if (isAdminOverlayLine(t)) return { ok: false, reason: 'admin' }
+  if (!overlayLineAllowedForLanguageTrack(t, resolvedTrack)) return { ok: false, reason: 'language' }
+  if (isSubjectInventoryNoiseLine(t)) return { ok: false, reason: 'subjectInventory' }
+  return { ok: true }
+}
+
+function SchoolWeekOverlayReviewCard({
+  overlay,
+  resolvedLanguageTrack,
+}: {
+  overlay: PortalSchoolWeekOverlayProposal
+  /** F.eks. barnets fremmedspråk fra profil — prioriteres under API `languageTrack` når satt. */
+  resolvedLanguageTrack?: string
+}) {
+  const track =
+    resolvedLanguageTrack?.trim() ||
+    overlay.languageTrack?.resolvedTrack?.trim() ||
+    undefined
+
   const dayEntries = Object.entries(overlay.dailyActions)
     .map(([day, details]) => ({ day: Number(day), details }))
     .filter((x): x is { day: number; details: NonNullable<typeof x.details> } => !!x.details)
@@ -117,34 +371,47 @@ function SchoolWeekOverlayReviewCard({ overlay }: { overlay: PortalSchoolWeekOve
   for (const { details } of dayEntries) {
     const headline = details.summary?.trim() || details.reason?.trim() || ''
     if (headline) dayHeadlineSet.add(normOverlayText(headline))
-    for (const line of collectOverlaySectionLines(details)) {
+    for (const line of collectOverlaySectionLinesFromDetails(details, track)) {
       sectionLineSet.add(normOverlayText(line))
     }
   }
-  const condensedWeeklySummary = overlay.weeklySummary.filter((line, idx, arr) => {
-    const t = line.trim()
-    if (!t) return false
-    const n = normOverlayText(t)
-    if (dayHeadlineSet.has(n) || sectionLineSet.has(n)) return false
-    return arr.findIndex((x) => normOverlayText(x) === n) === idx
-  })
+
+  const condensedWeeklySummary: string[] = []
+  for (const line of overlay.weeklySummary) {
+    const wf = filterWeeklySummaryLine(line, track)
+    if (!wf.ok) continue
+    const n = normOverlayText(line)
+    if (dayHeadlineSet.has(n) || sectionLineSet.has(n)) continue
+    if (condensedWeeklySummary.some((x) => normOverlayText(x) === n)) continue
+    condensedWeeklySummary.push(line.trim())
+  }
+  condensedWeeklySummary.sort((a, b) => a.length - b.length)
+  const weeklyShown = condensedWeeklySummary.slice(0, 4)
 
   if (DEBUG_SCHOOL_IMPORT_PANEL) {
     console.debug('[overlay review render-levels]', {
+      track,
       hasWeeklySummary: overlay.weeklySummary.length > 0,
-      shownWeeklySummary: condensedWeeklySummary.length,
+      shownWeeklySummary: weeklyShown.length,
       dayModes: dayEntries.map(({ day, details }) => {
         const headline = details.summary?.trim() || details.reason?.trim() || ''
-        const sectionLines = collectOverlaySectionLines(details)
-        const sectionSet = new Set(sectionLines.map(normOverlayText))
-        const headlineIsDuplicated = !!headline && sectionSet.has(normOverlayText(headline))
+        const sectionLines = collectOverlaySectionLinesFromDetails(details, track)
+        const sectionNormSet = new Set(sectionLines.map(normOverlayText))
+        const hasStructuredSections = sectionLines.length > 0
+        const { show, reasons } = analyzeHeadlineSuppression(
+          headline,
+          hasStructuredSections,
+          sectionNormSet,
+          track
+        )
         const chosenRenderMode = sectionLines.length > 0 ? 'sections-first' : headline ? 'headline-only' : 'minimal'
         return {
           day,
           hasDaySummary: !!details.summary,
           hasDayReason: !!details.reason,
           hasSubjectSections: sectionLines.length > 0,
-          headlineSuppressedAsDuplicate: headlineIsDuplicated,
+          headlineShown: show,
+          headlineSuppressReasons: reasons,
           chosenRenderMode,
         }
       }),
@@ -172,9 +439,9 @@ function SchoolWeekOverlayReviewCard({ overlay }: { overlay: PortalSchoolWeekOve
           Kilde: {overlay.sourceTitle ?? overlay.originalSourceType}
         </span>
       </div>
-      {condensedWeeklySummary.length > 0 ? (
+      {weeklyShown.length > 0 ? (
         <ul className="mt-2 list-disc space-y-0.5 pl-4 text-[11px] text-indigo-950">
-          {condensedWeeklySummary.slice(0, 3).map((line, idx) => (
+          {weeklyShown.map((line, idx) => (
             <li key={`${line}-${idx}`}>{line}</li>
           ))}
         </ul>
@@ -183,15 +450,16 @@ function SchoolWeekOverlayReviewCard({ overlay }: { overlay: PortalSchoolWeekOve
         <ul className="mt-3 space-y-2">
           {dayEntries.map(({ day, details }) => {
             const headline = details.summary?.trim() || details.reason?.trim() || ''
-            const sectionLines = collectOverlaySectionLines(details)
+            const sectionLines = collectOverlaySectionLinesFromDetails(details, track)
             const hasSections = sectionLines.length > 0
-            const dedupedSectionLines = sectionLines.filter((line, idx, arr) => {
-              const n = normOverlayText(line)
-              return arr.findIndex((x) => normOverlayText(x) === n) === idx
-            })
-            const headlineShown =
-              !!headline &&
-              (!hasSections || !new Set(dedupedSectionLines.map(normOverlayText)).has(normOverlayText(headline)))
+            const sectionNormSet = new Set(sectionLines.map(normOverlayText))
+            const { show: headlineShown } = analyzeHeadlineSuppression(
+              headline,
+              hasSections,
+              sectionNormSet,
+              track
+            )
+            const filteredSubjectUpdates = filterSubjectUpdatesByLanguageTrack(details.subjectUpdates, track)
 
             return (
               <li key={day} className="rounded-lg border border-indigo-200 bg-white/85 px-2.5 py-2">
@@ -201,13 +469,13 @@ function SchoolWeekOverlayReviewCard({ overlay }: { overlay: PortalSchoolWeekOve
                 {headlineShown ? <p className="mt-0.5 text-[11px] text-zinc-700">{headline}</p> : null}
                 {hasSections ? (
                   <ul className="mt-1.5 list-disc space-y-0.5 pl-4 text-[11px] text-zinc-700">
-                    {dedupedSectionLines.map((line, idx) => (
+                    {sectionLines.map((line, idx) => (
                       <li key={`${line}-${idx}`}>{line}</li>
                     ))}
                   </ul>
-                ) : details.subjectUpdates.length > 0 ? (
+                ) : filteredSubjectUpdates.length > 0 ? (
                   <ul className="mt-1.5 list-disc space-y-0.5 pl-4 text-[11px] text-zinc-700">
-                    {details.subjectUpdates.map((u, idx) => (
+                    {filteredSubjectUpdates.map((u, idx) => (
                       <li key={`${u.subjectKey}-${idx}`}>
                         {u.customLabel ? `${u.customLabel} (${u.subjectKey})` : u.subjectKey}
                       </li>
@@ -222,9 +490,6 @@ function SchoolWeekOverlayReviewCard({ overlay }: { overlay: PortalSchoolWeekOve
     </div>
   )
 }
-
-const DEBUG_SCHOOL_IMPORT_PANEL =
-  import.meta.env.DEV || import.meta.env.VITE_DEBUG_SCHOOL_IMPORT === 'true'
 
 function describeSchoolDayPlanShort(plan: ChildSchoolDayPlan): string {
   if (plan.useSimpleDay) {
@@ -633,6 +898,11 @@ export function TankestromImportDialog({
   )
   const schoolWeekOverlayProposal = bundle?.schoolWeekOverlayProposal ?? null
 
+  const overlayReviewLanguageTrack = useMemo(() => {
+    const child = people.find((p) => p.id === schoolProfileChildId)
+    return inferLanguageTrackFromChildSchool(child?.school)
+  }, [people, schoolProfileChildId])
+
   const schoolImportDebugPanel = useMemo(() => {
     if (!schoolReview || !DEBUG_SCHOOL_IMPORT_PANEL) return null
     const snapshot = schoolReview.parsedProfileSnapshotJson
@@ -900,7 +1170,10 @@ export function TankestromImportDialog({
             <div className="space-y-4">
               {schoolWeekOverlayProposal ? (
                 <>
-                  <SchoolWeekOverlayReviewCard overlay={schoolWeekOverlayProposal} />
+                  <SchoolWeekOverlayReviewCard
+                    overlay={schoolWeekOverlayProposal}
+                    resolvedLanguageTrack={overlayReviewLanguageTrack}
+                  />
                   <div>
                     <label htmlFor="ts-overlay-child" className="text-[12px] font-medium text-zinc-700">
                       Knytt uke-overlay til barn
@@ -1138,7 +1411,10 @@ export function TankestromImportDialog({
           ) : (
             <div className="space-y-4">
               {schoolWeekOverlayProposal ? (
-                <SchoolWeekOverlayReviewCard overlay={schoolWeekOverlayProposal} />
+                <SchoolWeekOverlayReviewCard
+                  overlay={schoolWeekOverlayProposal}
+                  resolvedLanguageTrack={overlayReviewLanguageTrack}
+                />
               ) : null}
               {analyzeWarning ? (
                 <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[12px] leading-snug text-amber-950 whitespace-pre-wrap">

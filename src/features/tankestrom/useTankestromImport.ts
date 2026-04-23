@@ -245,7 +245,7 @@ function hasAnalyzeContent(bundle: PortalImportProposalBundle): boolean {
   return bundle.items.length > 0 || !!bundle.schoolWeekOverlayProposal
 }
 
-function filterSubjectUpdatesByLanguageTrack(
+export function filterSubjectUpdatesByLanguageTrack(
   updates: SchoolWeekOverlaySubjectUpdate[],
   resolvedTrack: string | undefined
 ): SchoolWeekOverlaySubjectUpdate[] {
