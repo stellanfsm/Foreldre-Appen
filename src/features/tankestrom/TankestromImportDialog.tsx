@@ -83,11 +83,73 @@ function overlayActionLabel(action: string): string {
   return 'Ingen endring'
 }
 
+function normOverlayText(s: string): string {
+  return s
+    .trim()
+    .toLocaleLowerCase('nb-NO')
+    .replace(/\s+/g, ' ')
+}
+
+function collectOverlaySectionLines(
+  details: NonNullable<PortalSchoolWeekOverlayProposal['dailyActions'][number]>
+): string[] {
+  const out: string[] = []
+  for (const u of details.subjectUpdates) {
+    if (!u.sections) continue
+    for (const lines of Object.values(u.sections)) {
+      for (const line of lines ?? []) {
+        const t = line.trim()
+        if (t) out.push(t)
+      }
+    }
+  }
+  return out
+}
+
 function SchoolWeekOverlayReviewCard({ overlay }: { overlay: PortalSchoolWeekOverlayProposal }) {
   const dayEntries = Object.entries(overlay.dailyActions)
     .map(([day, details]) => ({ day: Number(day), details }))
     .filter((x): x is { day: number; details: NonNullable<typeof x.details> } => !!x.details)
     .sort((a, b) => a.day - b.day)
+
+  const dayHeadlineSet = new Set<string>()
+  const sectionLineSet = new Set<string>()
+  for (const { details } of dayEntries) {
+    const headline = details.summary?.trim() || details.reason?.trim() || ''
+    if (headline) dayHeadlineSet.add(normOverlayText(headline))
+    for (const line of collectOverlaySectionLines(details)) {
+      sectionLineSet.add(normOverlayText(line))
+    }
+  }
+  const condensedWeeklySummary = overlay.weeklySummary.filter((line, idx, arr) => {
+    const t = line.trim()
+    if (!t) return false
+    const n = normOverlayText(t)
+    if (dayHeadlineSet.has(n) || sectionLineSet.has(n)) return false
+    return arr.findIndex((x) => normOverlayText(x) === n) === idx
+  })
+
+  if (DEBUG_SCHOOL_IMPORT_PANEL) {
+    console.debug('[overlay review render-levels]', {
+      hasWeeklySummary: overlay.weeklySummary.length > 0,
+      shownWeeklySummary: condensedWeeklySummary.length,
+      dayModes: dayEntries.map(({ day, details }) => {
+        const headline = details.summary?.trim() || details.reason?.trim() || ''
+        const sectionLines = collectOverlaySectionLines(details)
+        const sectionSet = new Set(sectionLines.map(normOverlayText))
+        const headlineIsDuplicated = !!headline && sectionSet.has(normOverlayText(headline))
+        const chosenRenderMode = sectionLines.length > 0 ? 'sections-first' : headline ? 'headline-only' : 'minimal'
+        return {
+          day,
+          hasDaySummary: !!details.summary,
+          hasDayReason: !!details.reason,
+          hasSubjectSections: sectionLines.length > 0,
+          headlineSuppressedAsDuplicate: headlineIsDuplicated,
+          chosenRenderMode,
+        }
+      }),
+    })
+  }
 
   return (
     <div className="rounded-xl border border-indigo-200 bg-indigo-50/70 px-3 py-3">
@@ -110,32 +172,51 @@ function SchoolWeekOverlayReviewCard({ overlay }: { overlay: PortalSchoolWeekOve
           Kilde: {overlay.sourceTitle ?? overlay.originalSourceType}
         </span>
       </div>
-      {overlay.weeklySummary.length > 0 ? (
+      {condensedWeeklySummary.length > 0 ? (
         <ul className="mt-2 list-disc space-y-0.5 pl-4 text-[11px] text-indigo-950">
-          {overlay.weeklySummary.map((line, idx) => (
+          {condensedWeeklySummary.slice(0, 3).map((line, idx) => (
             <li key={`${line}-${idx}`}>{line}</li>
           ))}
         </ul>
       ) : null}
       {dayEntries.length > 0 ? (
         <ul className="mt-3 space-y-2">
-          {dayEntries.map(({ day, details }) => (
-            <li key={day} className="rounded-lg border border-indigo-200 bg-white/85 px-2.5 py-2">
-              <p className="text-[12px] font-medium text-zinc-900">
-                {WD_LABEL_NB[day] ?? `Dag ${day}`} · {overlayActionLabel(details.action)}
-              </p>
-              {details.summary ? <p className="mt-0.5 text-[11px] text-zinc-700">{details.summary}</p> : null}
-              {details.subjectUpdates.length > 0 ? (
-                <ul className="mt-1.5 list-disc space-y-0.5 pl-4 text-[11px] text-zinc-700">
-                  {details.subjectUpdates.map((u, idx) => (
-                    <li key={`${u.subjectKey}-${idx}`}>
-                      {u.customLabel ? `${u.customLabel} (${u.subjectKey})` : u.subjectKey}
-                    </li>
-                  ))}
-                </ul>
-              ) : null}
-            </li>
-          ))}
+          {dayEntries.map(({ day, details }) => {
+            const headline = details.summary?.trim() || details.reason?.trim() || ''
+            const sectionLines = collectOverlaySectionLines(details)
+            const hasSections = sectionLines.length > 0
+            const dedupedSectionLines = sectionLines.filter((line, idx, arr) => {
+              const n = normOverlayText(line)
+              return arr.findIndex((x) => normOverlayText(x) === n) === idx
+            })
+            const headlineShown =
+              !!headline &&
+              (!hasSections || !new Set(dedupedSectionLines.map(normOverlayText)).has(normOverlayText(headline)))
+
+            return (
+              <li key={day} className="rounded-lg border border-indigo-200 bg-white/85 px-2.5 py-2">
+                <p className="text-[12px] font-medium text-zinc-900">
+                  {WD_LABEL_NB[day] ?? `Dag ${day}`} · {overlayActionLabel(details.action)}
+                </p>
+                {headlineShown ? <p className="mt-0.5 text-[11px] text-zinc-700">{headline}</p> : null}
+                {hasSections ? (
+                  <ul className="mt-1.5 list-disc space-y-0.5 pl-4 text-[11px] text-zinc-700">
+                    {dedupedSectionLines.map((line, idx) => (
+                      <li key={`${line}-${idx}`}>{line}</li>
+                    ))}
+                  </ul>
+                ) : details.subjectUpdates.length > 0 ? (
+                  <ul className="mt-1.5 list-disc space-y-0.5 pl-4 text-[11px] text-zinc-700">
+                    {details.subjectUpdates.map((u, idx) => (
+                      <li key={`${u.subjectKey}-${idx}`}>
+                        {u.customLabel ? `${u.customLabel} (${u.subjectKey})` : u.subjectKey}
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
+              </li>
+            )
+          })}
         </ul>
       ) : null}
     </div>
