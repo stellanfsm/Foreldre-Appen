@@ -15,6 +15,9 @@ import {
   filterSubjectUpdatesByLanguageTrack,
   getTankestromDraftFieldErrors,
   getTankestromTaskFieldErrors,
+  inferLanguageTrackFromChildSchool,
+  scanNotesBodyForLanguage,
+  taskIndicatesForeignLanguageMismatchWithTrack,
   type TankestromPendingFile,
 } from './useTankestromImport'
 import { cardSection, typSectionCap } from '../../lib/ui'
@@ -161,17 +164,6 @@ const SUBJECT_INVENTORY_KEYWORDS = new Set<string>(
 )
 
 const MAX_OVERLAY_WEEKLY_SUMMARY_LINE_LEN = 130
-
-function inferLanguageTrackFromChildSchool(school: ChildSchoolProfile | undefined): string | undefined {
-  if (!school?.weekdays) return undefined
-  for (const plan of Object.values(school.weekdays)) {
-    if (!plan?.lessons) continue
-    for (const l of plan.lessons) {
-      if (l.subjectKey === 'fremmedspråk' && l.customLabel?.trim()) return l.customLabel.trim()
-    }
-  }
-  return undefined
-}
 
 function foreignLanguageTokensInLine(line: string): Set<string> {
   const out = new Set<string>()
@@ -1783,6 +1775,14 @@ export function TankestromImportDialog({
                   const schoolCtxSubjectLabel = schoolCtx
                     ? schoolContextSubjectLabel(schoolCtxPerson?.school?.gradeBand, schoolCtx)
                     : null
+                  const taskLangMismatch =
+                    item.kind === 'task' &&
+                    u.importKind === 'task' &&
+                    taskIndicatesForeignLanguageMismatchWithTrack(
+                      u.task.title,
+                      scanNotesBodyForLanguage(u.task.notes),
+                      overlayReviewLanguageTrack
+                    )
 
                   return (
                     <li
@@ -1839,6 +1839,11 @@ export function TankestromImportDialog({
                           >
                             {checked ? 'Valgt for import' : 'Ikke valgt — huk av for å importere'}
                           </p>
+                          {taskLangMismatch ? (
+                            <p className="mt-1 text-[10px] leading-snug text-amber-800">
+                              Ser ut som annet fremmedspråk enn valgt barn — ikke huket av som standard.
+                            </p>
+                          ) : null}
                           <div className="mt-2 flex flex-wrap gap-1.5">
                             <button
                               type="button"

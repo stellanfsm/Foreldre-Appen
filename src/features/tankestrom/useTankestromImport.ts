@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ChildSchoolProfile, Event, Person, SchoolWeekOverlay, SchoolWeekOverlaySubjectUpdate, Task } from '../../types'
 import type {
   PortalEventProposal,
@@ -71,6 +71,127 @@ function hmPlusMinutes(hm: string, addMinutes: number): string {
 function defaultChildPersonId(people: Person[], validPersonIds: Set<string>): string {
   const c = people.find((p) => p.memberKind === 'child' && validPersonIds.has(p.id))
   return c?.id ?? ''
+}
+
+/** Samme fremmedspråk-lexemes som overlay-review (unngå engelsk/norsk som «språkfag»). */
+const TASK_FOREIGN_LANG_LEXEMES: ReadonlyArray<{ canon: string; pattern: RegExp }> = [
+  { canon: 'spansk', pattern: /\bspansk\b|spanish/i },
+  { canon: 'tysk', pattern: /\btysk\b|tyskland|german|deutsch/i },
+  { canon: 'fransk', pattern: /\bfransk\b|french/i },
+  { canon: 'russisk', pattern: /\brussisk\b|russian/i },
+  { canon: 'italiensk', pattern: /\bitaliensk\b|italian/i },
+  { canon: 'mandarin', pattern: /\bmandarin\b|kinesisk|kinamål/i },
+  { canon: 'japansk', pattern: /\bjapansk\b|japanese/i },
+  { canon: 'arabisk', pattern: /\barabisk\b|arabic/i },
+]
+
+export function inferLanguageTrackFromChildSchool(school: ChildSchoolProfile | undefined): string | undefined {
+  if (!school?.weekdays) return undefined
+  for (const plan of Object.values(school.weekdays)) {
+    if (!plan?.lessons) continue
+    for (const l of plan.lessons) {
+      if (l.subjectKey === 'fremmedspråk' && l.customLabel?.trim()) return l.customLabel.trim()
+    }
+  }
+  return undefined
+}
+
+function foreignLanguageCanonsInText(text: string): Set<string> {
+  const out = new Set<string>()
+  for (const { canon, pattern } of TASK_FOREIGN_LANG_LEXEMES) {
+    if (pattern.test(text)) out.add(canon)
+  }
+  return out
+}
+
+function taskMentionsCatalogForeignLanguage(title: string, notesBody: string): boolean {
+  return foreignLanguageCanonsInText(`${title}\n${notesBody}`).size > 0
+}
+
+/** Barnets spor kan være «Tysk 2» — matcher fortsatt lexeme-canon `tysk`. */
+function trackMatchesCanon(trackNorm: string, canon: string): boolean {
+  if (trackNorm === canon) return true
+  const first = trackNorm.split(/[\s/-]+/)[0] ?? trackNorm
+  if (first === canon) return true
+  if (trackNorm.startsWith(`${canon} `) || trackNorm.startsWith(`${canon}-`)) return true
+  return false
+}
+
+/** Fjern første «Fra: …»-linje slik at kildeprefill ikke gir falske språktreff. */
+export function scanNotesBodyForLanguage(notes: string): string {
+  const lines = notes.replace(/\r\n/g, '\n').split('\n')
+  if (lines[0]?.trim().toLowerCase().startsWith('fra:')) {
+    return lines.slice(1).join('\n').trim()
+  }
+  return notes.trim()
+}
+
+/** True når tittel/notat tydelig viser annet fremmedspråk enn barnets spor. */
+export function taskIndicatesForeignLanguageMismatchWithTrack(
+  title: string,
+  notesBody: string,
+  resolvedTrack: string | undefined
+): boolean {
+  const track = resolvedTrack?.trim().toLocaleLowerCase('nb-NO')
+  if (!track) return false
+  const mentioned = foreignLanguageCanonsInText(`${title}\n${notesBody}`)
+  if (mentioned.size === 0) return false
+  for (const m of mentioned) {
+    if (!trackMatchesCanon(track, m)) return true
+  }
+  return false
+}
+
+export function humanImportSourceLabelForBundle(bundle: PortalImportProposalBundle | null | undefined): string | undefined {
+  if (!bundle) return undefined
+  const ov = bundle.schoolWeekOverlayProposal
+  if (ov?.sourceTitle?.trim()) return ov.sourceTitle.trim()
+  if (ov?.classLabel?.trim() && ov.weekNumber != null) {
+    return `A-plan ${ov.classLabel.trim()} uke ${ov.weekNumber}`
+  }
+  if (ov?.classLabel?.trim()) return `A-plan ${ov.classLabel.trim()}`
+  if (ov?.weekNumber != null) return `A-plan uke ${ov.weekNumber}`
+  const st = bundle.provenance?.sourceType?.trim()
+  if (st) return st
+  return undefined
+}
+
+function initialSelectedIdsForGeneralImport(
+  items: PortalProposalItem[],
+  drafts: Record<string, TankestromImportDraft>,
+  people: Person[],
+  schoolProfileChildId: string
+): Set<string> {
+  const child = people.find((p) => p.id === schoolProfileChildId && p.memberKind === 'child')
+  const track = inferLanguageTrackFromChildSchool(child?.school)
+  const out = new Set<string>()
+  let taskMismatch = 0
+  for (const item of items) {
+    if (item.kind === 'school_profile') continue
+    if (item.kind === 'event') {
+      out.add(item.proposalId)
+      continue
+    }
+    if (item.kind === 'task') {
+      const d = drafts[item.proposalId]
+      if (!d || d.importKind !== 'task') continue
+      const body = scanNotesBodyForLanguage(d.task.notes)
+      if (taskIndicatesForeignLanguageMismatchWithTrack(d.task.title, body, track)) {
+        taskMismatch += 1
+        continue
+      }
+      out.add(item.proposalId)
+    }
+  }
+  if (import.meta.env.DEV || import.meta.env.VITE_DEBUG_SCHOOL_IMPORT === 'true') {
+    console.debug('[tankestrom task language selection]', {
+      reviewLanguageTrack: track,
+      taskLanguageMismatchCount: taskMismatch,
+      taskDeselectedBecauseLanguageMismatch: taskMismatch,
+      taskHiddenBecauseLanguageMismatch: 0,
+    })
+  }
+  return out
 }
 
 export function validateTankestromDraft(
@@ -188,7 +309,8 @@ function buildEventDraftFromProposal(
 function buildTaskDraftFromProposal(
   p: PortalTaskProposal,
   validPersonIds: Set<string>,
-  people: Person[]
+  people: Person[],
+  taskSourceLabelHint?: string
 ): TankestromTaskDraft {
   function normalizeTaskNotesText(s: string): string {
     return s.replace(/\r\n/g, '\n').trim()
@@ -196,7 +318,8 @@ function buildTaskDraftFromProposal(
 
   function buildTaskNotesPrefill(proposal: PortalTaskProposal): string {
     const rawDetail = normalizeTaskNotesText(proposal.task.notes ?? '')
-    const sourceLabel = proposal.originalSourceType?.trim() || 'Ukjent kilde'
+    const sourceLabel =
+      taskSourceLabelHint?.trim() || proposal.originalSourceType?.trim() || 'Ukjent kilde'
     const sourceLine = `Fra: ${sourceLabel}`
 
     const lower = rawDetail.toLocaleLowerCase('nb-NO')
@@ -215,14 +338,17 @@ function buildTaskDraftFromProposal(
 
   const t = p.task
   const prefilledNotes = buildTaskNotesPrefill(p)
+  const resolvedLabel =
+    taskSourceLabelHint?.trim() || p.originalSourceType?.trim() || 'Ukjent kilde'
   if (import.meta.env.DEV || import.meta.env.VITE_DEBUG_SCHOOL_IMPORT === 'true') {
-    const sourceLine = `Fra: ${p.originalSourceType?.trim() || 'Ukjent kilde'}`
     console.debug('[tankestrom task notes prefill]', {
       proposalId: p.proposalId,
       originalSourceType: p.originalSourceType,
       parsedTaskNotes: t.notes,
       taskDraftPrefillNotes: prefilledNotes,
-      usedSourceFallbackOnly: prefilledNotes.trim() === sourceLine,
+      taskSourceLabel: resolvedLabel,
+      usedTechnicalSourceTypeOnly:
+        !taskSourceLabelHint?.trim() && !!p.originalSourceType?.trim(),
     })
   }
 
@@ -248,25 +374,36 @@ function importDraftFromProposal(
   item: PortalEventProposal | PortalTaskProposal,
   validPersonIds: Set<string>,
   defaultPersonId: string,
-  people: Person[]
+  people: Person[],
+  taskSourceLabelHint?: string
 ): TankestromImportDraft {
   if (item.kind === 'event') {
     return { importKind: 'event', event: buildEventDraftFromProposal(item, validPersonIds, defaultPersonId) }
   }
-  return { importKind: 'task', task: buildTaskDraftFromProposal(item, validPersonIds, people) }
+  return {
+    importKind: 'task',
+    task: buildTaskDraftFromProposal(item, validPersonIds, people, taskSourceLabelHint),
+  }
 }
 
 function buildDraftsFromItems(
   items: PortalProposalItem[],
   validPersonIds: Set<string>,
   defaultPersonId: string,
-  people: Person[]
+  people: Person[],
+  taskSourceLabelHint?: string
 ): Record<string, TankestromImportDraft> {
   const drafts: Record<string, TankestromImportDraft> = {}
   for (const item of items) {
     if (item.kind === 'school_profile') continue
     if (item.kind === 'event' || item.kind === 'task') {
-      drafts[item.proposalId] = importDraftFromProposal(item, validPersonIds, defaultPersonId, people)
+      drafts[item.proposalId] = importDraftFromProposal(
+        item,
+        validPersonIds,
+        defaultPersonId,
+        people,
+        taskSourceLabelHint
+      )
     }
   }
   return drafts
@@ -462,6 +599,8 @@ export function useTankestromImport({
     return !!child
   }, [bundle?.schoolWeekOverlayProposal, schoolProfileChildId, people, updatePerson])
 
+  const prevSchoolChildForLangAdjustRef = useRef<string | null>(null)
+
   const reset = useCallback(() => {
     setStep('pick')
     setInputMode('file')
@@ -476,11 +615,57 @@ export function useTankestromImport({
     setSaveLoading(false)
     setError(null)
     setAnalyzeWarning(null)
+    prevSchoolChildForLangAdjustRef.current = null
   }, [])
 
   useEffect(() => {
     if (open) reset()
   }, [open, reset])
+
+  /** Etter bytte av globalt barn: fjern huk for språk-mismatch; ta med matchende språk-oppgaver. */
+  useEffect(() => {
+    if (step !== 'review' || schoolReview != null || !bundle) return
+    const cid = schoolProfileChildId
+    const prev = prevSchoolChildForLangAdjustRef.current
+    if (prev === null) {
+      prevSchoolChildForLangAdjustRef.current = cid
+      return
+    }
+    if (prev === cid) return
+    prevSchoolChildForLangAdjustRef.current = cid
+
+    const child = people.find((p) => p.id === cid && p.memberKind === 'child')
+    const track = inferLanguageTrackFromChildSchool(child?.school)
+    let deselected = 0
+    let selectedMatch = 0
+
+    setSelectedIds((sel) => {
+      const next = new Set(sel)
+      for (const item of bundle.items) {
+        if (item.kind !== 'task') continue
+        const d = draftByProposalId[item.proposalId]
+        if (!d || d.importKind !== 'task') continue
+        const body = scanNotesBodyForLanguage(d.task.notes)
+        const mismatch = taskIndicatesForeignLanguageMismatchWithTrack(d.task.title, body, track)
+        const langSignal = taskMentionsCatalogForeignLanguage(d.task.title, body)
+        if (mismatch) {
+          if (next.delete(item.proposalId)) deselected += 1
+        } else if (track && langSignal) {
+          if (!next.has(item.proposalId)) selectedMatch += 1
+          next.add(item.proposalId)
+        }
+      }
+      return next
+    })
+
+    if (import.meta.env.DEV || import.meta.env.VITE_DEBUG_SCHOOL_IMPORT === 'true') {
+      console.debug('[tankestrom task language on child change]', {
+        reviewLanguageTrack: track,
+        taskDeselectedBecauseLanguageMismatch: deselected,
+        taskSelectedBecauseLanguageMatch: selectedMatch,
+      })
+    }
+  }, [schoolProfileChildId, bundle, step, schoolReview, draftByProposalId, people])
 
   const addFilesFromList = useCallback((list: FileList | File[]) => {
     const arr = Array.from(list)
@@ -639,17 +824,15 @@ export function useTankestromImport({
           return
         }
         setSchoolReview(null)
-        if (b.schoolWeekOverlayProposal) {
-          const childIds = people.filter((p) => p.memberKind === 'child').map((p) => p.id)
-          setSchoolProfileChildId(childIds[0] ?? '')
-        } else {
-          setSchoolProfileChildId('')
-        }
+        const childIds = people.filter((p) => p.memberKind === 'child').map((p) => p.id)
+        const importChildId = b.schoolWeekOverlayProposal ? childIds[0] ?? '' : ''
+        setSchoolProfileChildId(importChildId)
         const defaultPersonId = people[0]?.id ?? ''
-        setDraftByProposalId(buildDraftsFromItems(b.items, validPersonIds, defaultPersonId, people))
-        setSelectedIds(
-          new Set(b.items.filter((i) => i.kind !== 'school_profile').map((i) => i.proposalId))
-        )
+        const sourceHint = humanImportSourceLabelForBundle(b)
+        const drafts = buildDraftsFromItems(b.items, validPersonIds, defaultPersonId, people, sourceHint)
+        setDraftByProposalId(drafts)
+        setSelectedIds(initialSelectedIdsForGeneralImport(b.items, drafts, people, importChildId))
+        prevSchoolChildForLangAdjustRef.current = null
         setStep('review')
         return
       }
@@ -755,17 +938,15 @@ export function useTankestromImport({
       }
 
       setSchoolReview(null)
-      if (merged.schoolWeekOverlayProposal) {
-        const childIds = people.filter((p) => p.memberKind === 'child').map((p) => p.id)
-        setSchoolProfileChildId(childIds[0] ?? '')
-      } else {
-        setSchoolProfileChildId('')
-      }
+      const childIds = people.filter((p) => p.memberKind === 'child').map((p) => p.id)
+      const importChildId = merged.schoolWeekOverlayProposal ? childIds[0] ?? '' : ''
+      setSchoolProfileChildId(importChildId)
       const defaultPersonId = people[0]?.id ?? ''
-      setDraftByProposalId(buildDraftsFromItems(merged.items, validPersonIds, defaultPersonId, people))
-      setSelectedIds(
-        new Set(merged.items.filter((i) => i.kind !== 'school_profile').map((i) => i.proposalId))
-      )
+      const sourceHint = humanImportSourceLabelForBundle(merged)
+      const drafts = buildDraftsFromItems(merged.items, validPersonIds, defaultPersonId, people, sourceHint)
+      setDraftByProposalId(drafts)
+      setSelectedIds(initialSelectedIdsForGeneralImport(merged.items, drafts, people, importChildId))
+      prevSchoolChildForLangAdjustRef.current = null
       setStep('review')
 
       if (failureLines.length > 0) {
