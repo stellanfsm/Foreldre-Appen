@@ -15,6 +15,12 @@ export interface SchoolLessonSlot {
   subjectKey: string
   /** When set, shown instead of catalog name (e.g. «Kristendom»). */
   customLabel?: string
+  /**
+   * Strukturert underkategori for generiske fag (fremmedspråk, valgfag, programfag, …).
+   * Kilde til sannhet for spor/variant — brukes f.eks. til språkspor og senere A-plan-filtrering.
+   * Skilles fra `customLabel`, som fortsatt brukes til annet fag, tilleggstekst og import-runder.
+   */
+  lessonSubcategory?: string
   start: string
   end: string
 }

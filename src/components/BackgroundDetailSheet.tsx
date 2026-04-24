@@ -266,7 +266,7 @@ function buildSchoolRows(person: Person, dateKey: string): TimeRowWithLesson[] {
   return lessons.map((L) => ({
     start: L.start,
     end: L.end,
-    label: subjectLabelForKey(school.gradeBand, L.subjectKey, L.customLabel),
+    label: subjectLabelForKey(school.gradeBand, L.subjectKey, L.customLabel, L.lessonSubcategory),
     lesson: L,
   }))
 }

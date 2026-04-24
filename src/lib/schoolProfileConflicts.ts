@@ -21,7 +21,7 @@ export function lessonConflictGroupId(g: LessonConflictGroup): string {
 }
 
 export function lessonFingerprint(l: SchoolLessonSlot): string {
-  return `${l.start}|${l.end}|${l.subjectKey}|${(l.customLabel ?? '').trim()}`
+  return `${l.start}|${l.end}|${l.subjectKey}|${(l.customLabel ?? '').trim()}|${(l.lessonSubcategory ?? '').trim()}`
 }
 
 function minTime(a: string, b: string): string {
@@ -121,7 +121,7 @@ export function detectLessonConflicts(profile: ChildSchoolProfile): LessonConfli
 }
 
 export function lessonDisplayLabel(band: NorwegianGradeBand, l: SchoolLessonSlot): string {
-  return subjectLabelForKey(band, l.subjectKey, l.customLabel)
+  return subjectLabelForKey(band, l.subjectKey, l.customLabel, l.lessonSubcategory)
 }
 
 /**

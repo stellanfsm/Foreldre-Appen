@@ -21,6 +21,10 @@ describe('subjectLabelForKey', () => {
   it('viser bare fritekst for valgfag', () => {
     expect(subjectLabelForKey('5-7', 'valgfag', 'Programmering')).toBe('Programmering')
   })
+
+  it('prioriterer lessonSubcategory over customLabel for generiske fag', () => {
+    expect(subjectLabelForKey('8-10', 'fremmedspråk', 'Spansk', 'Tysk')).toBe('Tysk')
+  })
 })
 
 describe('inferSubjectKeyFromText', () => {

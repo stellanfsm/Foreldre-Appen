@@ -120,6 +120,53 @@ const GENERIC_SUBJECT_KEYS = new Set<string>([
   'eksamen',
 ])
 
+/** Fag der timeplanen ofte bare har en hovedblokk — underkategori velges for seg. */
+export function lessonUsesStructuredSubcategory(subjectKey: string): boolean {
+  return GENERIC_SUBJECT_KEYS.has(subjectKey)
+}
+
+/** Nedtrekk for fremmedspråk-spor (visningsverdier lagres i `lessonSubcategory`). */
+export const FREMMSP_LEK_SUBCATEGORY_PRESETS: ReadonlyArray<{ value: string; label: string }> = [
+  { value: 'Tysk', label: 'Tysk' },
+  { value: 'Spansk', label: 'Spansk' },
+  { value: 'Fransk', label: 'Fransk' },
+  { value: 'Italiensk', label: 'Italiensk' },
+  { value: 'Russisk', label: 'Russisk' },
+  { value: 'Arabisk', label: 'Arabisk' },
+  { value: 'Japansk', label: 'Japansk' },
+  { value: 'Mandarin (kinesisk)', label: 'Mandarin / kinesisk' },
+]
+
+export const VALGFAG_SUBCATEGORY_PRESETS: ReadonlyArray<{ value: string; label: string }> = [
+  { value: 'Programmering', label: 'Programmering' },
+  { value: 'Musikk', label: 'Musikk' },
+  { value: 'Idrett', label: 'Idrett' },
+  { value: 'Teater', label: 'Teater' },
+  { value: 'Kunst og visuell kultur', label: 'Kunst / visuell kultur' },
+  { value: 'Mat og helse', label: 'Mat og helse' },
+]
+
+const CUSTOM_SUBCAT_SENTINEL = '__custom__'
+
+/**
+ * `undefined` = ikke valgt i nedtrekk.
+ * `''` (tom streng) = «Annet» valgt, brukeren kan skrive fritekst.
+ */
+export function lessonSubcategorySelectValue(
+  lessonSubcategory: string | undefined,
+  presets: ReadonlyArray<{ value: string }>
+): string {
+  if (lessonSubcategory === undefined) return ''
+  if (lessonSubcategory === '') return CUSTOM_SUBCAT_SENTINEL
+  const v = lessonSubcategory.trim()
+  if (!v) return ''
+  const hit = presets.find((p) => p.value === v)
+  if (hit) return hit.value
+  return CUSTOM_SUBCAT_SENTINEL
+}
+
+export { CUSTOM_SUBCAT_SENTINEL as LESSON_SUBCATEGORY_CUSTOM_SENTINEL }
+
 function normNb(s: string): string {
   return s
     .trim()
@@ -213,19 +260,27 @@ export function matchSubjectFromText(
  * Pen visningslabel for timeplan / skolekontekst.
  * Bevarer importert tilleggstekst: «norsk» + «Utenom» → «Norsk · Utenom», mens «Norsk utenom» i customLabel vises hele.
  */
-export function subjectLabelForKey(band: NorwegianGradeBand, key: string, customLabel?: string): string {
+export function subjectLabelForKey(
+  band: NorwegianGradeBand,
+  key: string,
+  customLabel?: string,
+  lessonSubcategory?: string
+): string {
   if (key === CUSTOM_SUBJECT_KEY) return (customLabel?.trim() || 'Annet fag')
 
   const list = SUBJECTS_BY_BAND[band]
   const catalogLabel = list.find((s) => s.key === key)?.label
   const custom = customLabel?.trim()
+  const sub = lessonSubcategory?.trim()
 
-  if (!custom) {
+  if (GENERIC_SUBJECT_KEYS.has(key)) {
+    if (sub) return sub
+    if (custom) return custom
     return catalogLabel ?? key
   }
 
-  if (GENERIC_SUBJECT_KEYS.has(key)) {
-    return custom
+  if (!custom) {
+    return catalogLabel ?? key
   }
 
   if (!catalogLabel) {

@@ -73,8 +73,10 @@ function parseLessonSlot(raw: unknown, idx: number, wdLabel: string): SchoolLess
   const start = parseHmRequired(raw.start, `weekdays[${wdLabel}].lessons[${idx}].start`)
   const end = parseHmRequired(raw.end, `weekdays[${wdLabel}].lessons[${idx}].end`)
   const customLabel = firstLessonDisplayString(raw)
+  const subRaw = asOptionalString(raw.lessonSubcategory)
   const out: SchoolLessonSlot = { subjectKey, start, end }
   if (customLabel !== undefined) out.customLabel = customLabel
+  if (subRaw !== undefined && subRaw.trim()) out.lessonSubcategory = subRaw.trim()
   return out
 }
 

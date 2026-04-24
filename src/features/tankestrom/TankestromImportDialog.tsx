@@ -399,6 +399,8 @@ function SchoolWeekOverlayReviewCard({
   onChange?: (next: PortalSchoolWeekOverlayProposal) => void
 }) {
   const [editingDay, setEditingDay] = useState<number | null>(null)
+  /** Lesemodus: utvid skjulte linjer uten å gå inn i Rediger. */
+  const [readExpandedByDay, setReadExpandedByDay] = useState<Record<number, boolean>>({})
   const track =
     resolvedLanguageTrack?.trim() ||
     overlay.languageTrack?.resolvedTrack?.trim() ||
@@ -448,6 +450,14 @@ function SchoolWeekOverlayReviewCard({
           track
         )
         const chosenRenderMode = sectionLines.length > 0 ? 'sections-first' : headline ? 'headline-only' : 'minimal'
+        const filteredSubjectUpdatesDbg = filterSubjectUpdatesByLanguageTrack(details.subjectUpdates, track)
+        const compactLinesDbg = hasStructuredSections
+          ? sectionLines
+          : filteredSubjectUpdatesDbg.map((u) =>
+              u.customLabel ? `${u.customLabel} (${u.subjectKey})` : u.subjectKey
+            )
+        const hiddenDbg = Math.max(0, compactLinesDbg.length - 3)
+        const readExpandedDbg = !!readExpandedByDay[day]
         return {
           day,
           overlayDayEditMode: editingDay === day ? 'edit' : 'compact',
@@ -460,6 +470,9 @@ function SchoolWeekOverlayReviewCard({
           headlineShown: show,
           headlineSuppressReasons: reasons,
           chosenRenderMode,
+          overlayDayCollapsed: hiddenDbg > 0 && !readExpandedDbg,
+          overlayDayExpanded: readExpandedDbg,
+          overlayDayHiddenLineCount: hiddenDbg,
         }
       }),
     })
@@ -514,6 +527,9 @@ function SchoolWeekOverlayReviewCard({
                 : filteredSubjectUpdates.map((u) => (u.customLabel ? `${u.customLabel} (${u.subjectKey})` : u.subjectKey))
             const compactVisible = compactLines.slice(0, 3)
             const compactHiddenCount = Math.max(0, compactLines.length - compactVisible.length)
+            const readExpanded = !!readExpandedByDay[day]
+            const readLines =
+              readExpanded || compactHiddenCount === 0 ? compactLines : compactVisible
 
             return (
               <li key={day} className="rounded-lg border border-indigo-200 bg-white/85 px-2.5 py-2">
@@ -574,15 +590,25 @@ function SchoolWeekOverlayReviewCard({
                   </div>
                 ) : null}
                 {!isEditing && headlineShown ? <p className="mt-0.5 text-[11px] text-zinc-700">{headline}</p> : null}
-                {!isEditing && compactVisible.length > 0 ? (
-                  <ul className="mt-1.5 list-disc space-y-0.5 pl-4 text-[11px] text-zinc-700">
-                    {compactVisible.map((line, idx) => (
-                      <li key={`${line}-${idx}`}>{line}</li>
-                    ))}
+                {!isEditing && compactLines.length > 0 ? (
+                  <>
+                    <ul className="mt-1.5 list-disc space-y-0.5 pl-4 text-[11px] text-zinc-700">
+                      {readLines.map((line, idx) => (
+                        <li key={`${line}-${idx}`}>{line}</li>
+                      ))}
+                    </ul>
                     {compactHiddenCount > 0 ? (
-                      <li className="list-none pl-0 text-[10px] text-zinc-500">+ {compactHiddenCount} flere linjer</li>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setReadExpandedByDay((prev) => ({ ...prev, [day]: !prev[day] }))
+                        }
+                        className="mt-1 block max-w-full pl-4 text-left text-[10px] font-medium text-indigo-700 underline decoration-indigo-300 underline-offset-2 hover:text-indigo-900"
+                      >
+                        {readExpanded ? 'Vis færre' : `+ ${compactHiddenCount} flere linjer`}
+                      </button>
                     ) : null}
-                  </ul>
+                  </>
                 ) : null}
               </li>
             )

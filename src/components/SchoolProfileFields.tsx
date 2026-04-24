@@ -3,8 +3,13 @@ import type { ChildSchoolProfile, NorwegianGradeBand, SchoolLessonSlot, WeekdayM
 import {
   CUSTOM_SUBJECT_KEY,
   DEFAULT_SCHOOL_GATE_BY_BAND,
+  FREMMSP_LEK_SUBCATEGORY_PRESETS,
   GRADE_BAND_LABELS,
+  LESSON_SUBCATEGORY_CUSTOM_SENTINEL,
   SUBJECTS_BY_BAND,
+  VALGFAG_SUBCATEGORY_PRESETS,
+  lessonSubcategorySelectValue,
+  lessonUsesStructuredSubcategory,
   matchSubjectFromText,
   isKnownSubjectKeyForBand,
   subjectLabelForKey,
@@ -106,13 +111,37 @@ export function SchoolProfileFields({ value, onChange }: SchoolProfileFieldsProp
             lessonIndex: i,
             match: inferred,
             before,
-            after: { subjectKey: lesson.subjectKey, customLabel: lesson.customLabel },
+            after: {
+              subjectKey: lesson.subjectKey,
+              customLabel: lesson.customLabel,
+              lessonSubcategory: lesson.lessonSubcategory,
+            },
           })
           // #region agent log
           fetch('http://127.0.0.1:7535/ingest/049b3e24-eef8-4d09-b78d-4e257b02a969',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'4d90a0'},body:JSON.stringify({sessionId:'4d90a0',runId:'school-review-trace-v1',hypothesisId:'H3',location:'SchoolProfileFields.tsx:88',message:'lesson harmonized',data:{runId,weekday:wd,lessonIndex:i,match:inferred,before,after:{subjectKey:lesson.subjectKey,customLabel:lesson.customLabel,start:lesson.start,end:lesson.end}},timestamp:Date.now()})}).catch(()=>{})
           // #endregion
         }
         dayChanged = true
+      }
+
+      for (let i = 0; i < nextLessons.length; i++) {
+        const lesson = nextLessons[i]!
+        if (!lessonUsesStructuredSubcategory(lesson.subjectKey)) continue
+        const c = lesson.customLabel?.trim()
+        if (c && lesson.lessonSubcategory === undefined) {
+          lesson.lessonSubcategory = c
+          lesson.customLabel = undefined
+          dayChanged = true
+          if (debugSchoolImport) {
+            console.debug('[school import harmonize] lesson:subcategory-migrate-from-custom', {
+              runId,
+              weekday: wd,
+              lessonIndex: i,
+              subjectKey: lesson.subjectKey,
+              savedSchoolLessonSubcategory: lesson.lessonSubcategory,
+            })
+          }
+        }
       }
 
       if (dayChanged) {
@@ -229,6 +258,14 @@ export function SchoolProfileFields({ value, onChange }: SchoolProfileFieldsProp
     const cur = value.weekdays[wd]
     const lessons = (cur?.lessons ?? []).map((L) => ({ ...L }))
     if (!lessons[index]) return
+    if (debugSchoolImport && 'lessonSubcategory' in patch) {
+      const L = lessons[index]!
+      console.debug('[school profile lesson subcategory]', {
+        subjectKey: L.subjectKey,
+        supportsSubcategorySelection: lessonUsesStructuredSubcategory(L.subjectKey),
+        selectedSubcategory: patch.lessonSubcategory,
+      })
+    }
     lessons[index] = { ...lessons[index], ...patch }
     // Keep flow fast: when an end time is chosen, suggest next start from it.
     if (patch.end && lessons[index + 1]) {
@@ -410,16 +447,21 @@ export function SchoolProfileFields({ value, onChange }: SchoolProfileFieldsProp
                               updateLesson(wd, i, {
                                 subjectKey: CUSTOM_SUBJECT_KEY,
                                 customLabel: L.customLabel ?? '',
+                                lessonSubcategory: undefined,
                               })
                             } else {
-                              updateLesson(wd, i, { subjectKey: v, customLabel: undefined })
+                              updateLesson(wd, i, {
+                                subjectKey: v,
+                                customLabel: undefined,
+                                lessonSubcategory: undefined,
+                              })
                             }
                           }}
                           className="min-h-10 w-full min-w-0 rounded border border-zinc-200 px-2 py-1 text-[12px] md:flex-1"
                         >
                           {!isKnownSubjectKeyForBand(band, L.subjectKey) ? (
                             <option value={L.subjectKey}>
-                              {subjectLabelForKey(band, L.subjectKey, L.customLabel)}{' '}
+                              {subjectLabelForKey(band, L.subjectKey, L.customLabel, L.lessonSubcategory)}{' '}
                               (fra import)
                             </option>
                           ) : null}
@@ -463,6 +505,104 @@ export function SchoolProfileFields({ value, onChange }: SchoolProfileFieldsProp
                           </button>
                         </div>
                       </div>
+                      {lessonUsesStructuredSubcategory(L.subjectKey) ? (
+                        <div className="mt-1.5 rounded-md border border-zinc-200/90 bg-zinc-50/80 px-2 py-1.5">
+                          {L.subjectKey === 'fremmedspråk' || L.subjectKey === 'valgfag' ? (
+                            <>
+                              <label className="block text-[11px] font-medium text-zinc-600">
+                                Velg underkategori
+                              </label>
+                              {(() => {
+                                const subPickPresets =
+                                  L.subjectKey === 'fremmedspråk'
+                                    ? FREMMSP_LEK_SUBCATEGORY_PRESETS
+                                    : VALGFAG_SUBCATEGORY_PRESETS
+                                const subSelectValue = lessonSubcategorySelectValue(
+                                  L.lessonSubcategory,
+                                  subPickPresets
+                                )
+                                const showSubCustom =
+                                  subSelectValue === LESSON_SUBCATEGORY_CUSTOM_SENTINEL
+                                const freeText =
+                                  L.lessonSubcategory === undefined
+                                    ? ''
+                                    : subPickPresets.some(
+                                        (p) => p.value === (L.lessonSubcategory ?? '').trim()
+                                      )
+                                      ? ''
+                                      : (L.lessonSubcategory ?? '')
+                                return (
+                                  <>
+                                    <select
+                                      className="mt-0.5 w-full rounded border border-zinc-200 bg-white px-2 py-1.5 text-[12px] outline-none focus:border-zinc-400"
+                                      value={
+                                        subSelectValue === LESSON_SUBCATEGORY_CUSTOM_SENTINEL
+                                          ? LESSON_SUBCATEGORY_CUSTOM_SENTINEL
+                                          : subSelectValue || ''
+                                      }
+                                      onChange={(e) => {
+                                        const v = e.target.value
+                                        if (v === '') {
+                                          updateLesson(wd, i, { lessonSubcategory: undefined })
+                                        } else if (v === LESSON_SUBCATEGORY_CUSTOM_SENTINEL) {
+                                          updateLesson(wd, i, { lessonSubcategory: '' })
+                                        } else {
+                                          updateLesson(wd, i, { lessonSubcategory: v })
+                                        }
+                                      }}
+                                    >
+                                      <option value="">— Velg —</option>
+                                      {subPickPresets.map((p) => (
+                                        <option key={p.value} value={p.value}>
+                                          {p.label}
+                                        </option>
+                                      ))}
+                                      <option value={LESSON_SUBCATEGORY_CUSTOM_SENTINEL}>
+                                        Annet (skriv under)
+                                      </option>
+                                    </select>
+                                    {showSubCustom ? (
+                                      <input
+                                        type="text"
+                                        value={freeText}
+                                        onChange={(e) => {
+                                          const t = e.target.value
+                                          if (t.trim() === '') {
+                                            updateLesson(wd, i, { lessonSubcategory: '' })
+                                          } else {
+                                            updateLesson(wd, i, { lessonSubcategory: t.trim() })
+                                          }
+                                        }}
+                                        placeholder="Skriv underkategori"
+                                        aria-label="Underkategori (annet)"
+                                        className="mt-1 w-full rounded border border-zinc-200 bg-white px-2 py-1.5 text-[12px] outline-none focus:border-zinc-400"
+                                      />
+                                    ) : null}
+                                  </>
+                                )
+                              })()}
+                            </>
+                          ) : (
+                            <>
+                              <label className="block text-[11px] font-medium text-zinc-600">
+                                Underkategori / spor
+                              </label>
+                              <input
+                                type="text"
+                                value={L.lessonSubcategory ?? ''}
+                                onChange={(e) =>
+                                  updateLesson(wd, i, {
+                                    lessonSubcategory: e.target.value.trim() || undefined,
+                                  })
+                                }
+                                placeholder="Valgfritt — f.eks. programfagnavn"
+                                aria-label="Underkategori for generisk fagblokk"
+                                className="mt-0.5 w-full rounded border border-zinc-200 bg-white px-2 py-1.5 text-[12px] outline-none focus:border-zinc-400"
+                              />
+                            </>
+                          )}
+                        </div>
+                      ) : null}
                       {L.subjectKey === CUSTOM_SUBJECT_KEY ? (
                         <input
                           type="text"

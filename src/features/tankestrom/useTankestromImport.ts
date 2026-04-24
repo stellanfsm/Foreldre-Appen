@@ -90,7 +90,10 @@ export function inferLanguageTrackFromChildSchool(school: ChildSchoolProfile | u
   for (const plan of Object.values(school.weekdays)) {
     if (!plan?.lessons) continue
     for (const l of plan.lessons) {
-      if (l.subjectKey === 'fremmedspråk' && l.customLabel?.trim()) return l.customLabel.trim()
+      if (l.subjectKey === 'fremmedspråk') {
+        const t = l.lessonSubcategory?.trim() || l.customLabel?.trim()
+        if (t) return t
+      }
     }
   }
   return undefined
