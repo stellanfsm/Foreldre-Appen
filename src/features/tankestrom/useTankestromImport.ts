@@ -214,6 +214,18 @@ function buildTaskDraftFromProposal(
   }
 
   const t = p.task
+  const prefilledNotes = buildTaskNotesPrefill(p)
+  if (import.meta.env.DEV || import.meta.env.VITE_DEBUG_SCHOOL_IMPORT === 'true') {
+    const sourceLine = `Fra: ${p.originalSourceType?.trim() || 'Ukjent kilde'}`
+    console.debug('[tankestrom task notes prefill]', {
+      proposalId: p.proposalId,
+      originalSourceType: p.originalSourceType,
+      parsedTaskNotes: t.notes,
+      taskDraftPrefillNotes: prefilledNotes,
+      usedSourceFallbackOnly: prefilledNotes.trim() === sourceLine,
+    })
+  }
+
   let childPersonId =
     t.childPersonId && validPersonIds.has(t.childPersonId) ? t.childPersonId : ''
   let assignedToPersonId =
@@ -224,7 +236,7 @@ function buildTaskDraftFromProposal(
   return {
     title: t.title,
     date: t.date,
-    notes: buildTaskNotesPrefill(p),
+    notes: prefilledNotes,
     dueTime: t.dueTime ?? '',
     childPersonId,
     assignedToPersonId,

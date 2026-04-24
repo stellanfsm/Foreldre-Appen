@@ -222,6 +222,76 @@ function parseProvenance(raw: unknown): PortalImportProposalBundle['provenance']
   }
 }
 
+/** Tekst fra ukjente felttyper (streng eller liste av strenger). */
+function optionalTextFromUnknown(x: unknown): string | undefined {
+  if (x === undefined || x === null) return undefined
+  if (typeof x === 'string') {
+    const t = x.trim()
+    return t.length ? t : undefined
+  }
+  if (Array.isArray(x)) {
+    const parts = x
+      .map((v) => (typeof v === 'string' ? v.trim() : ''))
+      .filter((s) => s.length > 0)
+    return parts.length ? parts.join('\n') : undefined
+  }
+  return undefined
+}
+
+function dedupeNoteBlocks(blocks: string[]): string[] {
+  return blocks.filter((line, idx, arr) => {
+    const n = line.trim().toLocaleLowerCase('nb-NO')
+    return arr.findIndex((x) => x.trim().toLocaleLowerCase('nb-NO') === n) === idx
+  })
+}
+
+const TASK_DETAIL_FIELD_KEYS = [
+  'notes',
+  'description',
+  'details',
+  'detailText',
+  'body',
+  'content',
+  'instruction',
+  'instructions',
+  'homework',
+  'homeworkText',
+  'assignment',
+  'assignmentText',
+  'taskDescription',
+  'message',
+  'summary',
+] as const
+
+const TASK_METADATA_TEXT_KEYS = ['sourceExcerpt', 'aiRationale', 'rationale', 'sourceText'] as const
+const TASK_METADATA_EXTRA_KEYS = [
+  'homework',
+  'instructions',
+  'details',
+  'description',
+  'assignment',
+] as const
+
+function collectTaskDetailTextBlocks(raw: Record<string, unknown>): string[] {
+  const out: string[] = []
+  for (const k of TASK_DETAIL_FIELD_KEYS) {
+    const v = optionalTextFromUnknown(raw[k])
+    if (v) out.push(v)
+  }
+  if (raw.metadata !== undefined && raw.metadata !== null && isRecord(raw.metadata)) {
+    const meta = raw.metadata
+    for (const k of TASK_METADATA_TEXT_KEYS) {
+      const v = optionalTextFromUnknown(meta[k])
+      if (v) out.push(v)
+    }
+    for (const k of TASK_METADATA_EXTRA_KEYS) {
+      const v = optionalTextFromUnknown(meta[k])
+      if (v) out.push(v)
+    }
+  }
+  return dedupeNoteBlocks(out)
+}
+
 function parseEventPayload(raw: unknown): PortalEventPayload {
   if (!isRecord(raw)) throw new Error('Ugyldig svar: event-payload mangler')
   const date = asString(raw.date, 'event.date')
@@ -263,21 +333,19 @@ function parseTaskPayload(raw: unknown): PortalTaskProposal['task'] {
   if (!isDateKey(date)) throw new Error('Ugyldig svar: task.date må være YYYY-MM-DD')
   const title = asString(raw.title, 'task.title')
   const out: PortalTaskProposal['task'] = { date, title }
-  // Tillat flere vanlige tekstfeltnavn fra upstream; notes er canonical i appen.
-  const notesCandidates = [
-    asOptionalString(raw.notes),
-    asOptionalString(raw.description),
-    asOptionalString(raw.details),
-    asOptionalString(raw.detailText),
-    asOptionalString(raw.body),
-    asOptionalString(raw.content),
-  ].filter((v): v is string => typeof v === 'string' && v.trim().length > 0)
-  if (notesCandidates.length > 0) {
-    const deduped = notesCandidates.filter((line, idx, arr) => {
-      const n = line.trim().toLocaleLowerCase('nb-NO')
-      return arr.findIndex((x) => x.trim().toLocaleLowerCase('nb-NO') === n) === idx
+  const detailBlocks = collectTaskDetailTextBlocks(raw)
+  if (detailBlocks.length > 0) {
+    out.notes = detailBlocks.join('\n\n')
+  }
+  if (import.meta.env.DEV || import.meta.env.VITE_DEBUG_SCHOOL_IMPORT === 'true') {
+    console.debug('[tankestrom parse task payload]', {
+      taskProposalRawFields: Object.keys(raw).sort(),
+      metadataFieldKeys:
+        raw.metadata !== undefined && raw.metadata !== null && isRecord(raw.metadata)
+          ? Object.keys(raw.metadata).sort()
+          : [],
+      parsedTaskNotes: out.notes,
     })
-    out.notes = deduped.join('\n\n')
   }
   const due = asOptionalString(raw.dueTime)
   if (due !== undefined) {
@@ -458,6 +526,16 @@ function tryParseProposalItem(raw: unknown, index: number): PortalProposalItem {
     }
   }
   if (kindRaw === 'task') {
+    if (!isRecord(raw.task)) {
+      throw new Error(`Forslag #${index + 1}: task må være et objekt`)
+    }
+    const mergedTask: Record<string, unknown> = { ...raw.task }
+    const liftFromItemKeys = [...TASK_DETAIL_FIELD_KEYS] as readonly string[]
+    for (const k of liftFromItemKeys) {
+      if (mergedTask[k] === undefined && k in raw) {
+        mergedTask[k] = raw[k]
+      }
+    }
     return {
       proposalId,
       kind: 'task',
@@ -466,7 +544,7 @@ function tryParseProposalItem(raw: unknown, index: number): PortalProposalItem {
       confidence,
       externalRef,
       calendarOwnerUserId,
-      task: parseTaskPayload(raw.task),
+      task: parseTaskPayload(mergedTask),
     }
   }
   return {

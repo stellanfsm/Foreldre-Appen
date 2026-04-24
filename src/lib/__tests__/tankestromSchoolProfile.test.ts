@@ -244,6 +244,84 @@ describe('parsePortalImportProposalBundle — school_profile', () => {
   })
 })
 
+describe('parsePortalImportProposalBundle — task notes / detaljtekst', () => {
+  const taskItemBase = {
+    proposalId: '11111111-1111-4111-8111-111111111111',
+    kind: 'task' as const,
+    sourceId: 'src-task',
+    originalSourceType: 'docx',
+    confidence: 0.9,
+    task: {
+      date: '2026-04-20',
+      title: 'Fransk lekse',
+    },
+  }
+
+  it('samler tekst fra task.metadata.sourceExcerpt til notes', () => {
+    const bundle = parsePortalImportProposalBundle({
+      schemaVersion: '1.0.0',
+      provenance,
+      items: [
+        {
+          ...taskItemBase,
+          task: {
+            ...taskItemBase.task,
+            metadata: {
+              sourceExcerpt: 'Lær å bøye pouvoir på side 148.',
+            },
+          },
+        },
+      ],
+    })
+    const item = bundle.items[0]
+    expect(item?.kind).toBe('task')
+    if (item?.kind === 'task') {
+      expect(item.task.notes).toContain('pouvoir')
+    }
+  })
+
+  it('løfter homework fra item-nivå inn i task når task mangler notes', () => {
+    const bundle = parsePortalImportProposalBundle({
+      schemaVersion: '1.0.0',
+      provenance,
+      items: [
+        {
+          ...taskItemBase,
+          homework: 'Gjør oppgave 3a–3c.',
+          task: taskItemBase.task,
+        },
+      ],
+    })
+    const item = bundle.items[0]
+    expect(item?.kind).toBe('task')
+    if (item?.kind === 'task') {
+      expect(item.task.notes).toContain('oppgave 3')
+    }
+  })
+
+  it('støtter notes som liste av strenger', () => {
+    const bundle = parsePortalImportProposalBundle({
+      schemaVersion: '1.0.0',
+      provenance,
+      items: [
+        {
+          ...taskItemBase,
+          task: {
+            ...taskItemBase.task,
+            notes: ['Linje 1', 'Linje 2'],
+          },
+        },
+      ],
+    })
+    const item = bundle.items[0]
+    expect(item?.kind).toBe('task')
+    if (item?.kind === 'task') {
+      expect(item.task.notes).toContain('Linje 1')
+      expect(item.task.notes).toContain('Linje 2')
+    }
+  })
+})
+
 describe('parsePortalImportProposalBundle — schoolWeekOverlayProposal', () => {
   it('parser toppnivå schoolWeekOverlayProposal additivt med items[]', () => {
     const bundle = parsePortalImportProposalBundle({
