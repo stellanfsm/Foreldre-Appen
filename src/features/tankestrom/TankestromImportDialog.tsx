@@ -922,10 +922,28 @@ export function TankestromImportDialog({
     return n
   }, [selectedIds, draftByProposalId])
 
+  const resolvedOverlayChildName = useMemo(
+    () => people.find((p) => p.id === schoolProfileChildId)?.name ?? '',
+    [people, schoolProfileChildId]
+  )
+
   const overlayReviewLanguageTrack = useMemo(() => {
     const child = people.find((p) => p.id === schoolProfileChildId)
     return inferLanguageTrackFromChildSchool(child?.school)
   }, [people, schoolProfileChildId])
+
+  const tasksDefaultedToGlobalChild = useMemo(() => {
+    if (!schoolProfileChildId.trim()) return 0
+    let n = 0
+    for (const item of calendarProposalItems) {
+      if (item.kind !== 'task') continue
+      const draft = draftByProposalId[item.proposalId]
+      if (draft?.importKind === 'task' && draft.task.childPersonId.trim() === schoolProfileChildId.trim()) {
+        n += 1
+      }
+    }
+    return n
+  }, [calendarProposalItems, draftByProposalId, schoolProfileChildId])
 
   const schoolImportDebugPanel = useMemo(() => {
     if (!schoolReview || !DEBUG_SCHOOL_IMPORT_PANEL) return null
@@ -955,12 +973,63 @@ export function TankestromImportDialog({
     }
   }, [schoolReview])
 
+  const prevGlobalOverlayChildRef = useRef<string>('')
+
+  useEffect(() => {
+    if (!open || step !== 'review' || schoolReview || !schoolWeekOverlayProposal) {
+      prevGlobalOverlayChildRef.current = schoolProfileChildId.trim()
+      return
+    }
+    const currentGlobalChildId = schoolProfileChildId.trim()
+    const previousGlobalChildId = prevGlobalOverlayChildRef.current.trim()
+    if (!currentGlobalChildId || !previousGlobalChildId || currentGlobalChildId === previousGlobalChildId) {
+      prevGlobalOverlayChildRef.current = currentGlobalChildId
+      return
+    }
+
+    let changedTaskDrafts = 0
+    for (const item of calendarProposalItems) {
+      if (item.kind !== 'task') continue
+      const pid = item.proposalId
+      const d = draftByProposalId[pid]
+      if (!d || d.importKind !== 'task') continue
+      const currentTaskChildId = d.task.childPersonId.trim()
+      // Flytt bare tasks som fortsatt følger global default (eller mangler barn), og behold manuelle avvik.
+      const shouldFollowGlobal = !currentTaskChildId || currentTaskChildId === previousGlobalChildId
+      if (!shouldFollowGlobal) continue
+      updateTaskDraft(pid, { childPersonId: currentGlobalChildId })
+      changedTaskDrafts += 1
+    }
+
+    if (DEBUG_SCHOOL_IMPORT_PANEL && changedTaskDrafts > 0) {
+      console.debug('[tankestrom overlay child retarget]', {
+        fromChildId: previousGlobalChildId,
+        toChildId: currentGlobalChildId,
+        changedTaskDrafts,
+      })
+    }
+    prevGlobalOverlayChildRef.current = currentGlobalChildId
+  }, [
+    open,
+    step,
+    schoolReview,
+    schoolWeekOverlayProposal,
+    schoolProfileChildId,
+    calendarProposalItems,
+    draftByProposalId,
+    updateTaskDraft,
+  ])
+
   useEffect(() => {
     if (!DEBUG_SCHOOL_IMPORT_PANEL || !open || step !== 'review' || schoolReview) return
     console.debug('[tankestrom import general review]', {
       overlayPresent: !!schoolWeekOverlayProposal,
+      globalOverlayChildId: schoolProfileChildId,
+      resolvedOverlayChildName,
       taskItemsCount: homeworkTaskItemsCount,
       selectedTaskItemsCount: selectedHomeworkTaskCount,
+      tasksDefaultedToGlobalChild,
+      reviewLanguageTrack: overlayReviewLanguageTrack,
       branch: schoolWeekOverlayProposal ? 'overlay_plus_calendar' : 'calendar_only',
     })
   }, [
@@ -968,8 +1037,12 @@ export function TankestromImportDialog({
     step,
     schoolReview,
     schoolWeekOverlayProposal,
+    schoolProfileChildId,
+    resolvedOverlayChildName,
     homeworkTaskItemsCount,
     selectedHomeworkTaskCount,
+    tasksDefaultedToGlobalChild,
+    overlayReviewLanguageTrack,
   ])
 
   if (!open) return null
@@ -1457,6 +1530,41 @@ export function TankestromImportDialog({
                   resolvedLanguageTrack={overlayReviewLanguageTrack}
                 />
               ) : null}
+              {schoolWeekOverlayProposal ? (
+                <div className="rounded-xl border border-indigo-200/90 bg-indigo-50/60 px-3 py-2.5">
+                  <label htmlFor="ts-global-overlay-child" className="text-[12px] font-medium text-indigo-950">
+                    Gjelder barn
+                  </label>
+                  {childrenList.length === 0 ? (
+                    <p className="mt-1 text-[12px] text-amber-800">
+                      Legg til minst ett barn under Innstillinger for å lagre overlay og knytte oppgaver riktig.
+                    </p>
+                  ) : (
+                    <select
+                      id="ts-global-overlay-child"
+                      className="mt-1.5 w-full rounded-xl border border-indigo-200 bg-white px-3 py-2.5 text-[14px] text-zinc-900"
+                      value={schoolProfileChildId}
+                      onChange={(e) => setSchoolProfileChildId(e.target.value)}
+                    >
+                      {childrenList.map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {c.name}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                  <p className="mt-1.5 text-[11px] text-indigo-900/90">
+                    Denne planen er nå koblet til:{' '}
+                    <span className="font-semibold">{resolvedOverlayChildName || 'ikke valgt barn'}</span>
+                    {overlayReviewLanguageTrack ? (
+                      <>
+                        {' '}
+                        · språkspor: <span className="font-semibold">{overlayReviewLanguageTrack}</span>
+                      </>
+                    ) : null}
+                  </p>
+                </div>
+              ) : null}
               {schoolWeekOverlayProposal && calendarProposalItems.length > 0 ? (
                 <div className="rounded-xl border border-emerald-200/90 bg-emerald-50/70 px-3 py-2.5">
                   <p className="text-[12px] font-semibold text-emerald-950">To typer innhold</p>
@@ -1497,6 +1605,12 @@ export function TankestromImportDialog({
                 <p className="mt-2 text-[10px] leading-snug text-zinc-500">
                   Av {reviewSelectionStats.total} forslag · «Klare» = valgt og uten valideringsfeil.
                 </p>
+                {schoolWeekOverlayProposal ? (
+                  <p className="mt-1 text-[10px] leading-snug text-zinc-500">
+                    Oppgaver satt til valgt barn: {tasksDefaultedToGlobalChild} av {homeworkTaskItemsCount}.
+                    Per-kort «Gjelder barn» kan brukes for avvik.
+                  </p>
+                ) : null}
               </div>
 
               <ul className="space-y-4">
@@ -2006,6 +2120,12 @@ export function TankestromImportDialog({
                                   </option>
                                 ))}
                               </select>
+                              {schoolWeekOverlayProposal ? (
+                                <p className="mt-1 text-[10px] text-zinc-500">
+                                  Brukes kun ved avvik fra globalt valgt barn (
+                                  <span className="font-medium">{resolvedOverlayChildName || 'ikke valgt'}</span>).
+                                </p>
+                              ) : null}
                             </div>
                             <div>
                               <label
