@@ -16,6 +16,7 @@ import {
   getTankestromDraftFieldErrors,
   getTankestromTaskFieldErrors,
   inferLanguageTrackFromChildSchool,
+  inferValgfagTrackFromChildSchool,
   scanNotesBodyForLanguage,
   taskIndicatesForeignLanguageMismatchWithTrack,
   type TankestromPendingFile,
@@ -249,9 +250,14 @@ function dropSubstringRedundantOverlayLines(lines: string[]): string[] {
 
 function collectOverlaySectionLinesFromDetails(
   details: NonNullable<PortalSchoolWeekOverlayProposal['dailyActions'][number]>,
-  resolvedTrack: string | undefined
+  resolvedTrack: string | undefined,
+  resolvedValgfagTrack?: string
 ): string[] {
-  const filteredUpdates = filterSubjectUpdatesByLanguageTrack(details.subjectUpdates, resolvedTrack)
+  const filteredUpdates = filterSubjectUpdatesByLanguageTrack(
+    details.subjectUpdates,
+    resolvedTrack,
+    resolvedValgfagTrack
+  )
   const out: string[] = []
   for (const u of filteredUpdates) {
     if (!u.sections) continue
@@ -391,11 +397,13 @@ function applyOverlayDayLines(
 function SchoolWeekOverlayReviewCard({
   overlay,
   resolvedLanguageTrack,
+  resolvedValgfagTrack,
   onChange,
 }: {
   overlay: PortalSchoolWeekOverlayProposal
   /** F.eks. barnets fremmedspråk fra profil — prioriteres under API `languageTrack` når satt. */
   resolvedLanguageTrack?: string
+  resolvedValgfagTrack?: string
   onChange?: (next: PortalSchoolWeekOverlayProposal) => void
 }) {
   const [editingDay, setEditingDay] = useState<number | null>(null)
@@ -416,7 +424,7 @@ function SchoolWeekOverlayReviewCard({
   for (const { details } of dayEntries) {
     const headline = details.summary?.trim() || details.reason?.trim() || ''
     if (headline) dayHeadlineSet.add(normOverlayText(headline))
-    for (const line of collectOverlaySectionLinesFromDetails(details, track)) {
+    for (const line of collectOverlaySectionLinesFromDetails(details, track, resolvedValgfagTrack)) {
       sectionLineSet.add(normOverlayText(line))
     }
   }
@@ -440,7 +448,7 @@ function SchoolWeekOverlayReviewCard({
       shownWeeklySummary: weeklyShown.length,
       dayModes: dayEntries.map(({ day, details }) => {
         const headline = details.summary?.trim() || details.reason?.trim() || ''
-        const sectionLines = collectOverlaySectionLinesFromDetails(details, track)
+        const sectionLines = collectOverlaySectionLinesFromDetails(details, track, resolvedValgfagTrack)
         const sectionNormSet = new Set(sectionLines.map(normOverlayText))
         const hasStructuredSections = sectionLines.length > 0
         const { show, reasons } = analyzeHeadlineSuppression(
@@ -450,7 +458,11 @@ function SchoolWeekOverlayReviewCard({
           track
         )
         const chosenRenderMode = sectionLines.length > 0 ? 'sections-first' : headline ? 'headline-only' : 'minimal'
-        const filteredSubjectUpdatesDbg = filterSubjectUpdatesByLanguageTrack(details.subjectUpdates, track)
+        const filteredSubjectUpdatesDbg = filterSubjectUpdatesByLanguageTrack(
+          details.subjectUpdates,
+          track,
+          resolvedValgfagTrack
+        )
         const compactLinesDbg = hasStructuredSections
           ? sectionLines
           : filteredSubjectUpdatesDbg.map((u) =>
@@ -510,7 +522,7 @@ function SchoolWeekOverlayReviewCard({
         <ul className="mt-3 space-y-2">
           {dayEntries.map(({ day, details }) => {
             const headline = details.summary?.trim() || details.reason?.trim() || ''
-            const sectionLines = collectOverlaySectionLinesFromDetails(details, track)
+            const sectionLines = collectOverlaySectionLinesFromDetails(details, track, resolvedValgfagTrack)
             const hasSections = sectionLines.length > 0
             const sectionNormSet = new Set(sectionLines.map(normOverlayText))
             const { show: headlineShown } = analyzeHeadlineSuppression(
@@ -519,7 +531,11 @@ function SchoolWeekOverlayReviewCard({
               sectionNormSet,
               track
             )
-            const filteredSubjectUpdates = filterSubjectUpdatesByLanguageTrack(details.subjectUpdates, track)
+            const filteredSubjectUpdates = filterSubjectUpdatesByLanguageTrack(
+              details.subjectUpdates,
+              track,
+              resolvedValgfagTrack
+            )
             const isEditing = onChange ? editingDay === day : false
             const compactLines =
               hasSections
@@ -1064,6 +1080,10 @@ export function TankestromImportDialog({
     const child = people.find((p) => p.id === schoolProfileChildId)
     return inferLanguageTrackFromChildSchool(child?.school)
   }, [people, schoolProfileChildId])
+  const overlayReviewValgfagTrack = useMemo(() => {
+    const child = people.find((p) => p.id === schoolProfileChildId)
+    return inferValgfagTrackFromChildSchool(child?.school)
+  }, [people, schoolProfileChildId])
 
   const tasksDefaultedToGlobalChild = useMemo(() => {
     if (!schoolProfileChildId.trim()) return 0
@@ -1181,6 +1201,7 @@ export function TankestromImportDialog({
       selectedTaskItemsCount: selectedHomeworkTaskCount,
       tasksDefaultedToGlobalChild,
       reviewLanguageTrack: overlayReviewLanguageTrack,
+      reviewValgfagTrack: overlayReviewValgfagTrack,
       editableOverlayDaysCount,
       overlayEditedDraftChanged,
       branch: schoolWeekOverlayProposal ? 'overlay_plus_calendar' : 'calendar_only',
@@ -1196,6 +1217,7 @@ export function TankestromImportDialog({
     selectedHomeworkTaskCount,
     tasksDefaultedToGlobalChild,
     overlayReviewLanguageTrack,
+    overlayReviewValgfagTrack,
     editableOverlayDaysCount,
     overlayEditedDraftChanged,
   ])
@@ -1442,6 +1464,7 @@ export function TankestromImportDialog({
                   <SchoolWeekOverlayReviewCard
                     overlay={schoolWeekOverlayProposal}
                     resolvedLanguageTrack={overlayReviewLanguageTrack}
+                    resolvedValgfagTrack={overlayReviewValgfagTrack}
                   />
                   <div>
                     <label htmlFor="ts-overlay-child" className="text-[12px] font-medium text-zinc-700">
@@ -1718,6 +1741,7 @@ export function TankestromImportDialog({
                 <SchoolWeekOverlayReviewCard
                   overlay={schoolWeekOverlayProposal}
                   resolvedLanguageTrack={overlayReviewLanguageTrack}
+                  resolvedValgfagTrack={overlayReviewValgfagTrack}
                   onChange={setSchoolWeekOverlayProposalDraft}
                 />
               ) : null}

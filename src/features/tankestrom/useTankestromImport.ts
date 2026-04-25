@@ -85,18 +85,43 @@ const TASK_FOREIGN_LANG_LEXEMES: ReadonlyArray<{ canon: string; pattern: RegExp 
   { canon: 'arabisk', pattern: /\barabisk\b|arabic/i },
 ]
 
-export function inferLanguageTrackFromChildSchool(school: ChildSchoolProfile | undefined): string | undefined {
-  if (!school?.weekdays) return undefined
+const TASK_VALGFAG_LEXEMES: ReadonlyArray<{ canon: string; pattern: RegExp }> = [
+  { canon: 'programmering', pattern: /\bprogrammering\b|coding|programming/i },
+  { canon: 'musikk', pattern: /\bmusikk\b|music/i },
+  { canon: 'idrett', pattern: /\bidrett\b|sport/i },
+  { canon: 'teater', pattern: /\bteater\b|theatre|theater|drama/i },
+  { canon: 'kunst og visuell kultur', pattern: /\bkunst\b|\bvisuell\b|visual art|kunst og visuell/i },
+  { canon: 'mat og helse', pattern: /\bmat og helse\b|home economics|kokk|koking/i },
+]
+
+function inferredLessonTrackForSubject(
+  school: ChildSchoolProfile | undefined,
+  subjectKey: string
+): { track?: string; usedCustomLabelFallbackTrack: boolean } {
+  if (!school?.weekdays) return { track: undefined, usedCustomLabelFallbackTrack: false }
   for (const plan of Object.values(school.weekdays)) {
     if (!plan?.lessons) continue
     for (const l of plan.lessons) {
-      if (l.subjectKey === 'fremmedspråk') {
-        const t = l.lessonSubcategory?.trim() || l.customLabel?.trim()
-        if (t) return t
+      if (l.subjectKey !== subjectKey) continue
+      const fromSubcategory = l.lessonSubcategory?.trim()
+      if (fromSubcategory) {
+        return { track: fromSubcategory, usedCustomLabelFallbackTrack: false }
+      }
+      const fromCustom = l.customLabel?.trim()
+      if (fromCustom) {
+        return { track: fromCustom, usedCustomLabelFallbackTrack: true }
       }
     }
   }
-  return undefined
+  return { track: undefined, usedCustomLabelFallbackTrack: false }
+}
+
+export function inferLanguageTrackFromChildSchool(school: ChildSchoolProfile | undefined): string | undefined {
+  return inferredLessonTrackForSubject(school, 'fremmedspråk').track
+}
+
+export function inferValgfagTrackFromChildSchool(school: ChildSchoolProfile | undefined): string | undefined {
+  return inferredLessonTrackForSubject(school, 'valgfag').track
 }
 
 function foreignLanguageCanonsInText(text: string): Set<string> {
@@ -145,6 +170,25 @@ export function taskIndicatesForeignLanguageMismatchWithTrack(
   return false
 }
 
+function taskIndicatesValgfagMismatchWithTrack(
+  title: string,
+  notesBody: string,
+  resolvedTrack: string | undefined
+): boolean {
+  const track = resolvedTrack?.trim().toLocaleLowerCase('nb-NO')
+  if (!track) return false
+  const blob = `${title}\n${notesBody}`
+  const mentioned = new Set<string>()
+  for (const { canon, pattern } of TASK_VALGFAG_LEXEMES) {
+    if (pattern.test(blob)) mentioned.add(canon)
+  }
+  if (mentioned.size === 0) return false
+  for (const m of mentioned) {
+    if (!trackMatchesCanon(track, m)) return true
+  }
+  return false
+}
+
 export function humanImportSourceLabelForBundle(bundle: PortalImportProposalBundle | null | undefined): string | undefined {
   if (!bundle) return undefined
   const ov = bundle.schoolWeekOverlayProposal
@@ -166,9 +210,13 @@ function initialSelectedIdsForGeneralImport(
   schoolProfileChildId: string
 ): Set<string> {
   const child = people.find((p) => p.id === schoolProfileChildId && p.memberKind === 'child')
-  const track = inferLanguageTrackFromChildSchool(child?.school)
+  const languageTrackInfo = inferredLessonTrackForSubject(child?.school, 'fremmedspråk')
+  const valgfagTrackInfo = inferredLessonTrackForSubject(child?.school, 'valgfag')
+  const track = languageTrackInfo.track
+  const valgfagTrack = valgfagTrackInfo.track
   const out = new Set<string>()
   let taskMismatch = 0
+  let taskMismatchValgfag = 0
   for (const item of items) {
     if (item.kind === 'school_profile') continue
     if (item.kind === 'event') {
@@ -183,14 +231,25 @@ function initialSelectedIdsForGeneralImport(
         taskMismatch += 1
         continue
       }
+      if (taskIndicatesValgfagMismatchWithTrack(d.task.title, body, valgfagTrack)) {
+        taskMismatch += 1
+        taskMismatchValgfag += 1
+        continue
+      }
       out.add(item.proposalId)
     }
   }
   if (import.meta.env.DEV || import.meta.env.VITE_DEBUG_SCHOOL_IMPORT === 'true') {
     console.debug('[tankestrom task language selection]', {
       reviewLanguageTrack: track,
+      childLessonSubcategoryTrack: { language: track, valgfag: valgfagTrack },
+      usedLessonSubcategoryForFiltering: !!(track || valgfagTrack),
+      usedCustomLabelFallbackTrack:
+        languageTrackInfo.usedCustomLabelFallbackTrack || valgfagTrackInfo.usedCustomLabelFallbackTrack,
       taskLanguageMismatchCount: taskMismatch,
+      taskValgfagMismatchCount: taskMismatchValgfag,
       taskDeselectedBecauseLanguageMismatch: taskMismatch,
+      taskRejectedByStoredTrackMismatch: taskMismatch,
       taskHiddenBecauseLanguageMismatch: 0,
     })
   }
@@ -422,17 +481,37 @@ function hasAnalyzeContent(bundle: PortalImportProposalBundle): boolean {
 
 export function filterSubjectUpdatesByLanguageTrack(
   updates: SchoolWeekOverlaySubjectUpdate[],
-  resolvedTrack: string | undefined
+  resolvedTrack: string | undefined,
+  resolvedValgfagTrack?: string
 ): SchoolWeekOverlaySubjectUpdate[] {
   const track = resolvedTrack?.trim().toLocaleLowerCase('nb-NO')
-  if (!track) return updates
+  const valgfagTrack = resolvedValgfagTrack?.trim().toLocaleLowerCase('nb-NO')
+  if (!track && !valgfagTrack) return updates
   return updates.filter((u) => {
-    if (u.subjectKey !== 'fremmedspråk') return true
-    const custom = u.customLabel?.trim().toLocaleLowerCase('nb-NO')
-    if (custom && custom.includes(track)) return true
-    const sectionLines = Object.values(u.sections ?? {}).flatMap((v) => v ?? [])
-    if (sectionLines.length === 0) return true
-    return sectionLines.some((line) => line.toLocaleLowerCase('nb-NO').includes(track))
+    if (u.subjectKey === 'fremmedspråk') {
+      if (!track) return true
+      const custom = u.customLabel?.trim().toLocaleLowerCase('nb-NO')
+      if (custom && custom.includes(track)) return true
+      const sectionLines = Object.values(u.sections ?? {}).flatMap((v) => v ?? [])
+      if (sectionLines.length === 0) return true
+      const ok = sectionLines.some((line) => line.toLocaleLowerCase('nb-NO').includes(track))
+      if (!ok && (import.meta.env.DEV || import.meta.env.VITE_DEBUG_SCHOOL_IMPORT === 'true')) {
+        console.debug('[tankestrom overlay filter]', {
+          subjectKey: u.subjectKey,
+          childLessonSubcategoryTrack: track,
+          languageLineFilteredByStoredTrack: true,
+        })
+      }
+      return ok
+    }
+    if (u.subjectKey === 'valgfag' && valgfagTrack) {
+      const custom = u.customLabel?.trim().toLocaleLowerCase('nb-NO')
+      if (custom && custom.includes(valgfagTrack)) return true
+      const sectionLines = Object.values(u.sections ?? {}).flatMap((v) => v ?? [])
+      if (sectionLines.length === 0) return true
+      return sectionLines.some((line) => line.toLocaleLowerCase('nb-NO').includes(valgfagTrack))
+    }
+    return true
   })
 }
 
@@ -638,7 +717,10 @@ export function useTankestromImport({
     prevSchoolChildForLangAdjustRef.current = cid
 
     const child = people.find((p) => p.id === cid && p.memberKind === 'child')
-    const track = inferLanguageTrackFromChildSchool(child?.school)
+    const languageTrackInfo = inferredLessonTrackForSubject(child?.school, 'fremmedspråk')
+    const valgfagTrackInfo = inferredLessonTrackForSubject(child?.school, 'valgfag')
+    const track = languageTrackInfo.track
+    const valgfagTrack = valgfagTrackInfo.track
     let deselected = 0
     let selectedMatch = 0
 
@@ -649,7 +731,9 @@ export function useTankestromImport({
         const d = draftByProposalId[item.proposalId]
         if (!d || d.importKind !== 'task') continue
         const body = scanNotesBodyForLanguage(d.task.notes)
-        const mismatch = taskIndicatesForeignLanguageMismatchWithTrack(d.task.title, body, track)
+        const mismatch =
+          taskIndicatesForeignLanguageMismatchWithTrack(d.task.title, body, track) ||
+          taskIndicatesValgfagMismatchWithTrack(d.task.title, body, valgfagTrack)
         const langSignal = taskMentionsCatalogForeignLanguage(d.task.title, body)
         if (mismatch) {
           if (next.delete(item.proposalId)) deselected += 1
@@ -664,7 +748,12 @@ export function useTankestromImport({
     if (import.meta.env.DEV || import.meta.env.VITE_DEBUG_SCHOOL_IMPORT === 'true') {
       console.debug('[tankestrom task language on child change]', {
         reviewLanguageTrack: track,
+        childLessonSubcategoryTrack: { language: track, valgfag: valgfagTrack },
+        usedLessonSubcategoryForFiltering: !!(track || valgfagTrack),
+        usedCustomLabelFallbackTrack:
+          languageTrackInfo.usedCustomLabelFallbackTrack || valgfagTrackInfo.usedCustomLabelFallbackTrack,
         taskDeselectedBecauseLanguageMismatch: deselected,
+        taskRejectedByStoredTrackMismatch: deselected,
         taskSelectedBecauseLanguageMatch: selectedMatch,
       })
     }
