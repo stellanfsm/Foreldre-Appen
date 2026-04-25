@@ -417,18 +417,20 @@ function overlayPreviewSectionLabel(rawKey: string, line: string): OverlayPrevie
   return 'Ekstra beskjed'
 }
 
-function overlaySubjectLabel(subjectKey: string, customLabel?: string): string {
-  if (customLabel?.trim()) return customLabel.trim()
-  const labels: Record<string, string> = {
-    fremmedspråk: 'Språk',
-    valgfag: 'Valgfag',
-    norsk: 'Norsk',
-    engelsk: 'Engelsk',
-    matematikk: 'Matematikk',
-    naturfag: 'Naturfag',
-    samfunnsfag: 'Samfunnsfag',
+function dedupeOverlayPreviewLines(lines: string[]): string[] {
+  const out: string[] = []
+  for (const line of lines) {
+    const t = line.trim()
+    if (!t) continue
+    const n = normOverlayText(t).replace(/[.!]+$/g, '').trim()
+    if (!n) continue
+    const dup = out.some((existing) => {
+      const en = normOverlayText(existing).replace(/[.!]+$/g, '').trim()
+      return en === n || (en.length > 12 && n.length > 12 && (en.includes(n) || n.includes(en)))
+    })
+    if (!dup) out.push(t)
   }
-  return labels[subjectKey] ?? subjectKey
+  return out
 }
 
 function previewSectionsFromSubjectUpdate(
@@ -701,12 +703,27 @@ function SchoolWeekOverlayReviewCard({
                           const s = previewSectionsFromSubjectUpdate(u)
                           for (const key of OVERLAY_PREVIEW_SECTION_ORDER) mergedSections[key].push(...s[key])
                         }
+                        for (const key of OVERLAY_PREVIEW_SECTION_ORDER) {
+                          mergedSections[key] = dedupeOverlayPreviewLines(mergedSections[key])
+                        }
+                        const summaryText = details.summary?.trim() || details.reason?.trim() || ''
+                        if (summaryText) {
+                          for (const key of OVERLAY_PREVIEW_SECTION_ORDER) {
+                            mergedSections[key] = mergedSections[key].filter(
+                              (line) =>
+                                !(
+                                  normOverlayText(line).includes(normOverlayText(summaryText)) ||
+                                  normOverlayText(summaryText).includes(normOverlayText(line))
+                                )
+                            )
+                          }
+                        }
                         return (
                           <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50/70 px-2.5 py-2">
                             <p className="text-[11px] font-semibold text-amber-950">Spesialdag (erstatter skoleblokk)</p>
-                            {(details.summary?.trim() || details.reason?.trim()) ? (
+                            {summaryText ? (
                               <p className="mt-1 text-[11px] leading-snug text-amber-900/90">
-                                {details.summary?.trim() || details.reason?.trim()}
+                                {summaryText}
                               </p>
                             ) : null}
                             {OVERLAY_PREVIEW_SECTION_ORDER.map((label) => {
@@ -754,6 +771,14 @@ function SchoolWeekOverlayReviewCard({
                           'Ekstra beskjed': [],
                         },
                       }))
+                      const unplaced: Record<OverlayPreviewSectionLabel, string[]> = {
+                        'I timen': [],
+                        Lekse: [],
+                        'Ta med': [],
+                        'Prøve / vurdering': [],
+                        Ressurser: [],
+                        'Ekstra beskjed': [],
+                      }
                       for (const u of filteredUpdates) {
                         const sections = previewSectionsFromSubjectUpdate(u)
                         const targetIdx = baseLessons.findIndex((L) => {
@@ -762,7 +787,15 @@ function SchoolWeekOverlayReviewCard({
                           const c = u.customLabel.trim().toLocaleLowerCase('nb-NO')
                           return !!(
                             L.lessonSubcategory?.trim().toLocaleLowerCase('nb-NO').includes(c) ||
-                            L.customLabel?.trim().toLocaleLowerCase('nb-NO').includes(c)
+                            L.customLabel?.trim().toLocaleLowerCase('nb-NO').includes(c) ||
+                            subjectLabelForKey(
+                              baseSchoolProfile?.gradeBand ?? '8-10',
+                              L.subjectKey,
+                              L.customLabel,
+                              L.lessonSubcategory
+                            )
+                              .toLocaleLowerCase('nb-NO')
+                              .includes(c)
                           )
                         })
                         if (targetIdx >= 0) {
@@ -770,11 +803,18 @@ function SchoolWeekOverlayReviewCard({
                             blocks[targetIdx]!.sections[key].push(...sections[key])
                           }
                         } else {
-                          blocks.push({
-                            title: overlaySubjectLabel(u.subjectKey, u.customLabel),
-                            sections,
-                          })
+                          for (const key of OVERLAY_PREVIEW_SECTION_ORDER) {
+                            unplaced[key].push(...sections[key])
+                          }
                         }
+                      }
+                      for (const b of blocks) {
+                        for (const key of OVERLAY_PREVIEW_SECTION_ORDER) {
+                          b.sections[key] = dedupeOverlayPreviewLines(b.sections[key])
+                        }
+                      }
+                      for (const key of OVERLAY_PREVIEW_SECTION_ORDER) {
+                        unplaced[key] = dedupeOverlayPreviewLines(unplaced[key])
                       }
 
                       if (DEBUG_SCHOOL_IMPORT_PANEL) {
@@ -782,10 +822,16 @@ function SchoolWeekOverlayReviewCard({
                           overlayPreviewMode: details.action === 'enrich_existing_school_block' ? 'school_block' : 'special',
                           overlayPreviewDayAction: details.action,
                           overlayPreviewUsedSchoolProfileBase: baseLessons.length > 0,
+                          overlayPreviewMatchedSubjectBlocks: blocks.length,
+                          overlayPreviewUnplacedUpdates: OVERLAY_PREVIEW_SECTION_ORDER.reduce(
+                            (n, key) => n + unplaced[key].length,
+                            0
+                          ),
                           overlayPreviewSubjectBlocks: blocks.map((b) => ({
                             title: b.title,
                             sectionCount: OVERLAY_PREVIEW_SECTION_ORDER.reduce((n, key) => n + b.sections[key].length, 0),
                           })),
+                          overlayPreviewDedupedLines: true,
                         })
                       }
 
@@ -836,6 +882,25 @@ function SchoolWeekOverlayReviewCard({
                               })}
                             </div>
                           ))}
+                          {OVERLAY_PREVIEW_SECTION_ORDER.some((label) => unplaced[label].length > 0) ? (
+                            <div className="rounded-lg border border-zinc-200 bg-zinc-50/60 px-2.5 py-2">
+                              <p className="text-[11px] font-semibold text-zinc-800">Ikke plassert</p>
+                              {OVERLAY_PREVIEW_SECTION_ORDER.map((label) => {
+                                const lines = unplaced[label]
+                                if (lines.length === 0) return null
+                                return (
+                                  <div key={label} className="mt-1.5">
+                                    <p className="text-[10px] font-semibold uppercase tracking-wide text-zinc-600">{label}</p>
+                                    <ul className="mt-0.5 list-disc space-y-0.5 pl-4 text-[11px] text-zinc-700">
+                                      {lines.map((line, lineIdx) => (
+                                        <li key={`${label}-unplaced-${lineIdx}`}>{line}</li>
+                                      ))}
+                                    </ul>
+                                  </div>
+                                )
+                              })}
+                            </div>
+                          ) : null}
                         </div>
                       )
                     })()}
