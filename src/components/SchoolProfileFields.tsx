@@ -41,6 +41,45 @@ function minutesToTime(minutes: number): string {
   return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`
 }
 
+function toTitleCaseNb(s: string): string {
+  if (!s.trim()) return s
+  return s
+    .trim()
+    .split(/\s+/)
+    .map((w) => w.slice(0, 1).toLocaleUpperCase('nb-NO') + w.slice(1).toLocaleLowerCase('nb-NO'))
+    .join(' ')
+}
+
+function normalizeImportedSubcategory(subjectKey: string, rawValue: string | undefined): string | undefined {
+  const raw = rawValue?.trim()
+  if (!raw) return undefined
+  const low = raw.toLocaleLowerCase('nb-NO')
+
+  if (subjectKey === 'fremmedspråk') {
+    const m = raw.match(/(?:fremmedspråk|språk)\s*[:\-()]\s*(.+)$/i)
+    if (m?.[1]?.trim()) return toTitleCaseNb(m[1])
+    if (low === 'fremmedspråk' || low === 'språk' || low === 'sprak') return undefined
+    if (/\btysk|german|deutsch\b/i.test(raw)) return 'Tysk'
+    if (/\bspansk|spanish\b/i.test(raw)) return 'Spansk'
+    if (/\bfransk|french\b/i.test(raw)) return 'Fransk'
+    if (/\bitaliensk|italian\b/i.test(raw)) return 'Italiensk'
+    if (/\brussisk|russian\b/i.test(raw)) return 'Russisk'
+    if (/\barabisk|arabic\b/i.test(raw)) return 'Arabisk'
+    if (/\bjapansk|japanese\b/i.test(raw)) return 'Japansk'
+    if (/\bmandarin|kinesisk|kinamål\b/i.test(raw)) return 'Mandarin (kinesisk)'
+    return toTitleCaseNb(raw)
+  }
+
+  if (subjectKey === 'valgfag') {
+    const m = raw.match(/valgfag\s*[:\-()]\s*(.+)$/i)
+    if (m?.[1]?.trim()) return toTitleCaseNb(m[1])
+    if (low === 'valgfag') return undefined
+    return toTitleCaseNb(raw)
+  }
+
+  return raw
+}
+
 export function SchoolProfileFields({ value, onChange }: SchoolProfileFieldsProps) {
   const band = value.gradeBand
   const subjects = useMemo(() => SUBJECTS_BY_BAND[band], [band])
@@ -128,11 +167,34 @@ export function SchoolProfileFields({ value, onChange }: SchoolProfileFieldsProp
       for (let i = 0; i < nextLessons.length; i++) {
         const lesson = nextLessons[i]!
         if (!lessonUsesStructuredSubcategory(lesson.subjectKey)) continue
-        const c = lesson.customLabel?.trim()
-        if (c && lesson.lessonSubcategory === undefined) {
-          lesson.lessonSubcategory = c
+        const importedLessonHadCustomLabel = !!lesson.customLabel?.trim()
+        const normalizedSub = normalizeImportedSubcategory(
+          lesson.subjectKey,
+          lesson.lessonSubcategory ?? lesson.customLabel
+        )
+        if (normalizedSub && lesson.lessonSubcategory !== normalizedSub) {
+          lesson.lessonSubcategory = normalizedSub
+          dayChanged = true
+        }
+        if (importedLessonHadCustomLabel && lesson.lessonSubcategory !== undefined) {
           lesson.customLabel = undefined
           dayChanged = true
+        }
+        if (debugSchoolImport && importedLessonHadCustomLabel) {
+          console.debug('[school import harmonize] lesson:subcategory-normalized', {
+            runId,
+            weekday: wd,
+            lessonIndex: i,
+            subjectKey: lesson.subjectKey,
+            importedLessonHadCustomLabel,
+            importedLessonSubcategoryNormalized: lesson.lessonSubcategory,
+          })
+        }
+        if (lesson.lessonSubcategory !== undefined && !lesson.lessonSubcategory.trim()) {
+          lesson.lessonSubcategory = undefined
+          dayChanged = true
+        }
+        if (lesson.lessonSubcategory !== undefined) {
           if (debugSchoolImport) {
             console.debug('[school import harmonize] lesson:subcategory-migrate-from-custom', {
               runId,
@@ -369,6 +431,9 @@ export function SchoolProfileFields({ value, onChange }: SchoolProfileFieldsProp
   }
 
   const gates = DEFAULT_SCHOOL_GATE_BY_BAND[band]
+  if (debugSchoolImport) {
+    console.debug('[school profile layout]', { schoolProfileRowCompacted: true })
+  }
 
   return (
     <div
@@ -489,7 +554,7 @@ export function SchoolProfileFields({ value, onChange }: SchoolProfileFieldsProp
                   </p>
                   {(plan?.lessons ?? []).map((L, i) => (
                     <div key={i} className="flex flex-col gap-1.5">
-                      <div className="flex flex-col gap-1.5 lg:flex-row lg:items-center lg:gap-2">
+                      <div className="flex flex-col gap-1.5 lg:flex-row lg:items-center lg:gap-1.5">
                         <select
                           value={L.subjectKey === CUSTOM_SUBJECT_KEY ? CUSTOM_SUBJECT_KEY : L.subjectKey}
                           onChange={(e) => {
@@ -512,7 +577,7 @@ export function SchoolProfileFields({ value, onChange }: SchoolProfileFieldsProp
                               })
                             }
                           }}
-                          className="min-h-10 w-full min-w-0 rounded border border-zinc-200 px-2 py-1 text-[12px] md:flex-1"
+                          className="min-h-10 w-full min-w-0 rounded border border-zinc-200 px-2 py-1 text-[12px] md:flex-[1.8]"
                         >
                           {!isKnownSubjectKeyForBand(band, L.subjectKey) ? (
                             <option value={L.subjectKey}>
@@ -527,7 +592,7 @@ export function SchoolProfileFields({ value, onChange }: SchoolProfileFieldsProp
                           ))}
                           <option value={CUSTOM_SUBJECT_KEY}>Annet fag…</option>
                         </select>
-                        <div className="flex min-w-0 flex-nowrap items-center gap-1 max-md:gap-1 md:gap-1.5">
+                        <div className="flex min-w-0 flex-nowrap items-center gap-1">
                           <input
                             type="time"
                             step={60}
@@ -536,7 +601,7 @@ export function SchoolProfileFields({ value, onChange }: SchoolProfileFieldsProp
                             ref={(el) => {
                               lessonStartRefs.current[`${wd}-${i}-start`] = el
                             }}
-                            className="h-9 w-[4.35rem] max-md:px-0.5 shrink-0 rounded border border-zinc-200 px-1 py-1 text-[11px] tabular-nums md:h-10 md:w-[108px] md:px-2 md:text-[12px]"
+                            className="h-8 w-[3.9rem] max-md:px-0.5 shrink-0 rounded border border-zinc-200 px-1 py-0.5 text-[10px] tabular-nums md:h-9 md:w-[88px] md:text-[11px]"
                           />
                           <input
                             type="time"
@@ -549,12 +614,12 @@ export function SchoolProfileFields({ value, onChange }: SchoolProfileFieldsProp
                                 lessonStartRefs.current[nextKey]?.focus()
                               })
                             }}
-                            className="h-9 w-[4.35rem] max-md:px-0.5 shrink-0 rounded border border-zinc-200 px-1 py-1 text-[11px] tabular-nums md:h-10 md:w-[108px] md:px-2 md:text-[12px]"
+                            className="h-8 w-[3.9rem] max-md:px-0.5 shrink-0 rounded border border-zinc-200 px-1 py-0.5 text-[10px] tabular-nums md:h-9 md:w-[88px] md:text-[11px]"
                           />
                           <button
                             type="button"
                             onClick={() => removeLesson(wd, i)}
-                            className="ml-auto inline-flex h-9 min-w-8 max-md:min-w-8 shrink-0 items-center justify-center rounded-full border border-red-200 px-1.5 text-[13px] font-semibold text-red-600 md:ml-0 md:min-w-9 md:px-2"
+                            className="ml-auto inline-flex h-8 min-w-7 max-md:min-w-7 shrink-0 items-center justify-center rounded-full border border-red-200 px-1 text-[12px] font-semibold text-red-600 md:ml-0 md:min-w-8"
                           >
                             ×
                           </button>
@@ -687,19 +752,19 @@ export function SchoolProfileFields({ value, onChange }: SchoolProfileFieldsProp
                         />
                       ) : null}
                       {i < (plan?.lessons?.length ?? 0) - 1 && (
-                        <div className="flex items-center gap-1.5">
+                        <div className="flex items-center gap-1">
                           <span className="text-[11px] text-zinc-500">Pause:</span>
                           <button
                             type="button"
                             onClick={() => addBreakAfterLesson(wd, i, 10)}
-                            className="rounded-full border border-zinc-300 bg-white px-2.5 py-0.5 text-[11px] text-zinc-700"
+                            className="rounded-full border border-zinc-300 bg-white px-2 py-0.5 text-[10px] text-zinc-700"
                           >
                             +10 min
                           </button>
                           <button
                             type="button"
                             onClick={() => addBreakAfterLesson(wd, i, 15)}
-                            className="rounded-full border border-zinc-300 bg-white px-2.5 py-0.5 text-[11px] text-zinc-700"
+                            className="rounded-full border border-zinc-300 bg-white px-2 py-0.5 text-[10px] text-zinc-700"
                           >
                             +15 min
                           </button>
