@@ -122,7 +122,22 @@ type ResolvedLanguageTrackDiagnostics = {
   languageLessonCustomLabels: string[]
   childSchoolLanguageCandidates: Array<{ subjectKey: string; lessonSubcategory?: string; customLabel?: string }>
   resolvedLanguageTrack?: string
-  resolvedLanguageTrackSource?: 'lessonSubcategory' | 'customLabel'
+  resolvedLanguageTrackSource?:
+    | 'lessonSubcategory'
+    | 'customLabel'
+    | 'direct_language_subjectKey'
+    | 'direct_language_label'
+}
+
+function displayLanguageFromCanon(canon: string): string {
+  return canon.slice(0, 1).toLocaleUpperCase('nb-NO') + canon.slice(1)
+}
+
+function firstForeignLanguageCanonInText(text: string): string | undefined {
+  for (const { canon, pattern } of TASK_FOREIGN_LANG_LEXEMES) {
+    if (pattern.test(text)) return canon
+  }
+  return undefined
 }
 
 function resolveLanguageTrackDiagnostics(
@@ -154,6 +169,28 @@ function resolveLanguageTrackDiagnostics(
         } else if (l.customLabel?.trim()) {
           out.resolvedLanguageTrack = l.customLabel.trim()
           out.resolvedLanguageTrackSource = 'customLabel'
+        }
+      }
+    }
+  }
+  // Fallback for older/direct profiles: subjectKey=tysk/fransk/spansk/... or label text with language.
+  if (!out.resolvedLanguageTrack) {
+    for (const plan of Object.values(school.weekdays)) {
+      if (!plan?.lessons) continue
+      for (const l of plan.lessons) {
+        const subjectCanon = firstForeignLanguageCanonInText(l.subjectKey)
+        if (subjectCanon) {
+          out.resolvedLanguageTrack = displayLanguageFromCanon(subjectCanon)
+          out.resolvedLanguageTrackSource = 'direct_language_subjectKey'
+          return out
+        }
+        const labelBlob = `${l.lessonSubcategory ?? ''}\n${l.customLabel ?? ''}`.trim()
+        if (!labelBlob) continue
+        const labelCanon = firstForeignLanguageCanonInText(labelBlob)
+        if (labelCanon) {
+          out.resolvedLanguageTrack = displayLanguageFromCanon(labelCanon)
+          out.resolvedLanguageTrackSource = 'direct_language_label'
+          return out
         }
       }
     }
