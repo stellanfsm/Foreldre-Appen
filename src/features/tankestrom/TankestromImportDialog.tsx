@@ -38,6 +38,7 @@ import {
   schoolItemTypeChipClass,
   schoolItemTypeLabel,
 } from '../../lib/schoolContext'
+import { subjectLabelForKey } from '../../data/norwegianSubjects'
 
 /** Les `metadata.schoolContext` fra et event-forslag hvis det finnes. */
 function schoolContextFromEventProposal(p: PortalEventProposal): SchoolContext | null {
@@ -394,18 +395,78 @@ function applyOverlayDayLines(
   return { ...details, subjectUpdates: nextSubjectUpdates }
 }
 
+const OVERLAY_PREVIEW_SECTION_ORDER = [
+  'I timen',
+  'Lekse',
+  'Ta med',
+  'Prøve / vurdering',
+  'Ressurser',
+  'Ekstra beskjed',
+] as const
+
+type OverlayPreviewSectionLabel = (typeof OVERLAY_PREVIEW_SECTION_ORDER)[number]
+
+function overlayPreviewSectionLabel(rawKey: string, line: string): OverlayPreviewSectionLabel {
+  const k = normOverlayText(rawKey)
+  const l = normOverlayText(line)
+  if (/\b(i timen|undervisning|arbeid i timen|gjøres i timen)\b/.test(`${k} ${l}`)) return 'I timen'
+  if (/\b(lekse|hjemmelekse|innlevering hjemme|hjemmearbeid)\b/.test(`${k} ${l}`)) return 'Lekse'
+  if (/\b(ta med|utstyr|ha med|husk å ta med|pakke)\b/.test(`${k} ${l}`)) return 'Ta med'
+  if (/\b(prøve|vurdering|test|quiz|muntlig|fremføring|tentamen)\b/.test(`${k} ${l}`)) return 'Prøve / vurdering'
+  if (/\b(ressurs|lenke|video|ark|presentasjon|kapittel|side|bok)\b/.test(`${k} ${l}`)) return 'Ressurser'
+  return 'Ekstra beskjed'
+}
+
+function overlaySubjectLabel(subjectKey: string, customLabel?: string): string {
+  if (customLabel?.trim()) return customLabel.trim()
+  const labels: Record<string, string> = {
+    fremmedspråk: 'Språk',
+    valgfag: 'Valgfag',
+    norsk: 'Norsk',
+    engelsk: 'Engelsk',
+    matematikk: 'Matematikk',
+    naturfag: 'Naturfag',
+    samfunnsfag: 'Samfunnsfag',
+  }
+  return labels[subjectKey] ?? subjectKey
+}
+
+function previewSectionsFromSubjectUpdate(
+  update: { sections?: Record<string, string[]> }
+): Record<OverlayPreviewSectionLabel, string[]> {
+  const out: Record<OverlayPreviewSectionLabel, string[]> = {
+    'I timen': [],
+    Lekse: [],
+    'Ta med': [],
+    'Prøve / vurdering': [],
+    Ressurser: [],
+    'Ekstra beskjed': [],
+  }
+  for (const [key, lines] of Object.entries(update.sections ?? {}) as Array<[string, string[]]>) {
+    for (const line of lines ?? []) {
+      const t = line.trim()
+      if (!t) continue
+      out[overlayPreviewSectionLabel(key, t)].push(t)
+    }
+  }
+  return out
+}
+
+type SchoolWeekOverlayReviewCardProps = {
+  overlay: PortalSchoolWeekOverlayProposal
+  resolvedLanguageTrack?: string
+  resolvedValgfagTrack?: string
+  baseSchoolProfile?: ChildSchoolProfile
+  onChange?: (next: PortalSchoolWeekOverlayProposal) => void
+}
+
 function SchoolWeekOverlayReviewCard({
   overlay,
   resolvedLanguageTrack,
   resolvedValgfagTrack,
+  baseSchoolProfile,
   onChange,
-}: {
-  overlay: PortalSchoolWeekOverlayProposal
-  /** F.eks. barnets fremmedspråk fra profil — prioriteres under API `languageTrack` når satt. */
-  resolvedLanguageTrack?: string
-  resolvedValgfagTrack?: string
-  onChange?: (next: PortalSchoolWeekOverlayProposal) => void
-}) {
+}: SchoolWeekOverlayReviewCardProps) {
   const [editingDay, setEditingDay] = useState<number | null>(null)
   /** Lesemodus: utvid skjulte linjer uten å gå inn i Rediger. */
   const [readExpandedByDay, setReadExpandedByDay] = useState<Record<number, boolean>>({})
@@ -606,24 +667,178 @@ function SchoolWeekOverlayReviewCard({
                   </div>
                 ) : null}
                 {!isEditing && headlineShown ? <p className="mt-0.5 text-[11px] text-zinc-700">{headline}</p> : null}
-                {!isEditing && compactLines.length > 0 ? (
+                {!isEditing ? (
                   <>
-                    <ul className="mt-1.5 list-disc space-y-0.5 pl-4 text-[11px] text-zinc-700">
-                      {readLines.map((line, idx) => (
-                        <li key={`${line}-${idx}`}>{line}</li>
-                      ))}
-                    </ul>
-                    {compactHiddenCount > 0 ? (
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setReadExpandedByDay((prev) => ({ ...prev, [day]: !prev[day] }))
+                    {(() => {
+                      const filteredUpdates = filterSubjectUpdatesByLanguageTrack(
+                        details.subjectUpdates,
+                        track,
+                        resolvedValgfagTrack
+                      )
+                      if (details.action === 'remove_school_block') {
+                        return (
+                          <div className="mt-2 rounded-lg border border-rose-200 bg-rose-50/70 px-2.5 py-2">
+                            <p className="text-[11px] font-semibold text-rose-900">Skoleblokken fjernes</p>
+                            {(details.reason?.trim() || details.summary?.trim()) ? (
+                              <p className="mt-1 text-[11px] leading-snug text-rose-900/90">
+                                {details.reason?.trim() || details.summary?.trim()}
+                              </p>
+                            ) : null}
+                          </div>
+                        )
+                      }
+
+                      if (details.action === 'replace_school_block') {
+                        const mergedSections: Record<OverlayPreviewSectionLabel, string[]> = {
+                          'I timen': [],
+                          Lekse: [],
+                          'Ta med': [],
+                          'Prøve / vurdering': [],
+                          Ressurser: [],
+                          'Ekstra beskjed': [],
                         }
-                        className="mt-1 block max-w-full pl-4 text-left text-[10px] font-medium text-indigo-700 underline decoration-indigo-300 underline-offset-2 hover:text-indigo-900"
-                      >
-                        {readExpanded ? 'Vis færre' : `+ ${compactHiddenCount} flere linjer`}
-                      </button>
-                    ) : null}
+                        for (const u of filteredUpdates) {
+                          const s = previewSectionsFromSubjectUpdate(u)
+                          for (const key of OVERLAY_PREVIEW_SECTION_ORDER) mergedSections[key].push(...s[key])
+                        }
+                        return (
+                          <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50/70 px-2.5 py-2">
+                            <p className="text-[11px] font-semibold text-amber-950">Spesialdag (erstatter skoleblokk)</p>
+                            {(details.summary?.trim() || details.reason?.trim()) ? (
+                              <p className="mt-1 text-[11px] leading-snug text-amber-900/90">
+                                {details.summary?.trim() || details.reason?.trim()}
+                              </p>
+                            ) : null}
+                            {OVERLAY_PREVIEW_SECTION_ORDER.map((label) => {
+                              const lines = mergedSections[label]
+                              if (lines.length === 0) return null
+                              return (
+                                <div key={label} className="mt-1.5">
+                                  <p className="text-[10px] font-semibold uppercase tracking-wide text-amber-900">{label}</p>
+                                  <ul className="mt-0.5 list-disc space-y-0.5 pl-4 text-[11px] text-amber-950">
+                                    {lines.map((line, idx) => (
+                                      <li key={`${label}-${idx}`}>{line}</li>
+                                    ))}
+                                  </ul>
+                                </div>
+                              )
+                            })}
+                          </div>
+                        )
+                      }
+
+                      const baseLessons = (() => {
+                        if (!baseSchoolProfile || day < 0 || day > 4) return [] as SchoolLessonSlot[]
+                        const plan = baseSchoolProfile.weekdays[day as WeekdayMonFri]
+                        if (!plan || plan.useSimpleDay || !plan.lessons?.length) return [] as SchoolLessonSlot[]
+                        return [...plan.lessons].sort((a, b) => a.start.localeCompare(b.start))
+                      })()
+                      const blocks: Array<{
+                        title: string
+                        time?: string
+                        sections: Record<OverlayPreviewSectionLabel, string[]>
+                      }> = baseLessons.map((L) => ({
+                        title: subjectLabelForKey(
+                          baseSchoolProfile?.gradeBand ?? '8-10',
+                          L.subjectKey,
+                          L.customLabel,
+                          L.lessonSubcategory
+                        ),
+                        time: `${L.start}–${L.end}`,
+                        sections: {
+                          'I timen': [],
+                          Lekse: [],
+                          'Ta med': [],
+                          'Prøve / vurdering': [],
+                          Ressurser: [],
+                          'Ekstra beskjed': [],
+                        },
+                      }))
+                      for (const u of filteredUpdates) {
+                        const sections = previewSectionsFromSubjectUpdate(u)
+                        const targetIdx = baseLessons.findIndex((L) => {
+                          if (L.subjectKey !== u.subjectKey) return false
+                          if (!u.customLabel?.trim()) return true
+                          const c = u.customLabel.trim().toLocaleLowerCase('nb-NO')
+                          return !!(
+                            L.lessonSubcategory?.trim().toLocaleLowerCase('nb-NO').includes(c) ||
+                            L.customLabel?.trim().toLocaleLowerCase('nb-NO').includes(c)
+                          )
+                        })
+                        if (targetIdx >= 0) {
+                          for (const key of OVERLAY_PREVIEW_SECTION_ORDER) {
+                            blocks[targetIdx]!.sections[key].push(...sections[key])
+                          }
+                        } else {
+                          blocks.push({
+                            title: overlaySubjectLabel(u.subjectKey, u.customLabel),
+                            sections,
+                          })
+                        }
+                      }
+
+                      if (DEBUG_SCHOOL_IMPORT_PANEL) {
+                        console.debug('[overlay preview block]', {
+                          overlayPreviewMode: details.action === 'enrich_existing_school_block' ? 'school_block' : 'special',
+                          overlayPreviewDayAction: details.action,
+                          overlayPreviewUsedSchoolProfileBase: baseLessons.length > 0,
+                          overlayPreviewSubjectBlocks: blocks.map((b) => ({
+                            title: b.title,
+                            sectionCount: OVERLAY_PREVIEW_SECTION_ORDER.reduce((n, key) => n + b.sections[key].length, 0),
+                          })),
+                        })
+                      }
+
+                      if (blocks.length === 0 && compactLines.length > 0) {
+                        return (
+                          <>
+                            <ul className="mt-1.5 list-disc space-y-0.5 pl-4 text-[11px] text-zinc-700">
+                              {readLines.map((line, idx) => (
+                                <li key={`${line}-${idx}`}>{line}</li>
+                              ))}
+                            </ul>
+                            {compactHiddenCount > 0 ? (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setReadExpandedByDay((prev) => ({ ...prev, [day]: !prev[day] }))
+                                }
+                                className="mt-1 block max-w-full pl-4 text-left text-[10px] font-medium text-indigo-700 underline decoration-indigo-300 underline-offset-2 hover:text-indigo-900"
+                              >
+                                {readExpanded ? 'Vis færre' : `+ ${compactHiddenCount} flere linjer`}
+                              </button>
+                            ) : null}
+                          </>
+                        )
+                      }
+
+                      return (
+                        <div className="mt-2 space-y-1.5">
+                          {blocks.map((b, idx) => (
+                            <div key={`${b.title}-${idx}`} className="rounded-lg border border-zinc-200 bg-zinc-50/70 px-2.5 py-2">
+                              <div className="flex items-center justify-between gap-2">
+                                <p className="text-[11px] font-semibold text-zinc-900">{b.title}</p>
+                                {b.time ? <p className="text-[10px] text-zinc-500">{b.time}</p> : null}
+                              </div>
+                              {OVERLAY_PREVIEW_SECTION_ORDER.map((label) => {
+                                const lines = b.sections[label]
+                                if (lines.length === 0) return null
+                                return (
+                                  <div key={label} className="mt-1.5">
+                                    <p className="text-[10px] font-semibold uppercase tracking-wide text-zinc-600">{label}</p>
+                                    <ul className="mt-0.5 list-disc space-y-0.5 pl-4 text-[11px] text-zinc-700">
+                                      {lines.map((line, lineIdx) => (
+                                        <li key={`${label}-${lineIdx}`}>{line}</li>
+                                      ))}
+                                    </ul>
+                                  </div>
+                                )
+                              })}
+                            </div>
+                          ))}
+                        </div>
+                      )
+                    })()}
                   </>
                 ) : null}
               </li>
@@ -1084,6 +1299,10 @@ export function TankestromImportDialog({
     const child = people.find((p) => p.id === schoolProfileChildId)
     return inferValgfagTrackFromChildSchool(child?.school)
   }, [people, schoolProfileChildId])
+  const overlayPreviewSchoolBase = useMemo(
+    () => people.find((p) => p.id === schoolProfileChildId)?.school,
+    [people, schoolProfileChildId]
+  )
 
   const tasksDefaultedToGlobalChild = useMemo(() => {
     if (!schoolProfileChildId.trim()) return 0
@@ -1465,6 +1684,7 @@ export function TankestromImportDialog({
                     overlay={schoolWeekOverlayProposal}
                     resolvedLanguageTrack={overlayReviewLanguageTrack}
                     resolvedValgfagTrack={overlayReviewValgfagTrack}
+                    baseSchoolProfile={overlayPreviewSchoolBase}
                   />
                   <div>
                     <label htmlFor="ts-overlay-child" className="text-[12px] font-medium text-zinc-700">
@@ -1742,6 +1962,7 @@ export function TankestromImportDialog({
                   overlay={schoolWeekOverlayProposal}
                   resolvedLanguageTrack={overlayReviewLanguageTrack}
                   resolvedValgfagTrack={overlayReviewValgfagTrack}
+                  baseSchoolProfile={overlayPreviewSchoolBase}
                   onChange={setSchoolWeekOverlayProposalDraft}
                 />
               ) : null}
