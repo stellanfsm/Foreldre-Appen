@@ -573,9 +573,18 @@ function previewSectionsForOverlayPreview(
   return out
 }
 
-function isHeldagsproeveSummaryLooselyGeneric(base: string): boolean {
+type SpecialDayTitleKind = 'heldagsprove' | 'forberedelsesdag' | null
+
+function specialDayTitleKindFromText(base: string): SpecialDayTitleKind {
   const n = normOverlayText(base.replace(/\./g, ''))
-  if (!/\bheldagsprøve\b/.test(n) && !/\bheldags\s*prøve\b/.test(n)) return false
+  if (/\bheldagsprøve\b/.test(n) || /\bheldags\s*prøve\b/.test(n)) return 'heldagsprove'
+  if (/\bforberedelsesdag\b/.test(n) || /\bforberedelses\s*dag\b/.test(n)) return 'forberedelsesdag'
+  return null
+}
+
+function isGenericSpecialDaySummary(base: string, kind: SpecialDayTitleKind): boolean {
+  if (!kind) return false
+  const n = normOverlayText(base.replace(/\./g, ''))
   if (n.length > 48) return false
   if (
     /\b(matematikk|matte|engelsk|norsk|tysk|fransk|spansk|naturfag|krle|rle|samfunnsfag|samfunnskunnskap|historie|geografi|fysikk|kjemi|biologi|kunst|musikk|gym|kroppsøving)\b/i.test(
@@ -589,9 +598,22 @@ function isHeldagsproeveSummaryLooselyGeneric(base: string): boolean {
 
 function inferSubjectLabelForHeldagsPreview(
   band: NorwegianGradeBand,
-  scanLines: string[]
+  scanLines: string[],
+  kind: SpecialDayTitleKind
 ): string | undefined {
-  for (const raw of scanLines) {
+  const priorityRegex =
+    kind === 'forberedelsesdag'
+      ? /\bforberedelsesdag\b/i
+      : kind === 'heldagsprove'
+        ? /\bheldagsprøve\b|\bheldags\s*prøve\b/i
+        : null
+  const sideSubjectPenalty = /\b(valgfag|innsats\s+for\s+andre)\b/i
+  const priorityLines = priorityRegex
+    ? scanLines.filter((raw) => priorityRegex.test(raw) && !sideSubjectPenalty.test(raw))
+    : []
+  const normalLines = scanLines.filter((raw) => !priorityLines.includes(raw) && !sideSubjectPenalty.test(raw))
+  const ordered = [...priorityLines, ...normalLines]
+  for (const raw of ordered) {
     const t = raw.trim()
     if (t.length < 4) continue
     const head = t.split(/[:–—]/)[0]?.trim() ?? ''
@@ -611,7 +633,7 @@ function inferSubjectLabelForHeldagsPreview(
       }
     }
   }
-  for (const raw of scanLines) {
+  for (const raw of ordered) {
     if (raw.length > 140) continue
     for (const { canon, pattern } of REVIEW_FOREIGN_LANG_LEXEMES) {
       if (pattern.test(raw)) return titleCaseNbWord(canon)
@@ -627,14 +649,23 @@ function replaceSchoolBlockDisplaySummary(
 ): string {
   const base = details.summary?.trim() || details.reason?.trim() || ''
   if (!base) return ''
-  if (!isHeldagsproeveSummaryLooselyGeneric(base)) return base
+  const kind = specialDayTitleKindFromText(base)
+  if (!isGenericSpecialDaySummary(base, kind)) return base
   const extra = overlayDayLines(details)
   const scan = [...mergedFlatLines, ...extra, base]
-  const subj = inferSubjectLabelForHeldagsPreview(band, scan)
+  const subj = inferSubjectLabelForHeldagsPreview(band, scan, kind)
   if (!subj) return base
-  const show = `${subj} heldagsprøve`
+  const show =
+    kind === 'forberedelsesdag'
+      ? `Forberedelsesdag i ${subj.toLocaleLowerCase('nb-NO')}`
+      : `${subj} heldagsprøve`
   if (DEBUG_SCHOOL_IMPORT_PANEL) {
-    console.debug('[overlay preview]', { overlayPreviewSpecialDayTitle: show, replacedGenericSummary: base })
+    console.debug('[overlay preview]', {
+      overlayPreviewSpecialDayTitle: show,
+      overlayPreviewTitleSubjectSource: kind ?? 'unknown',
+      overlayPreviewMainThemeWonOverSideSubject: true,
+      replacedGenericSummary: base,
+    })
   }
   return show
 }
@@ -719,6 +750,56 @@ function blockIdxUniqueSubjectWordHit(
   const uniq = [...new Set(hits)]
   if (uniq.length === 1) return uniq[0]!
   return -1
+}
+
+function lessonSubjectTokensForPrefixStrip(band: NorwegianGradeBand, lesson: SchoolLessonSlot): string[] {
+  const parts = subjectDisplayPartsForKey(band, lesson.subjectKey, lesson.customLabel, lesson.lessonSubcategory)
+  const out = new Set<string>()
+  const add = (raw?: string) => {
+    const t = raw?.trim()
+    if (!t) return
+    const n = normOverlayText(t)
+    if (n.length >= 2) out.add(t)
+  }
+  add(parts.primary)
+  add(parts.secondary)
+  add(lesson.customLabel)
+  add(lesson.lessonSubcategory)
+  if (lesson.subjectKey === 'krle') {
+    add('KRLE')
+    add('RLE')
+  }
+  return [...out]
+}
+
+function stripSubjectPrefixForBlockLine(
+  line: string,
+  band: NorwegianGradeBand,
+  lesson: SchoolLessonSlot
+): { text: string; stripped: boolean } {
+  const t = line.trim()
+  if (!t) return { text: t, stripped: false }
+  for (const token of lessonSubjectTokensForPrefixStrip(band, lesson)) {
+    const esc = escapeRegExp(token.trim())
+    const stripped = t.replace(new RegExp(`^\\s*${esc}\\s*[:.–—-]\\s*`, 'i'), '').trim()
+    if (stripped && stripped !== t) return { text: stripped, stripped: true }
+  }
+  return { text: t, stripped: false }
+}
+
+function isTautologicalOverlayPreviewLine(
+  line: string,
+  section: OverlayPreviewSectionLabel
+): boolean {
+  const n = normOverlayText(line).replace(/[.!]+$/g, '').trim()
+  if (!n) return true
+  if (section === 'I timen') {
+    if (n === 'i timen' || n === 'undervisning' || n === 'arbeid i timen' || n === 'timen') return true
+  }
+  if (section === 'Lekse' && (n === 'lekse' || n === 'hjemmelekse')) return true
+  if (section === 'Ta med' && (n === 'ta med' || n === 'utstyr')) return true
+  if (section === 'Ressurser' && (n === 'ressurser' || n === 'ressurs')) return true
+  return false
 }
 
 type EnrichLineRoute = 'prefix_or_label' | 'unique_word' | 'weak_update' | 'fallback'
@@ -1277,6 +1358,9 @@ function SchoolWeekOverlayReviewCard({
                         overlayPreviewLineMatchedToSubject: 0,
                         overlayPreviewLineStayedInBlock: 0,
                         overlayPreviewLineSentToFallback: 0,
+                        overlayPreviewSectionReclassified: 0,
+                        overlayPreviewStrippedSubjectPrefix: 0,
+                        overlayPreviewDroppedTautology: 0,
                       }
                       for (const u of filteredUpdates) {
                         const sections = previewSectionsForOverlayPreview(u, enrichBand, enrichNoise)
@@ -1297,8 +1381,28 @@ function SchoolWeekOverlayReviewCard({
                             } else {
                               lineDbg.overlayPreviewLineSentToFallback++
                             }
-                            if (idx >= 0) blocks[idx]!.sections[key].push(t)
-                            else unplaced[key].push(t)
+                            if (idx >= 0) {
+                              const lesson = baseLessons[idx]!
+                              const stripped = stripSubjectPrefixForBlockLine(t, enrichBand, lesson)
+                              let finalLine = stripped.text
+                              if (stripped.stripped) lineDbg.overlayPreviewStrippedSubjectPrefix++
+                              let finalSection = key
+                              const inferredSection = overlayPreviewSectionLabel('', finalLine)
+                              if (
+                                (key === 'Ekstra beskjed' || key === 'Ressurser' || key === 'Lekse') &&
+                                inferredSection === 'I timen'
+                              ) {
+                                finalSection = 'I timen'
+                                lineDbg.overlayPreviewSectionReclassified++
+                              }
+                              if (isTautologicalOverlayPreviewLine(finalLine, finalSection)) {
+                                lineDbg.overlayPreviewDroppedTautology++
+                                continue
+                              }
+                              blocks[idx]!.sections[finalSection].push(finalLine)
+                            } else {
+                              unplaced[key].push(t)
+                            }
                           }
                         }
                       }
