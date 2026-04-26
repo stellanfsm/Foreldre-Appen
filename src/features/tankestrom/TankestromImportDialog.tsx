@@ -43,6 +43,7 @@ import {
 import {
   inferSubjectKeyFromText,
   isKnownSubjectKeyForBand,
+  lessonUsesStructuredSubcategory,
   matchSubjectFromText,
   subjectDisplayPartsForKey,
   subjectLabelForKey,
@@ -558,6 +559,97 @@ const OVERLAY_MATCH_GENERIC_HINTS = new Set(
   ].map((s) => normOverlayText(s))
 )
 
+const OVERLAY_SUBJECT_WORD_SKIP = new Set(
+  ['språk', 'fremmedspråk', 'valgfag', 'fellesfag', 'felles', 'programfag'].map((s) => normOverlayText(s))
+)
+
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+/** Hele ord / frase (for «til norsk», «kunst og håndverk»). */
+function lineReferencesLessonToken(haystack: string, token: string): boolean {
+  const raw = token.trim()
+  if (raw.length < 2) return false
+  const n = normOverlayText(raw)
+  if (!n) return false
+  if (n.includes(' ')) {
+    return normOverlayText(haystack).includes(n)
+  }
+  try {
+    return new RegExp(`\\b${escapeRegExp(n)}\\b`, 'i').test(haystack)
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Når én og bare én timeplan-blokk har fagnavn/spor som ord i linjen (f.eks. «til norsk», «i KRLE»).
+ */
+function blockIdxUniqueSubjectWordHit(
+  line: string,
+  band: NorwegianGradeBand,
+  baseLessons: SchoolLessonSlot[]
+): number {
+  const hits: number[] = []
+  for (let i = 0; i < baseLessons.length; i++) {
+    const L = baseLessons[i]!
+    const parts = subjectDisplayPartsForKey(band, L.subjectKey, L.customLabel, L.lessonSubcategory)
+    const tokenList: string[] = []
+    if (parts.secondary?.trim()) tokenList.push(parts.secondary.trim())
+    if (L.lessonSubcategory?.trim()) tokenList.push(L.lessonSubcategory.trim())
+    if (L.customLabel?.trim()) tokenList.push(L.customLabel.trim())
+    if (!lessonUsesStructuredSubcategory(L.subjectKey)) {
+      if (parts.primary?.trim()) tokenList.push(parts.primary.trim())
+      if (L.subjectKey === 'krle') {
+        tokenList.push('KRLE', 'RLE')
+      }
+    }
+    if (L.subjectKey !== 'fremmedspråk' && L.subjectKey !== 'valgfag') {
+      tokenList.push(L.subjectKey.replace(/_/g, ' '))
+    }
+
+    const seen = new Set<string>()
+    let matched = false
+    for (const rawTok of tokenList) {
+      const nt = normOverlayText(rawTok)
+      if (nt.length < 2) continue
+      if (OVERLAY_MATCH_GENERIC_HINTS.has(nt) || OVERLAY_SUBJECT_WORD_SKIP.has(nt)) continue
+      if (seen.has(nt)) continue
+      seen.add(nt)
+      if (lineReferencesLessonToken(line, rawTok)) matched = true
+    }
+    if (matched) hits.push(i)
+  }
+  const uniq = [...new Set(hits)]
+  if (uniq.length === 1) return uniq[0]!
+  return -1
+}
+
+type EnrichLineRoute = 'prefix_or_label' | 'unique_word' | 'weak_update' | 'fallback'
+
+function resolveEnrichPreviewLineToBlockIdx(
+  line: string,
+  band: NorwegianGradeBand,
+  baseLessons: SchoolLessonSlot[],
+  u: SchoolWeekOverlaySubjectUpdate
+): { idx: number; route: EnrichLineRoute } {
+  const idxPrefix = tryResolveOverlayLineToBlockIdx(line, band, baseLessons)
+  if (idxPrefix >= 0) return { idx: idxPrefix, route: 'prefix_or_label' }
+
+  const idxWord = blockIdxUniqueSubjectWordHit(line, band, baseLessons)
+  if (idxWord >= 0) return { idx: idxWord, route: 'unique_word' }
+
+  const weakHits = baseLessons
+    .map((L, i) => (overlayUpdateMatchesBaseLesson(band, L, u) ? i : -1))
+    .filter((i) => i >= 0)
+  if (weakHits.length === 1 && foreignLanguageTokensInLine(line).size === 0) {
+    return { idx: weakHits[0]!, route: 'weak_update' }
+  }
+
+  return { idx: -1, route: 'fallback' }
+}
+
 function normHintsForLesson(band: NorwegianGradeBand, L: SchoolLessonSlot): string[] {
   const parts = subjectDisplayPartsForKey(band, L.subjectKey, L.customLabel, L.lessonSubcategory)
   const s = new Set<string>()
@@ -667,6 +759,32 @@ function overlayUpdateMatchesBaseLesson(
   return hintSetsOverlapSpecific(normHintsForLesson(band, L), normHintsForOverlayUpdate(band, u))
 }
 
+/** F.eks. «Fransk» / «Tysk» mot `fremmedspråk` + spor, eller direkte språknøkkel i timeplan. */
+function blockIdxForForeignLanguageWord(
+  word: string,
+  band: NorwegianGradeBand,
+  baseLessons: SchoolLessonSlot[]
+): number {
+  const wnorm = normOverlayText(word)
+  if (wnorm.length < 3) return -1
+  const hits: number[] = []
+  for (let i = 0; i < baseLessons.length; i++) {
+    const L = baseLessons[i]!
+    if (L.subjectKey === 'fremmedspråk') {
+      const sub = normOverlayText(L.lessonSubcategory ?? L.customLabel ?? '')
+      if (sub.length >= 3 && (sub === wnorm || sub.includes(wnorm) || wnorm.includes(sub))) hits.push(i)
+    } else if (normOverlayText(L.subjectKey.replace(/_/g, ' ')) === wnorm) {
+      hits.push(i)
+    } else {
+      const parts = subjectDisplayPartsForKey(band, L.subjectKey, L.customLabel, L.lessonSubcategory)
+      if (parts.secondary && normOverlayText(parts.secondary) === wnorm) hits.push(i)
+    }
+  }
+  const uniq = [...new Set(hits)]
+  if (uniq.length === 1) return uniq[0]!
+  return -1
+}
+
 function tryResolveOverlayLineToBlockIdx(
   line: string,
   band: NorwegianGradeBand,
@@ -680,6 +798,20 @@ function tryResolveOverlayLineToBlockIdx(
     if (headMatch) {
       const idx = baseLessons.findIndex((L) => L.subjectKey === headMatch.subjectKey)
       if (idx >= 0) return idx
+    }
+    const firstW = head.split(/\s+/)[0] ?? ''
+    if (firstW.length >= 3 && firstW.length < 24 && firstW !== head) {
+      const wm = matchSubjectFromText(band, firstW)
+      if (wm) {
+        const j = baseLessons.findIndex((L) => L.subjectKey === wm.subjectKey)
+        if (j >= 0) return j
+      }
+      const jFl = blockIdxForForeignLanguageWord(firstW, band, baseLessons)
+      if (jFl >= 0) return jFl
+    }
+    if (!head.includes(' ') && head.length >= 3 && head.length < 24) {
+      const jFl = blockIdxForForeignLanguageWord(head, band, baseLessons)
+      if (jFl >= 0) return jFl
     }
   }
   const lineMatch = matchSubjectFromText(band, t)
@@ -709,23 +841,6 @@ function tryResolveOverlayLineToBlockIdx(
     }
   }
   return -1
-}
-
-function sweepUnplacedLinesIntoSubjectBlocks(
-  band: NorwegianGradeBand,
-  baseLessons: SchoolLessonSlot[],
-  blocks: Array<{ sections: Record<OverlayPreviewSectionLabel, string[]> }>,
-  unplaced: Record<OverlayPreviewSectionLabel, string[]>
-): void {
-  for (const label of OVERLAY_PREVIEW_SECTION_ORDER) {
-    const remaining: string[] = []
-    for (const line of unplaced[label]) {
-      const idx = tryResolveOverlayLineToBlockIdx(line, band, baseLessons)
-      if (idx >= 0) blocks[idx]!.sections[label].push(line)
-      else remaining.push(line)
-    }
-    unplaced[label] = remaining
-  }
 }
 
 type SchoolWeekOverlayReviewCardProps = {
@@ -1057,22 +1172,35 @@ function SchoolWeekOverlayReviewCard({
                       }
                       const enrichBand = baseSchoolProfile?.gradeBand ?? '8-10'
                       const enrichNoise = { dropped: 0 }
+                      const lineDbg = {
+                        overlayPreviewLineMatchedToSubject: 0,
+                        overlayPreviewLineStayedInBlock: 0,
+                        overlayPreviewLineSentToFallback: 0,
+                      }
                       for (const u of filteredUpdates) {
                         const sections = previewSectionsForOverlayPreview(u, enrichBand, enrichNoise)
-                        const targetIdx = baseLessons.findIndex((L) =>
-                          overlayUpdateMatchesBaseLesson(enrichBand, L, u)
-                        )
-                        if (targetIdx >= 0) {
-                          for (const key of OVERLAY_PREVIEW_SECTION_ORDER) {
-                            blocks[targetIdx]!.sections[key].push(...sections[key])
-                          }
-                        } else {
-                          for (const key of OVERLAY_PREVIEW_SECTION_ORDER) {
-                            unplaced[key].push(...sections[key])
+                        for (const key of OVERLAY_PREVIEW_SECTION_ORDER) {
+                          for (const line of sections[key]) {
+                            const t = line.trim()
+                            if (!t) continue
+                            const { idx, route } = resolveEnrichPreviewLineToBlockIdx(
+                              t,
+                              enrichBand,
+                              baseLessons,
+                              u
+                            )
+                            if (route === 'prefix_or_label' || route === 'unique_word') {
+                              lineDbg.overlayPreviewLineMatchedToSubject++
+                            } else if (route === 'weak_update') {
+                              lineDbg.overlayPreviewLineStayedInBlock++
+                            } else {
+                              lineDbg.overlayPreviewLineSentToFallback++
+                            }
+                            if (idx >= 0) blocks[idx]!.sections[key].push(t)
+                            else unplaced[key].push(t)
                           }
                         }
                       }
-                      sweepUnplacedLinesIntoSubjectBlocks(enrichBand, baseLessons, blocks, unplaced)
                       for (const b of blocks) {
                         for (const key of OVERLAY_PREVIEW_SECTION_ORDER) {
                           b.sections[key] = dedupeOverlayPreviewLines(
@@ -1096,6 +1224,7 @@ function SchoolWeekOverlayReviewCard({
                             (n, key) => n + unplaced[key].length,
                             0
                           ),
+                          ...lineDbg,
                           overlayPreviewDroppedNoiseLines: enrichNoise.dropped,
                           overlayPreviewSubjectBlocks: blocks.map((b) => ({
                             title: b.title,
