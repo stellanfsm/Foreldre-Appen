@@ -3,9 +3,11 @@ import type { PortalEventProposal, PortalProposalItem, PortalSchoolWeekOverlayPr
 import type {
   ChildSchoolDayPlan,
   ChildSchoolProfile,
+  NorwegianGradeBand,
   Person,
   SchoolContext,
   SchoolLessonSlot,
+  SchoolWeekOverlaySubjectUpdate,
   Task,
   WeekdayMonFri,
 } from '../../types'
@@ -38,7 +40,14 @@ import {
   schoolItemTypeChipClass,
   schoolItemTypeLabel,
 } from '../../lib/schoolContext'
-import { subjectLabelForKey } from '../../data/norwegianSubjects'
+import {
+  inferSubjectKeyFromText,
+  isKnownSubjectKeyForBand,
+  matchSubjectFromText,
+  subjectDisplayPartsForKey,
+  subjectLabelForKey,
+  SUBJECTS_BY_BAND,
+} from '../../data/norwegianSubjects'
 
 /** Les `metadata.schoolContext` fra et event-forslag hvis det finnes. */
 function schoolContextFromEventProposal(p: PortalEventProposal): SchoolContext | null {
@@ -409,11 +418,37 @@ type OverlayPreviewSectionLabel = (typeof OVERLAY_PREVIEW_SECTION_ORDER)[number]
 function overlayPreviewSectionLabel(rawKey: string, line: string): OverlayPreviewSectionLabel {
   const k = normOverlayText(rawKey)
   const l = normOverlayText(line)
-  if (/\b(i timen|undervisning|arbeid i timen|gjøres i timen)\b/.test(`${k} ${l}`)) return 'I timen'
-  if (/\b(lekse|hjemmelekse|innlevering hjemme|hjemmearbeid)\b/.test(`${k} ${l}`)) return 'Lekse'
-  if (/\b(ta med|utstyr|ha med|husk å ta med|pakke)\b/.test(`${k} ${l}`)) return 'Ta med'
-  if (/\b(prøve|vurdering|test|quiz|muntlig|fremføring|tentamen)\b/.test(`${k} ${l}`)) return 'Prøve / vurdering'
-  if (/\b(ressurs|lenke|video|ark|presentasjon|kapittel|side|bok)\b/.test(`${k} ${l}`)) return 'Ressurser'
+  const combined = `${k} ${l}`
+
+  if (
+    /\b(lekse|hjemmelekse|hjemmearbeid|hjemme\s*arbeid|innlevering(?!\s*i timen)|forbered(?:else)?\s+til|gjør\s+oppgave|oppgave\s+\d|lage\s+innlevering)\b/.test(
+      combined
+    )
+  ) {
+    return 'Lekse'
+  }
+  if (/\b(les\s+(?:kap|kapittel|side|glossar)|les\s+høyt|lese\s+lekse)\b/.test(combined)) return 'Lekse'
+
+  if (
+    /\b(i timen|undervisning|arbeid\s+i timen|gjøres\s+i timen|timen:\s*|vi(?:\s+skal)?\s+jobbe|gruppearbeid|klasseromsarbeid|gjennomgang|forelesning|delebøker|stasjons|exit\s*ticket)\b/.test(
+      combined
+    )
+  ) {
+    return 'I timen'
+  }
+
+  if (/\b(ta med|utstyr|ha med|husk å ta med|pakke)\b/.test(combined)) return 'Ta med'
+  if (/\b(prøve|vurdering|test|quiz|muntlig|fremføring|tentamen)\b/.test(combined)) return 'Prøve / vurdering'
+
+  if (/\b(https?:\/\/|www\.)\b/i.test(line)) return 'Ressurser'
+  if (/\b(lenke til|se\s+video|fronter|itslearning|teams\.microsoft|youtube|vimeo)\b/i.test(combined)) {
+    return 'Ressurser'
+  }
+  if (/\b(kap(?:ittel)?\.?\s*\d+|side\s+\d+)\b/.test(l) && /\b(bok|lærebok|tekstbok)\b/.test(combined)) {
+    return 'Ressurser'
+  }
+  if (/\b(ressurs|presentasjon|powerpoint|\bpdf\b)\b/.test(combined)) return 'Ressurser'
+
   return 'Ekstra beskjed'
 }
 
@@ -452,6 +487,245 @@ function previewSectionsFromSubjectUpdate(
     }
   }
   return out
+}
+
+/** Støy: rene fagnavn uten faktisk innhold (f.eks. «Tysk», «Norsk fordypning»). */
+const OVERLAY_PREVIEW_SUBSTANTIVE_HINT = /\b(lekse|hjemme|innlevering|les\s|lesing|kap\.|kapittel|side\s|s\.\s*\d|prøve|vurdering|test|quiz|muntlig|øving|arbeid|gruppe|video|http|www|lenke|fronter|teams|kl\.?\s*\d|ta med|husk|gjør|oppgave|forbered|timen|undervisning)\b/i
+
+function isOverlayPreviewSubjectOnlyNoiseLine(line: string, band: NorwegianGradeBand): boolean {
+  const t = line.trim()
+  if (!t || t.length > 72) return false
+  if (/\d/.test(t)) return false
+  if (OVERLAY_PREVIEW_SUBSTANTIVE_HINT.test(t)) return false
+  const m = matchSubjectFromText(band, t)
+  if (!m) return false
+  const cat = SUBJECTS_BY_BAND[band].find((s) => s.key === m.subjectKey)
+  const label = cat?.label ?? m.subjectKey
+  const normLine = normOverlayText(t)
+  const normLabel = normOverlayText(label)
+  if (normLine === normLabel) return true
+  if (normLine === `${normLabel} fordypning`) return true
+  if (normLine === `${normLabel} utenom`) return true
+  if (m.matchType === 'prefix' && normLine.startsWith(`${normLabel} `)) {
+    const rest = normLine.slice(normLabel.length).trim()
+    if (rest === 'fordypning' || rest === 'utenom') return true
+    if (rest.split(/\s+/).length === 1 && ['muntlig', 'skriftlig'].includes(rest)) return true
+  }
+  return false
+}
+
+function filterOverlayPreviewNoiseLines(
+  lines: string[],
+  band: NorwegianGradeBand,
+  stats?: { dropped: number }
+): string[] {
+  const out: string[] = []
+  for (const line of lines) {
+    if (isOverlayPreviewSubjectOnlyNoiseLine(line, band)) {
+      if (stats) stats.dropped++
+      continue
+    }
+    out.push(line)
+  }
+  return out
+}
+
+function previewSectionsForOverlayPreview(
+  update: { sections?: Record<string, string[]> },
+  band: NorwegianGradeBand,
+  noiseStats?: { dropped: number }
+): Record<OverlayPreviewSectionLabel, string[]> {
+  const base = previewSectionsFromSubjectUpdate(update)
+  const out = { ...base }
+  for (const key of OVERLAY_PREVIEW_SECTION_ORDER) {
+    out[key] = filterOverlayPreviewNoiseLines(out[key], band, noiseStats)
+  }
+  return out
+}
+
+const OVERLAY_MATCH_GENERIC_HINTS = new Set(
+  [
+    'språk',
+    'fremmedspråk',
+    'valgfag',
+    'fellesfag',
+    'felles',
+    'programfag',
+    'eksamen',
+    'annet fag',
+    'skole',
+    'timer',
+  ].map((s) => normOverlayText(s))
+)
+
+function normHintsForLesson(band: NorwegianGradeBand, L: SchoolLessonSlot): string[] {
+  const parts = subjectDisplayPartsForKey(band, L.subjectKey, L.customLabel, L.lessonSubcategory)
+  const s = new Set<string>()
+  const add = (x?: string) => {
+    const t = x?.trim()
+    if (!t) return
+    const n = normOverlayText(t)
+    if (n.length >= 2) s.add(n)
+  }
+  add(L.subjectKey.replace(/_/g, ' '))
+  add(L.customLabel)
+  add(L.lessonSubcategory)
+  add(parts.primary)
+  add(parts.secondary)
+  add(subjectLabelForKey(band, L.subjectKey, L.customLabel, L.lessonSubcategory))
+  return [...s]
+}
+
+function normHintsForOverlayUpdate(band: NorwegianGradeBand, u: SchoolWeekOverlaySubjectUpdate): string[] {
+  const s = new Set<string>()
+  const add = (x?: string) => {
+    const t = x?.trim()
+    if (!t) return
+    const n = normOverlayText(t)
+    if (n.length >= 2) s.add(n)
+  }
+  add(u.subjectKey.replace(/_/g, ' '))
+  add(u.customLabel)
+  const inferred = u.customLabel?.trim() ? matchSubjectFromText(band, u.customLabel) : null
+  if (inferred) {
+    const cat = SUBJECTS_BY_BAND[band].find((x) => x.key === inferred.subjectKey)
+    add(cat?.label)
+    add(inferred.subjectKey)
+  }
+  if (isKnownSubjectKeyForBand(band, u.subjectKey)) {
+    const cat = SUBJECTS_BY_BAND[band].find((x) => x.key === u.subjectKey)
+    add(cat?.label)
+  }
+  return [...s]
+}
+
+function hintSetsOverlapSpecific(baseHints: string[], updateHints: string[]): boolean {
+  const stripGeneric = (arr: string[]) =>
+    arr.filter((h) => h.length >= 3 && !OVERLAY_MATCH_GENERIC_HINTS.has(h))
+  const bh = stripGeneric(baseHints)
+  const uh = stripGeneric(updateHints)
+  for (const b of bh) {
+    for (const u of uh) {
+      if (b === u) return true
+      if (b.length >= 4 && u.length >= 4 && (b.includes(u) || u.includes(b))) return true
+    }
+  }
+  return false
+}
+
+function sectionLinesSampleForSubjectMatch(u: SchoolWeekOverlaySubjectUpdate): string[] {
+  const out: string[] = []
+  for (const lines of Object.values(u.sections ?? {})) {
+    for (const line of lines ?? []) {
+      const t = line.trim()
+      if (t.length >= 4) out.push(t)
+    }
+  }
+  return out
+}
+
+function overlayUpdateMatchesBaseLesson(
+  band: NorwegianGradeBand,
+  L: SchoolLessonSlot,
+  u: SchoolWeekOverlaySubjectUpdate
+): boolean {
+  if (L.subjectKey === u.subjectKey) {
+    if (!u.customLabel?.trim()) return true
+    const c = u.customLabel.trim().toLocaleLowerCase('nb-NO')
+    return !!(
+      L.lessonSubcategory?.trim().toLocaleLowerCase('nb-NO').includes(c) ||
+      L.customLabel?.trim().toLocaleLowerCase('nb-NO').includes(c) ||
+      subjectLabelForKey(band, L.subjectKey, L.customLabel, L.lessonSubcategory)
+        .toLocaleLowerCase('nb-NO')
+        .includes(c)
+    )
+  }
+
+  const inferredFromCustom = u.customLabel?.trim() ? matchSubjectFromText(band, u.customLabel) : null
+  if (inferredFromCustom && inferredFromCustom.subjectKey === L.subjectKey) return true
+
+  const inferredKey =
+    inferSubjectKeyFromText(band, u.customLabel) ?? inferSubjectKeyFromText(band, u.subjectKey)
+  if (inferredKey && inferredKey === L.subjectKey) return true
+
+  if (L.subjectKey === 'fremmedspråk' || u.subjectKey === 'fremmedspråk') {
+    const bh = normHintsForLesson(band, L)
+    const uh = normHintsForOverlayUpdate(band, u)
+    if (hintSetsOverlapSpecific(bh, uh)) return true
+  }
+
+  for (const line of sectionLinesSampleForSubjectMatch(u)) {
+    const head = line.split(/[:–—]/)[0]?.trim() ?? ''
+    if (head.length >= 3 && head.length < 48) {
+      const hm = matchSubjectFromText(band, head)
+      if (hm?.subjectKey === L.subjectKey) return true
+    }
+    const lm = matchSubjectFromText(band, line)
+    if (lm?.subjectKey === L.subjectKey && line.length < 72) return true
+  }
+
+  return hintSetsOverlapSpecific(normHintsForLesson(band, L), normHintsForOverlayUpdate(band, u))
+}
+
+function tryResolveOverlayLineToBlockIdx(
+  line: string,
+  band: NorwegianGradeBand,
+  baseLessons: SchoolLessonSlot[]
+): number {
+  const t = line.trim()
+  if (!t) return -1
+  const head = t.split(/[:–—]/)[0]?.trim() ?? ''
+  if (head.length >= 3 && head.length < 48) {
+    const headMatch = matchSubjectFromText(band, head)
+    if (headMatch) {
+      const idx = baseLessons.findIndex((L) => L.subjectKey === headMatch.subjectKey)
+      if (idx >= 0) return idx
+    }
+  }
+  const lineMatch = matchSubjectFromText(band, t)
+  if (lineMatch && t.length < 56) {
+    const idx = baseLessons.findIndex((L) => L.subjectKey === lineMatch.subjectKey)
+    if (idx >= 0) return idx
+  }
+  const nLine = normOverlayText(t)
+  for (let i = 0; i < baseLessons.length; i++) {
+    const L = baseLessons[i]!
+    const label = subjectLabelForKey(band, L.subjectKey, L.customLabel, L.lessonSubcategory)
+    const nLabel = normOverlayText(label)
+    const parts = subjectDisplayPartsForKey(band, L.subjectKey, L.customLabel, L.lessonSubcategory)
+    const primary = normOverlayText(parts.primary)
+    if (nLabel.length >= 4 && (nLine.startsWith(`${nLabel} `) || nLine.startsWith(`${nLabel}:`))) {
+      return i
+    }
+    if (primary.length >= 4 && (nLine.startsWith(`${primary} `) || nLine.startsWith(`${primary}:`))) {
+      return i
+    }
+    const sec = parts.secondary
+    if (sec) {
+      const ns = normOverlayText(sec)
+      if (ns.length >= 4 && (nLine.startsWith(`${ns} `) || nLine.startsWith(`${ns}:`))) {
+        return i
+      }
+    }
+  }
+  return -1
+}
+
+function sweepUnplacedLinesIntoSubjectBlocks(
+  band: NorwegianGradeBand,
+  baseLessons: SchoolLessonSlot[],
+  blocks: Array<{ sections: Record<OverlayPreviewSectionLabel, string[]> }>,
+  unplaced: Record<OverlayPreviewSectionLabel, string[]>
+): void {
+  for (const label of OVERLAY_PREVIEW_SECTION_ORDER) {
+    const remaining: string[] = []
+    for (const line of unplaced[label]) {
+      const idx = tryResolveOverlayLineToBlockIdx(line, band, baseLessons)
+      if (idx >= 0) blocks[idx]!.sections[label].push(line)
+      else remaining.push(line)
+    }
+    unplaced[label] = remaining
+  }
 }
 
 type SchoolWeekOverlayReviewCardProps = {
@@ -699,8 +973,10 @@ function SchoolWeekOverlayReviewCard({
                           Ressurser: [],
                           'Ekstra beskjed': [],
                         }
+                        const previewBand = baseSchoolProfile?.gradeBand ?? '8-10'
+                        const replaceNoise = { dropped: 0 }
                         for (const u of filteredUpdates) {
-                          const s = previewSectionsFromSubjectUpdate(u)
+                          const s = previewSectionsForOverlayPreview(u, previewBand, replaceNoise)
                           for (const key of OVERLAY_PREVIEW_SECTION_ORDER) mergedSections[key].push(...s[key])
                         }
                         for (const key of OVERLAY_PREVIEW_SECTION_ORDER) {
@@ -779,25 +1055,13 @@ function SchoolWeekOverlayReviewCard({
                         Ressurser: [],
                         'Ekstra beskjed': [],
                       }
+                      const enrichBand = baseSchoolProfile?.gradeBand ?? '8-10'
+                      const enrichNoise = { dropped: 0 }
                       for (const u of filteredUpdates) {
-                        const sections = previewSectionsFromSubjectUpdate(u)
-                        const targetIdx = baseLessons.findIndex((L) => {
-                          if (L.subjectKey !== u.subjectKey) return false
-                          if (!u.customLabel?.trim()) return true
-                          const c = u.customLabel.trim().toLocaleLowerCase('nb-NO')
-                          return !!(
-                            L.lessonSubcategory?.trim().toLocaleLowerCase('nb-NO').includes(c) ||
-                            L.customLabel?.trim().toLocaleLowerCase('nb-NO').includes(c) ||
-                            subjectLabelForKey(
-                              baseSchoolProfile?.gradeBand ?? '8-10',
-                              L.subjectKey,
-                              L.customLabel,
-                              L.lessonSubcategory
-                            )
-                              .toLocaleLowerCase('nb-NO')
-                              .includes(c)
-                          )
-                        })
+                        const sections = previewSectionsForOverlayPreview(u, enrichBand, enrichNoise)
+                        const targetIdx = baseLessons.findIndex((L) =>
+                          overlayUpdateMatchesBaseLesson(enrichBand, L, u)
+                        )
                         if (targetIdx >= 0) {
                           for (const key of OVERLAY_PREVIEW_SECTION_ORDER) {
                             blocks[targetIdx]!.sections[key].push(...sections[key])
@@ -808,13 +1072,18 @@ function SchoolWeekOverlayReviewCard({
                           }
                         }
                       }
+                      sweepUnplacedLinesIntoSubjectBlocks(enrichBand, baseLessons, blocks, unplaced)
                       for (const b of blocks) {
                         for (const key of OVERLAY_PREVIEW_SECTION_ORDER) {
-                          b.sections[key] = dedupeOverlayPreviewLines(b.sections[key])
+                          b.sections[key] = dedupeOverlayPreviewLines(
+                            filterOverlayPreviewNoiseLines(b.sections[key], enrichBand, enrichNoise)
+                          )
                         }
                       }
                       for (const key of OVERLAY_PREVIEW_SECTION_ORDER) {
-                        unplaced[key] = dedupeOverlayPreviewLines(unplaced[key])
+                        unplaced[key] = dedupeOverlayPreviewLines(
+                          filterOverlayPreviewNoiseLines(unplaced[key], enrichBand, enrichNoise)
+                        )
                       }
 
                       if (DEBUG_SCHOOL_IMPORT_PANEL) {
@@ -827,6 +1096,7 @@ function SchoolWeekOverlayReviewCard({
                             (n, key) => n + unplaced[key].length,
                             0
                           ),
+                          overlayPreviewDroppedNoiseLines: enrichNoise.dropped,
                           overlayPreviewSubjectBlocks: blocks.map((b) => ({
                             title: b.title,
                             sectionCount: OVERLAY_PREVIEW_SECTION_ORDER.reduce((n, key) => n + b.sections[key].length, 0),
@@ -874,7 +1144,16 @@ function SchoolWeekOverlayReviewCard({
                                     <p className="text-[10px] font-semibold uppercase tracking-wide text-zinc-600">{label}</p>
                                     <ul className="mt-0.5 list-disc space-y-0.5 pl-4 text-[11px] text-zinc-700">
                                       {lines.map((line, lineIdx) => (
-                                        <li key={`${label}-${lineIdx}`}>{line}</li>
+                                        <li
+                                          key={`${label}-${lineIdx}`}
+                                          className={
+                                            !overlayLineAllowedForLanguageTrack(line, track)
+                                              ? 'text-zinc-500 opacity-90'
+                                              : ''
+                                          }
+                                        >
+                                          {line}
+                                        </li>
                                       ))}
                                     </ul>
                                   </div>
@@ -883,17 +1162,30 @@ function SchoolWeekOverlayReviewCard({
                             </div>
                           ))}
                           {OVERLAY_PREVIEW_SECTION_ORDER.some((label) => unplaced[label].length > 0) ? (
-                            <div className="rounded-lg border border-zinc-200 bg-zinc-50/60 px-2.5 py-2">
-                              <p className="text-[11px] font-semibold text-zinc-800">Ikke plassert</p>
+                            <div className="rounded-lg border border-dashed border-zinc-200 bg-zinc-50/40 px-2 py-1.5">
+                              <p className="text-[10px] font-medium uppercase tracking-wide text-zinc-500">
+                                Ikke plassert
+                              </p>
                               {OVERLAY_PREVIEW_SECTION_ORDER.map((label) => {
                                 const lines = unplaced[label]
                                 if (lines.length === 0) return null
                                 return (
-                                  <div key={label} className="mt-1.5">
-                                    <p className="text-[10px] font-semibold uppercase tracking-wide text-zinc-600">{label}</p>
-                                    <ul className="mt-0.5 list-disc space-y-0.5 pl-4 text-[11px] text-zinc-700">
+                                  <div key={label} className="mt-1">
+                                    <p className="text-[9px] font-semibold uppercase tracking-wide text-zinc-500">
+                                      {label}
+                                    </p>
+                                    <ul className="mt-0.5 list-disc space-y-0.5 pl-3 text-[10px] leading-snug text-zinc-600">
                                       {lines.map((line, lineIdx) => (
-                                        <li key={`${label}-unplaced-${lineIdx}`}>{line}</li>
+                                        <li
+                                          key={`${label}-unplaced-${lineIdx}`}
+                                          className={
+                                            !overlayLineAllowedForLanguageTrack(line, track)
+                                              ? 'text-zinc-400 opacity-90'
+                                              : ''
+                                          }
+                                        >
+                                          {line}
+                                        </li>
                                       ))}
                                     </ul>
                                   </div>
