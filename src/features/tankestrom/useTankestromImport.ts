@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { ChildSchoolProfile, Event, Person, SchoolWeekOverlay, SchoolWeekOverlaySubjectUpdate, Task } from '../../types'
+import type { ChildSchoolProfile, Event, Person, SchoolWeekOverlay, Task, WeekdayMonFri } from '../../types'
+import { filterSubjectUpdatesByLanguageTrack } from '../../lib/schoolWeekOverlayFilters'
+import { redistributeEnrichSubjectUpdatesForDay } from '../../lib/schoolWeekOverlayEnrichRouting'
 import type {
   PortalEventProposal,
   PortalImportProposalBundle,
@@ -611,56 +613,69 @@ function hasAnalyzeContent(bundle: PortalImportProposalBundle): boolean {
   return bundle.items.length > 0 || !!bundle.schoolWeekOverlayProposal
 }
 
-export function filterSubjectUpdatesByLanguageTrack(
-  updates: SchoolWeekOverlaySubjectUpdate[],
-  resolvedTrack: string | undefined,
-  resolvedValgfagTrack?: string
-): SchoolWeekOverlaySubjectUpdate[] {
-  const track = resolvedTrack?.trim().toLocaleLowerCase('nb-NO')
-  const valgfagTrack = resolvedValgfagTrack?.trim().toLocaleLowerCase('nb-NO')
-  if (!track && !valgfagTrack) return updates
-  return updates.filter((u) => {
-    if (u.subjectKey === 'fremmedspråk') {
-      if (!track) return true
-      const custom = u.customLabel?.trim().toLocaleLowerCase('nb-NO')
-      if (custom && custom.includes(track)) return true
-      const sectionLines = Object.values(u.sections ?? {}).flatMap((v) => v ?? [])
-      if (sectionLines.length === 0) return true
-      const ok = sectionLines.some((line) => line.toLocaleLowerCase('nb-NO').includes(track))
-      if (!ok && (import.meta.env.DEV || import.meta.env.VITE_DEBUG_SCHOOL_IMPORT === 'true')) {
-        console.debug('[tankestrom overlay filter]', {
-          subjectKey: u.subjectKey,
-          childLessonSubcategoryTrack: track,
-          languageLineFilteredByStoredTrack: true,
-        })
-      }
-      return ok
-    }
-    if (u.subjectKey === 'valgfag' && valgfagTrack) {
-      const custom = u.customLabel?.trim().toLocaleLowerCase('nb-NO')
-      if (custom && custom.includes(valgfagTrack)) return true
-      const sectionLines = Object.values(u.sections ?? {}).flatMap((v) => v ?? [])
-      if (sectionLines.length === 0) return true
-      return sectionLines.some((line) => line.toLocaleLowerCase('nb-NO').includes(valgfagTrack))
-    }
-    return true
-  })
-}
+export { filterSubjectUpdatesByLanguageTrack } from '../../lib/schoolWeekOverlayFilters'
 
-function overlayToChildWeekOverlay(proposal: PortalSchoolWeekOverlayProposal): SchoolWeekOverlay {
+function overlayToChildWeekOverlay(
+  proposal: PortalSchoolWeekOverlayProposal,
+  childSchool?: ChildSchoolProfile
+): SchoolWeekOverlay {
   const now = new Date()
   const fallbackWeekNumber = proposal.weekNumber ?? getISOWeek(now)
   const mappedDailyActions: SchoolWeekOverlay['dailyActions'] = {}
   const resolvedTrack = proposal.languageTrack?.resolvedTrack
+  const valgfagTrack = inferValgfagTrackFromChildSchool(childSchool)
+  const dbg =
+    import.meta.env.DEV || import.meta.env.VITE_DEBUG_SCHOOL_IMPORT === 'true'
+
   for (const [dayRaw, action] of Object.entries(proposal.dailyActions)) {
     if (!action) continue
     const day = Number(dayRaw)
     if (!Number.isInteger(day) || day < 0 || day > 6) continue
+    let subjectUpdates = filterSubjectUpdatesByLanguageTrack(
+      action.subjectUpdates,
+      resolvedTrack,
+      valgfagTrack
+    )
+
+    if (
+      action.action === 'enrich_existing_school_block' &&
+      childSchool &&
+      day >= 0 &&
+      day <= 4
+    ) {
+      const plan = childSchool.weekdays[day as WeekdayMonFri]
+      if (plan && !plan.useSimpleDay && plan.lessons?.length) {
+        const lessons = [...plan.lessons].sort((a, b) => a.start.localeCompare(b.start))
+        const redistributed = redistributeEnrichSubjectUpdatesForDay(
+          childSchool.gradeBand,
+          lessons,
+          subjectUpdates
+        )
+        subjectUpdates = redistributed
+        if (dbg) {
+          const placed = subjectUpdates.filter((u) => u.subjectKey !== 'other')
+          const other = subjectUpdates.find((u) => u.subjectKey === 'other')
+          const unplacedLines = other
+            ? Object.values(other.sections ?? {}).reduce((n, l) => n + (l?.length ?? 0), 0)
+            : 0
+          const perLessonLineCounts = placed.map((u) =>
+            Object.values(u.sections ?? {}).reduce((n, l) => n + (l?.length ?? 0), 0)
+          )
+          console.debug('[overlay apply enrich]', {
+            day,
+            overlayApplyMatchedSubjectBlocks: placed.length,
+            overlayApplyUnplacedContent: unplacedLines,
+            overlayApplySavedPerLessonCount: perLessonLineCounts,
+          })
+        }
+      }
+    }
+
     mappedDailyActions[day] = {
       action: action.action,
       reason: action.reason,
       summary: action.summary,
-      subjectUpdates: filterSubjectUpdatesByLanguageTrack(action.subjectUpdates, resolvedTrack),
+      subjectUpdates,
     }
   }
   return {
@@ -1234,7 +1249,7 @@ export function useTankestromImport({
       return false
     }
 
-    const nextOverlay = overlayToChildWeekOverlay(overlay)
+    const nextOverlay = overlayToChildWeekOverlay(overlay, existingSchool)
     const existingOverlays = existingSchool.weekOverlays ?? []
     const remaining = existingOverlays.filter(
       (o) => !(o.weekYear === nextOverlay.weekYear && o.weekNumber === nextOverlay.weekNumber)

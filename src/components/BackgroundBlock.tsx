@@ -16,7 +16,8 @@ export function BackgroundBlock({ block, onSelect }: BackgroundBlockProps) {
   const subkind = block.metadata?.backgroundSubkind as string | undefined
   const isLesson = subkind === 'school_lesson'
   const isBreak = subkind === 'school_break'
-  const isDayBlock = subkind === 'school_day' || subkind === 'work_day' || !subkind
+  const isDayBlock =
+    subkind === 'school_day' || subkind === 'school_day_override' || subkind === 'work_day' || !subkind
   const isSchoolOverlay = isLesson || isBreak
 
   return (

@@ -1,5 +1,6 @@
 import type {
   Event,
+  NorwegianGradeBand,
   Person,
   PersonId,
   SchoolDayOverride,
@@ -11,6 +12,7 @@ import { DEFAULT_SCHOOL_GATE_BY_BAND } from '../data/norwegianSubjects'
 import { dateKeyToWeekdayMon0 } from './weekday'
 import { pickSchoolDayOverrideForChild } from './schoolContext'
 import { getISOWeek, getISOWeekYear } from './isoWeek'
+import { calendarReplaceSchoolBlockTitle } from './schoolWeekOverlayReplaceTitle'
 
 type BackgroundSubkind = 'school_day' | 'school_day_override' | 'school_lesson' | 'school_break' | 'work_day'
 
@@ -22,7 +24,10 @@ function normalizeSubjectUpdates(subjectUpdates: SchoolWeekOverlaySubjectUpdate[
   }))
 }
 
-function buildSpecialSchoolTitle(action: SchoolWeekOverlayDayAction): string {
+function buildSpecialSchoolTitle(action: SchoolWeekOverlayDayAction, band: NorwegianGradeBand): string {
+  if (action.action === 'replace_school_block') {
+    return calendarReplaceSchoolBlockTitle(action, band)
+  }
   const summary = action.summary?.trim()
   const reason = action.reason?.trim()
   if (summary) return summary
@@ -163,13 +168,21 @@ export function buildBackgroundEventsForDate(
           continue
         }
         if (weekOverlayDay.action.action === 'replace_school_block') {
+          const replaceTitle = buildSpecialSchoolTitle(weekOverlayDay.action, band)
+          if (import.meta.env.DEV || import.meta.env.VITE_DEBUG_SCHOOL_IMPORT === 'true') {
+            console.debug('[overlay replace block]', {
+              overlayApplyReplaceCreatedBlock: true,
+              overlayApplyReplaceTitle: replaceTitle,
+              overlayApplyReplaceTimeRange: `${dayStart}–${dayEnd}`,
+            })
+          }
           out.push(
             makeBackgroundEvent(
               p.id,
               dateKey,
               dayStart,
               dayEnd,
-              buildSpecialSchoolTitle(weekOverlayDay.action),
+              replaceTitle,
               'school',
               'day-override-week',
               'school_day_override',

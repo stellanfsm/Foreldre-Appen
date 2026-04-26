@@ -130,7 +130,9 @@ function overlayUpdatesForLesson(
   updates: SchoolWeekOverlaySubjectUpdate[]
 ): Array<{ update: SchoolWeekOverlaySubjectUpdate; updateIndex: number }> {
   if (!lesson) return []
-  const lessonCustom = (lesson.customLabel ?? '').trim().toLocaleLowerCase('nb-NO')
+  const lessonCustom = (lesson.customLabel ?? lesson.lessonSubcategory ?? '')
+    .trim()
+    .toLocaleLowerCase('nb-NO')
   return updates
     .map((u, idx) => ({ update: u, updateIndex: idx }))
     .filter(({ update: u }) => {
@@ -139,6 +141,16 @@ function overlayUpdatesForLesson(
       if (!custom || !lessonCustom) return true
       return custom === lessonCustom
     })
+}
+
+function overlaySubjectUpdatesUnmatchedByLessons(
+  updates: SchoolWeekOverlaySubjectUpdate[],
+  lessons: SchoolLessonSlot[]
+): SchoolWeekOverlaySubjectUpdate[] {
+  if (lessons.length === 0) return updates
+  return updates.filter(
+    (u) => !lessons.some((L) => overlayUpdatesForLesson(L, [u]).length > 0)
+  )
 }
 
 function normalizeSectionsForEdit(
@@ -382,6 +394,15 @@ export function BackgroundDetailSheet({
         )
         .sort((a, b) => (a.dueTime ?? '').localeCompare(b.dueTime ?? ''))
     : []
+
+  const overlayLessonSlots: SchoolLessonSlot[] =
+    isSchool && !isReplaceDay
+      ? rows.map((r) => r.lesson).filter((L): L is SchoolLessonSlot => !!L)
+      : []
+  const weekOverlayUnplacedUpdates =
+    weekOverlayDayAction?.subjectUpdates?.length && overlayLessonSlots.length > 0
+      ? overlaySubjectUpdatesUnmatchedByLessons(weekOverlayDayAction.subjectUpdates, overlayLessonSlots)
+      : weekOverlayDayAction?.subjectUpdates ?? []
 
   return (
     <>
@@ -735,11 +756,11 @@ export function BackgroundDetailSheet({
                 </ul>
               </div>
             ) : null}
-            {isSchool && weekOverlayDayAction?.subjectUpdates?.length ? (
+            {isSchool && weekOverlayUnplacedUpdates.length > 0 ? (
               <div className="mt-4">
                 <p className={typSectionCap}>Uke-overlay (ikke koblet til spesifikk time)</p>
                 <ul className="mt-2 space-y-1.5">
-                  {weekOverlayDayAction.subjectUpdates.map((u, idx) => (
+                  {weekOverlayUnplacedUpdates.map((u, idx) => (
                     <li key={`${u.subjectKey}-${idx}`} className="rounded-lg border border-indigo-200 bg-indigo-50/70 px-2.5 py-1.5">
                       <p className="text-[12px] font-semibold text-indigo-950">
                         {u.customLabel ? `${u.customLabel} (${u.subjectKey})` : u.subjectKey}
