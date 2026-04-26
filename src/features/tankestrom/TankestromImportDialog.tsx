@@ -417,11 +417,19 @@ const OVERLAY_PREVIEW_SECTION_ORDER = [
 type OverlayPreviewSectionLabel = (typeof OVERLAY_PREVIEW_SECTION_ORDER)[number]
 
 function overlayPreviewSectionLabel(rawKey: string, line: string): OverlayPreviewSectionLabel {
+  const trimmed = line.trim()
   const k = normOverlayText(rawKey)
   const l = normOverlayText(line)
+  /** Viktig: rå seksjonsnøkkel fra kilden kan være feil (f.eks. «Lekse» på alt) — prioriter tydelig linjestart. */
+  if (/^\s*i\s+timen\s*[:.–—-]/i.test(trimmed)) return 'I timen'
+  if (/^\s*lekse\s*[:.–—-]/i.test(trimmed)) return 'Lekse'
+
   const combined = `${k} ${l}`
 
   if (
+    /\b(lekse|hjemmelekse|hjemmearbeid|hjemme\s*arbeid|innlevering(?!\s*i timen)|forbered(?:else)?\s+til|gjør\s+oppgave|oppgave\s+\d|lage\s+innlevering)\b/.test(
+      l
+    ) ||
     /\b(lekse|hjemmelekse|hjemmearbeid|hjemme\s*arbeid|innlevering(?!\s*i timen)|forbered(?:else)?\s+til|gjør\s+oppgave|oppgave\s+\d|lage\s+innlevering)\b/.test(
       combined
     )
@@ -431,6 +439,9 @@ function overlayPreviewSectionLabel(rawKey: string, line: string): OverlayPrevie
   if (/\b(les\s+(?:kap|kapittel|side|glossar)|les\s+høyt|lese\s+lekse)\b/.test(combined)) return 'Lekse'
 
   if (
+    /\b(i timen|undervisning|arbeid\s+i timen|gjøres\s+i timen|timen:\s*|vi(?:\s+skal)?\s+jobbe|gruppearbeid|klasseromsarbeid|gjennomgang|forelesning|delebøker|stasjons|exit\s*ticket)\b/.test(
+      l
+    ) ||
     /\b(i timen|undervisning|arbeid\s+i timen|gjøres\s+i timen|timen:\s*|vi(?:\s+skal)?\s+jobbe|gruppearbeid|klasseromsarbeid|gjennomgang|forelesning|delebøker|stasjons|exit\s*ticket)\b/.test(
       combined
     )
@@ -493,11 +504,29 @@ function previewSectionsFromSubjectUpdate(
 /** Støy: rene fagnavn uten faktisk innhold (f.eks. «Tysk», «Norsk fordypning»). */
 const OVERLAY_PREVIEW_SUBSTANTIVE_HINT = /\b(lekse|hjemme|innlevering|les\s|lesing|kap\.|kapittel|side\s|s\.\s*\d|prøve|vurdering|test|quiz|muntlig|øving|arbeid|gruppe|video|http|www|lenke|fronter|teams|kl\.?\s*\d|ta med|husk|gjør|oppgave|forbered|timen|undervisning)\b/i
 
+function titleCaseNbWord(word: string): string {
+  const w = word.trim()
+  if (!w) return w
+  return w.charAt(0).toLocaleUpperCase('nb-NO') + w.slice(1)
+}
+
+/** Ren enkeltords fremmedspråk-label (f.eks. «Tysk») uten katalog-treff. */
+function isStandaloneForeignLanguageNoiseLine(line: string): boolean {
+  const nt = normOverlayText(line)
+  if (nt.length < 4 || nt.length > 14) return false
+  if (/\s/.test(nt)) return false
+  for (const { canon } of REVIEW_FOREIGN_LANG_LEXEMES) {
+    if (nt === canon) return true
+  }
+  return false
+}
+
 function isOverlayPreviewSubjectOnlyNoiseLine(line: string, band: NorwegianGradeBand): boolean {
   const t = line.trim()
   if (!t || t.length > 72) return false
   if (/\d/.test(t)) return false
   if (OVERLAY_PREVIEW_SUBSTANTIVE_HINT.test(t)) return false
+  if (isStandaloneForeignLanguageNoiseLine(t)) return true
   const m = matchSubjectFromText(band, t)
   if (!m) return false
   const cat = SUBJECTS_BY_BAND[band].find((s) => s.key === m.subjectKey)
@@ -542,6 +571,72 @@ function previewSectionsForOverlayPreview(
     out[key] = filterOverlayPreviewNoiseLines(out[key], band, noiseStats)
   }
   return out
+}
+
+function isHeldagsproeveSummaryLooselyGeneric(base: string): boolean {
+  const n = normOverlayText(base.replace(/\./g, ''))
+  if (!/\bheldagsprøve\b/.test(n) && !/\bheldags\s*prøve\b/.test(n)) return false
+  if (n.length > 48) return false
+  if (
+    /\b(matematikk|matte|engelsk|norsk|tysk|fransk|spansk|naturfag|krle|rle|samfunnsfag|samfunnskunnskap|historie|geografi|fysikk|kjemi|biologi|kunst|musikk|gym|kroppsøving)\b/i.test(
+      base
+    )
+  ) {
+    return false
+  }
+  return true
+}
+
+function inferSubjectLabelForHeldagsPreview(
+  band: NorwegianGradeBand,
+  scanLines: string[]
+): string | undefined {
+  for (const raw of scanLines) {
+    const t = raw.trim()
+    if (t.length < 4) continue
+    const head = t.split(/[:–—]/)[0]?.trim() ?? ''
+    const parts = head.length >= 3 ? [head] : []
+    if (t.length < 90) parts.push(t)
+    for (const part of parts) {
+      if (part.length < 3) continue
+      const m = matchSubjectFromText(band, part)
+      if (m) {
+        const cat = SUBJECTS_BY_BAND[band].find((s) => s.key === m.subjectKey)
+        return cat?.label ?? m.subjectKey
+      }
+      const inf = inferSubjectKeyFromText(band, part)
+      if (inf) {
+        const cat = SUBJECTS_BY_BAND[band].find((s) => s.key === inf)
+        if (cat) return cat.label
+      }
+    }
+  }
+  for (const raw of scanLines) {
+    if (raw.length > 140) continue
+    for (const { canon, pattern } of REVIEW_FOREIGN_LANG_LEXEMES) {
+      if (pattern.test(raw)) return titleCaseNbWord(canon)
+    }
+  }
+  return undefined
+}
+
+function replaceSchoolBlockDisplaySummary(
+  details: NonNullable<PortalSchoolWeekOverlayProposal['dailyActions'][number]>,
+  mergedFlatLines: string[],
+  band: NorwegianGradeBand
+): string {
+  const base = details.summary?.trim() || details.reason?.trim() || ''
+  if (!base) return ''
+  if (!isHeldagsproeveSummaryLooselyGeneric(base)) return base
+  const extra = overlayDayLines(details)
+  const scan = [...mergedFlatLines, ...extra, base]
+  const subj = inferSubjectLabelForHeldagsPreview(band, scan)
+  if (!subj) return base
+  const show = `${subj} heldagsprøve`
+  if (DEBUG_SCHOOL_IMPORT_PANEL) {
+    console.debug('[overlay preview]', { overlayPreviewSpecialDayTitle: show, replacedGenericSummary: base })
+  }
+  return show
 }
 
 const OVERLAY_MATCH_GENERIC_HINTS = new Set(
@@ -1097,7 +1192,13 @@ function SchoolWeekOverlayReviewCard({
                         for (const key of OVERLAY_PREVIEW_SECTION_ORDER) {
                           mergedSections[key] = dedupeOverlayPreviewLines(mergedSections[key])
                         }
+                        const mergedFlatForTitle = OVERLAY_PREVIEW_SECTION_ORDER.flatMap((k) => mergedSections[k])
                         const summaryText = details.summary?.trim() || details.reason?.trim() || ''
+                        const displaySummary = replaceSchoolBlockDisplaySummary(
+                          details,
+                          mergedFlatForTitle,
+                          previewBand
+                        )
                         if (summaryText) {
                           for (const key of OVERLAY_PREVIEW_SECTION_ORDER) {
                             mergedSections[key] = mergedSections[key].filter(
@@ -1112,9 +1213,9 @@ function SchoolWeekOverlayReviewCard({
                         return (
                           <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50/70 px-2.5 py-2">
                             <p className="text-[11px] font-semibold text-amber-950">Spesialdag (erstatter skoleblokk)</p>
-                            {summaryText ? (
+                            {displaySummary ? (
                               <p className="mt-1 text-[11px] leading-snug text-amber-900/90">
-                                {summaryText}
+                                {displaySummary}
                               </p>
                             ) : null}
                             {OVERLAY_PREVIEW_SECTION_ORDER.map((label) => {
