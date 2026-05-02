@@ -66,13 +66,63 @@ function segmentTitleForDisplay(rawTitle: string): string {
   return core.charAt(0).toLocaleUpperCase('nb-NO') + core.slice(1)
 }
 
-function pickParentTitle(cluster: PortalEventProposal[], dateMin: string, dateMax: string): string {
+/** Fjerner dag-/helg-påsydde traillere («… – fredag», «… – informasjon for helgen») fra parent-tittel. */
+const PARENT_TITLE_TRAILERS: RegExp[] = [
+  /\s*[–—\-:]\s*informasjon for helgen\b.*$/i,
+  /\s*[–—\-:]\s*praktisk info(?:rmation)?\b.*$/i,
+  /\s*[–—\-:]\s*(?:uke|helg)\s+\d+.*$/i,
+  /\s*[–—\-:]\s*(?:mandag|tirsdag|onsdag|torsdag|fredag|lørdag|søndag)\b(?:\s+\d{1,2}\.?(?:\s+[a-zæøå]+)?(?:\s+\d{4})?)?\s*$/i,
+  /\s+[–—\-]\s*(?:fredag|lørdag|søndag)\s*$/i,
+]
+
+/**
+ * Gjør merged parent-tittel container-aktig (samme navn som arrangementet, ikke én dags overskrift).
+ */
+export function normalizeEmbeddedScheduleParentDisplayTitle(raw: string): {
+  title: string
+  wasDayLikeTitle: boolean
+} {
+  const original = raw.trim()
+  if (!original) return { title: raw, wasDayLikeTitle: false }
+
+  let stripped = original
+  let prev = ''
+  while (stripped !== prev) {
+    prev = stripped
+    for (const p of PARENT_TITLE_TRAILERS) {
+      stripped = stripped.replace(p, '').trim()
+    }
+  }
+
+  const core = semanticTitleCore(stripped)
+  const titled =
+    core.length >= 4
+      ? core.charAt(0).toLocaleUpperCase('nb-NO') + core.slice(1)
+      : stripped.length >= 2
+        ? stripped
+        : original
+
+  const wasDayLikeTitle =
+    original !== titled ||
+    PARENT_TITLE_TRAILERS.some((p) => p.test(original)) ||
+    /\s[–—\-]\s*(?:fredag|lørdag|søndag)\b/i.test(original)
+
+  return { title: titled.length >= 2 ? titled : original, wasDayLikeTitle }
+}
+
+function pickParentTitle(
+  cluster: PortalEventProposal[],
+  dateMin: string,
+  dateMax: string
+): { title: string; wasDayLikeTitle: boolean } {
   const withHint = cluster
     .filter((c) => CUP_OR_TOURNAMENT_HINT.test(c.event.title))
     .sort((a, b) => b.confidence - a.confidence)
-  const titled = withHint[0]?.event.title?.trim()
-  if (titled) return titled
-  return `Sportshelg (${dateMin} – ${dateMax})`
+  const rawCandidate = withHint[0]?.event.title?.trim()
+  if (rawCandidate) {
+    return normalizeEmbeddedScheduleParentDisplayTitle(rawCandidate)
+  }
+  return { title: `Sportshelg (${dateMin} – ${dateMax})`, wasDayLikeTitle: false }
 }
 
 function buildSegments(cluster: PortalEventProposal[]): EmbeddedScheduleSegment[] {
@@ -163,7 +213,7 @@ export function applyCupWeekendEmbeddedScheduleMerge(
 
     const dateMin = distinctDates[0]!
     const dateMax = distinctDates[distinctDates.length - 1]!
-    const parentTitle = pickParentTitle(group, dateMin, dateMax)
+    const { title: parentTitle, wasDayLikeTitle: parentWasDayLikeTitle } = pickParentTitle(group, dateMin, dateMax)
     const confidence = Math.max(...group.map((g) => g.confidence))
     const template = group.sort((a, b) => b.confidence - a.confidence)[0]!
     const blockGroupId = newId()
@@ -211,6 +261,10 @@ export function applyCupWeekendEmbeddedScheduleMerge(
           dateMax,
           blockGroupId,
         },
+        embeddedScheduleParentTitleNormalized: parentTitle,
+        embeddedScheduleParentWasDayLikeTitle: parentWasDayLikeTitle,
+        embeddedScheduleParentMetaNormalized: true,
+        embeddedScheduleParentDisplayRange: `${dateMin}…${dateMax}`,
         embeddedScheduleConditionalSegments: conditionalSegments,
         embeddedScheduleTasksPreserved: tasks.length,
       })

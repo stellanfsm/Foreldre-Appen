@@ -1600,6 +1600,52 @@ function formatNorwegianDateLabel(isoDate: string): string {
   }
 }
 
+/** Kompakt datospenn for container-/programhendelser (f.eks. cup-helg). */
+function formatNorwegianDateRangeLabel(isoStart: string, isoEnd: string): string {
+  const s = isoStart.trim()
+  const e = isoEnd.trim()
+  if (s === e) return formatNorwegianDateLabel(s)
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s) || !/^\d{4}-\d{2}-\d{2}$/.test(e)) {
+    return `${isoStart} – ${isoEnd}`
+  }
+  try {
+    const a = new Date(`${s}T12:00:00`)
+    const b = new Date(`${e}T12:00:00`)
+    if (Number.isNaN(a.getTime()) || Number.isNaN(b.getTime())) return `${s} – ${e}`
+    const y1 = a.getFullYear()
+    const y2 = b.getFullYear()
+    const m1 = a.getMonth()
+    const m2 = b.getMonth()
+    const d1 = a.getDate()
+    const d2 = b.getDate()
+    if (y1 === y2 && m1 === m2) {
+      const month = a.toLocaleDateString('nb-NO', { month: 'long' })
+      return `${d1}.–${d2}. ${month} ${y1}`
+    }
+    if (y1 === y2) {
+      const ma = a.toLocaleDateString('nb-NO', { month: 'long' })
+      const mb = b.toLocaleDateString('nb-NO', { month: 'long' })
+      return `${d1}. ${ma} – ${d2}. ${mb} ${y1}`
+    }
+    return `${formatNorwegianDateLabel(s)} – ${formatNorwegianDateLabel(e)}`
+  } catch {
+    return `${s} – ${e}`
+  }
+}
+
+/** Parent med innebygd program (merged cup/turnering) — egen meta-linje i review. */
+function isEmbeddedScheduleParentReviewCard(item: PortalProposalItem, importKind: string): boolean {
+  if (item.kind !== 'event' || importKind !== 'event') return false
+  const m = item.event.metadata
+  if (!m || typeof m !== 'object') return false
+  const sched = (m as { embeddedSchedule?: unknown }).embeddedSchedule
+  return (
+    Array.isArray(sched) &&
+    sched.length > 0 &&
+    (m as { isAllDay?: boolean }).isAllDay === true
+  )
+}
+
 /** Kompakt kildegrunnlag fra API (original), ikke nødvendigvis lik redigert notat. */
 function getSourceContextText(item: PortalEventProposal): string | null {
   const meta = item.event.metadata
@@ -2689,13 +2735,31 @@ export function TankestromImportDialog({
                     return hm.test(ts) && hm.test(te) ? formatTimeRange(ts, te) : ts && te ? `${ts}–${te}` : '—'
                   })()
 
+                  const embeddedScheduleParentCard = isEmbeddedScheduleParentReviewCard(item, u.importKind)
+                  const embeddedScheduleLen =
+                    item.kind === 'event' && Array.isArray(item.event.metadata?.embeddedSchedule)
+                      ? item.event.metadata.embeddedSchedule.length
+                      : 0
+                  const embeddedEndDate =
+                    item.kind === 'event' && typeof item.event.metadata?.endDate === 'string'
+                      ? item.event.metadata.endDate
+                      : u.importKind === 'event'
+                        ? u.event.date
+                        : ''
+
                   const summaryMetaLine =
                     u.importKind === 'event'
-                      ? `${formatNorwegianDateLabel(u.event.date)} · ${eventTimeSummary}${
-                          people.find((p) => p.id === u.event.personId)?.name
-                            ? ` · ${people.find((p) => p.id === u.event.personId)?.name}`
-                            : ''
-                        }`
+                      ? embeddedScheduleParentCard
+                        ? `${formatNorwegianDateRangeLabel(u.event.date, embeddedEndDate || u.event.date)} · Hele dagen · Program: ${embeddedScheduleLen} punkter${
+                            people.find((p) => p.id === u.event.personId)?.name
+                              ? ` · ${people.find((p) => p.id === u.event.personId)?.name}`
+                              : ''
+                          }`
+                        : `${formatNorwegianDateLabel(u.event.date)} · ${eventTimeSummary}${
+                            people.find((p) => p.id === u.event.personId)?.name
+                              ? ` · ${people.find((p) => p.id === u.event.personId)?.name}`
+                              : ''
+                          }`
                       : `${formatNorwegianDateLabel(u.task.date)}${
                           u.task.dueTime.trim() ? ` · Frist ${u.task.dueTime.trim()}` : ''
                         }${
@@ -2748,7 +2812,8 @@ export function TankestromImportDialog({
                           </p>
                           {item.kind === 'event' &&
                           Array.isArray(item.event.metadata?.embeddedSchedule) &&
-                          item.event.metadata.embeddedSchedule.length > 0 ? (
+                          item.event.metadata.embeddedSchedule.length > 0 &&
+                          !embeddedScheduleParentCard ? (
                             <p className="mt-0.5 text-[10px] font-medium text-brandNavy sm:text-[11px]">
                               Program: {item.event.metadata.embeddedSchedule.length} punkter (vises i hendelsesdetaljer)
                             </p>

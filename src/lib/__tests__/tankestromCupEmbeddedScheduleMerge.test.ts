@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import type { PortalEventProposal, PortalProposalItem, PortalTaskProposal } from '../../features/tankestrom/types'
-import { applyCupWeekendEmbeddedScheduleMerge } from '../tankestromCupEmbeddedScheduleMerge'
+import {
+  applyCupWeekendEmbeddedScheduleMerge,
+  normalizeEmbeddedScheduleParentDisplayTitle,
+} from '../tankestromCupEmbeddedScheduleMerge'
 
 function ev(
   id: string,
@@ -30,6 +33,18 @@ function task(id: string, date: string, title: string): PortalTaskProposal {
     task: { date, title, notes: '', childPersonId: 'child-1', assignedToPersonId: '', dueTime: '' },
   }
 }
+
+describe('normalizeEmbeddedScheduleParentDisplayTitle', () => {
+  it('fjerner «informasjon for helgen» og ukedag fra parent-tittel', () => {
+    const { title, wasDayLikeTitle } = normalizeEmbeddedScheduleParentDisplayTitle(
+      'Vårcupen 2026 – informasjon for helgen – fredag'
+    )
+    expect(wasDayLikeTitle).toBe(true)
+    expect(title.toLowerCase()).toContain('vårcupen')
+    expect(title).not.toMatch(/fredag/i)
+    expect(title.toLowerCase()).not.toContain('informasjon for helgen')
+  })
+})
 
 describe('applyCupWeekendEmbeddedScheduleMerge', () => {
   it('slår sammen tre helge-eventer med cup-signal til ett parent med embeddedSchedule', () => {
