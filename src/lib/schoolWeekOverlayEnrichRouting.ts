@@ -395,9 +395,19 @@ export function isClientOverlayAdminLine(line: string): boolean {
   return CLIENT_OVERLAY_ADMIN_LINE_RES.some((re) => re.test(line))
 }
 
+/** Sterkt tyskprøve-/Tysk-time-signal (samme mønster i scoring og seksjonsvalg). */
+const CLIENT_ORPHAN_STRONG_TYSK_PHRASE =
+  /\b(tyskprøve|tyskprøven|tysk\s*prøve|til\s+tyskprøven?|skriftlig\s+tyskprøven?|skriftlig\s+tysk)\b/
+
+export function clientOrphanLineHasStrongTyskProveSignal(line: string): boolean {
+  return CLIENT_ORPHAN_STRONG_TYSK_PHRASE.test(normOverlayText(line))
+}
+
 /**
  * Timer som kan motta tysk-overlay. Ved nøyaktig én «naken» fremmedspråk-time (uten språk-label)
  * kan den brukes kun når linjen har sterkt tysk-signal (score ≥ 10), se `tryClientOrphanLineToLessonIndex`.
+ *
+ * Ved flere treff (f.eks. både `tysk` og `fremmedspråk` merket Tysk): foretrekk én time med `subjectKey === 'tysk'`.
  */
 function lessonIndicesForTyskIntent(
   lessons: SchoolLessonSlot[],
@@ -414,7 +424,11 @@ function lessonIndicesForTyskIntent(
       else unlabeledFrem.push(i)
     }
   }
-  const uniq = [...new Set(explicit)]
+  let uniq = [...new Set(explicit)]
+  if (uniq.length > 1) {
+    const onlyTyskKey = uniq.filter((i) => lessons[i]!.subjectKey === 'tysk')
+    if (onlyTyskKey.length === 1) uniq = onlyTyskKey
+  }
   if (uniq.length === 1) return uniq
   if (uniq.length > 1) return uniq
   if (opts.allowSingleUnlabeledFremmedspråk && unlabeledFrem.length === 1) return [unlabeledFrem[0]!]
@@ -434,13 +448,30 @@ function clientOrphanSignalScores(n: string): { tysk: number; samf: number } {
   let tysk = 0
   let samf = 0
   const strongTyskPhrase =
-    /\b(tyskprøve|tyskprøven|tysk\s*prøve|skriftlig\s+tysk|til\s+tyskprøven?)\b/.test(n) ||
+    CLIENT_ORPHAN_STRONG_TYSK_PHRASE.test(n) ||
     (/\b(ha\s+med|ta\s+med|husk(?:\s+å)?)\b/.test(n) && /\b(tyskprøve|tyskprøven)\b/.test(n))
   if (strongTyskPhrase) tysk = 10
   else if (/\btysk\b/.test(n) && /\b(prøve|skriftlig|muntlig|blyant|viskelær)\b/.test(n)) tysk = 6
   if (/mars-?bad|badetøy|håndkle/.test(n)) samf = 10
   else if (/\bspråktimen\b|møt\s+presis\b/.test(n)) samf = 5
   return { tysk, samf }
+}
+
+/**
+ * Velg hensiktsmessig seksjon under Tysk for klient-flyttede orphan-linjer (lagring + routing).
+ * Bruker samme nøkler som `BackgroundDetailSheet` / overlay-modellen (`proveVurdering`, `huskTaMed`).
+ * Preview mapper disse til «Prøve / vurdering» / «Ta med».
+ */
+export function clientOrphanTargetSectionKeyForTyskLine(line: string, fallbackSectionKey: string): string {
+  const n = normOverlayText(line)
+  if (!CLIENT_ORPHAN_STRONG_TYSK_PHRASE.test(n)) return fallbackSectionKey
+  const taMedLead = /\b(ha\s+med|ta\s+med|husk(?:\s+å)?)\b/.test(n)
+  const tyskProveToken =
+    /\b(tyskprøve|tyskprøven|tysk\s*prøve|til\s+tyskprøven?|skriftlig\s+tyskprøven?)\b/.test(n) ||
+    /\bskriftlig\s+tysk\b/.test(n)
+  if (taMedLead && tyskProveToken) return 'huskTaMed'
+  if (tyskProveToken) return 'proveVurdering'
+  return fallbackSectionKey
 }
 
 /**
@@ -534,7 +565,11 @@ export function applyClientOrphanFallbackToSubjectUpdates(
     }
     const hit = tryClientOrphanLineToLessonIndex(line, band, lessons)
     if (hit) {
-      addToLesson(hit.idx, sectionKey, line)
+      const targetSectionKey =
+        hit.reason.startsWith('client_signal_tysk')
+          ? clientOrphanTargetSectionKeyForTyskLine(line, sectionKey)
+          : sectionKey
+      addToLesson(hit.idx, targetSectionKey, line)
       assignmentLog.push({ line, outcome: 'assigned', idx: hit.idx, reason: hit.reason })
     } else {
       pushRemaining(sectionKey, line)
@@ -585,6 +620,13 @@ export function applyClientOrphanFallbackToSubjectUpdates(
         (/\b(ha med|ta med|husk(?:\s+å)?)\b/i.test(a.line) ||
           /\btyskprøve|tyskprøven|til\s+tyskprøv/i.test(a.line))
     )
+    const tyskProveBefore = orphanLinesBefore.filter(({ line: ln }) => clientOrphanLineHasStrongTyskProveSignal(ln))
+    const tyskProveAssigned = assignmentLog.filter(
+      (a) =>
+        a.outcome === 'assigned' &&
+        a.reason?.startsWith('client_signal_tysk') &&
+        clientOrphanLineHasStrongTyskProveSignal(a.line)
+    )
     console.debug('[overlay client orphan fallback]', {
       overlayClientOrphanLinesBeforeAssignment: orphanLinesBefore.length,
       overlayClientOrphanLineAssignedToSubject: assigned,
@@ -596,6 +638,9 @@ export function applyClientOrphanFallbackToSubjectUpdates(
       overlayClientOrphanTaMedBeforeAssignment: taMedLikeBefore.length,
       overlayClientOrphanTaMedAssignedToSubject: taMedAssigned.length,
       overlayClientOrphanTaMedAssignmentReason: taMedAssigned,
+      overlayClientOrphanTyskProveBeforeAssignment: tyskProveBefore.length,
+      overlayClientOrphanTyskProveAssignedToSubject: tyskProveAssigned.length,
+      overlayClientOrphanTyskProveAssignmentReason: tyskProveAssigned,
     })
   }
 

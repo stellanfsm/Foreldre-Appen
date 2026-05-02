@@ -46,6 +46,8 @@ import {
   SUBJECTS_BY_BAND,
 } from '../../data/norwegianSubjects'
 import {
+  clientOrphanLineHasStrongTyskProveSignal,
+  clientOrphanTargetSectionKeyForTyskLine,
   isClientOverlayAdminLine,
   resolveEnrichPreviewLineToBlockIdx,
   stripSubjectPrefixForBlockLine,
@@ -1205,7 +1207,21 @@ function SchoolWeekOverlayReviewCard({
                       )
                       let overlayClientOrphanLineAssignedToSubject = 0
                       let overlayClientOrphanTaMedAssignedToSubject = 0
+                      let overlayClientOrphanTyskProveBeforeAssignment = 0
+                      let overlayClientOrphanTyskProveAssignedToSubject = 0
+                      const overlayClientOrphanTyskProveAssignmentReason: Array<{
+                        line: string
+                        reason?: string
+                      }> = []
                       if (baseLessons.length > 0 && details.action === 'enrich_existing_school_block') {
+                        for (const key of OVERLAY_PREVIEW_SECTION_ORDER) {
+                          for (const line of unplaced[key]) {
+                            const t = line.trim()
+                            if (t && !isClientOverlayAdminLine(t) && clientOrphanLineHasStrongTyskProveSignal(t)) {
+                              overlayClientOrphanTyskProveBeforeAssignment++
+                            }
+                          }
+                        }
                         for (const key of OVERLAY_PREVIEW_SECTION_ORDER) {
                           const nextUnplaced: string[] = []
                           const skNorm = normOverlayText(key)
@@ -1227,9 +1243,24 @@ function SchoolWeekOverlayReviewCard({
                               ) {
                                 finalSection = 'I timen'
                               }
+                              if (hit.reason.startsWith('client_signal_tysk')) {
+                                const mapped = clientOrphanTargetSectionKeyForTyskLine(finalLine, finalSection)
+                                if (mapped === 'huskTaMed') finalSection = 'Ta med'
+                                else if (mapped === 'proveVurdering') finalSection = 'Prøve / vurdering'
+                              }
                               if (!isTautologicalOverlayPreviewLine(finalLine, finalSection)) {
                                 blocks[hit.idx]!.sections[finalSection].push(finalLine)
                                 overlayClientOrphanLineAssignedToSubject++
+                                if (
+                                  hit.reason.startsWith('client_signal_tysk') &&
+                                  clientOrphanLineHasStrongTyskProveSignal(t)
+                                ) {
+                                  overlayClientOrphanTyskProveAssignedToSubject++
+                                  overlayClientOrphanTyskProveAssignmentReason.push({
+                                    line: t,
+                                    reason: hit.reason,
+                                  })
+                                }
                                 if (
                                   isTaMedSection ||
                                   /\b(ha med|ta med|husk(?:\s+å)?)\b/i.test(t) ||
@@ -1272,6 +1303,9 @@ function SchoolWeekOverlayReviewCard({
                           overlayClientOrphanLineAssignedToSubject,
                           overlayClientOrphanTaMedBeforeAssignment,
                           overlayClientOrphanTaMedAssignedToSubject,
+                          overlayClientOrphanTyskProveBeforeAssignment,
+                          overlayClientOrphanTyskProveAssignedToSubject,
+                          overlayClientOrphanTyskProveAssignmentReason,
                           overlayClientUnplacedLinesRemaining: OVERLAY_PREVIEW_SECTION_ORDER.reduce(
                             (n, key) => n + unplaced[key].length,
                             0

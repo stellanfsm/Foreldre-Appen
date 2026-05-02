@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { SchoolLessonSlot, SchoolWeekOverlaySubjectUpdate } from '../../types'
 import {
   applyClientOrphanFallbackToSubjectUpdates,
+  clientOrphanTargetSectionKeyForTyskLine,
   tryClientOrphanLineToLessonIndex,
 } from '../schoolWeekOverlayEnrichRouting'
 
@@ -32,6 +33,20 @@ describe('tryClientOrphanLineToLessonIndex', () => {
 
   it('returnerer null når signalet mangler', () => {
     expect(tryClientOrphanLineToLessonIndex('Generell beskjed uten fag', BAND, L)).toBeNull()
+  })
+
+  it('flytter ikke tvetydige språk-linjer uten tyskprøve-signal', () => {
+    expect(tryClientOrphanLineToLessonIndex('lære å snakke om yrker', BAND, L)).toBeNull()
+  })
+
+  it('velger tysk (subjectKey) når både tysk-time og fremmedspråk merket Tysk finnes', () => {
+    const lessons: SchoolLessonSlot[] = [
+      { subjectKey: 'samfunnsfag', start: '09:55', end: '10:40' },
+      { subjectKey: 'tysk', start: '10:45', end: '11:30' },
+      { subjectKey: 'fremmedspråk', start: '11:35', end: '12:20', customLabel: 'Tysk' },
+    ]
+    expect(tryClientOrphanLineToLessonIndex('Skriftlig tyskprøve.', BAND, lessons)?.idx).toBe(1)
+    expect(tryClientOrphanLineToLessonIndex('Ha med blyant til tyskprøven', BAND, lessons)?.idx).toBe(1)
   })
 
   it('treffer én «naken» fremmedspråk-time ved sterkt tysk-signal', () => {
@@ -70,8 +85,13 @@ describe('applyClientOrphanFallbackToSubjectUpdates', () => {
     const samf = out.find((u) => u.subjectKey === 'samfunnsfag')
     const tysk = out.find((u) => u.subjectKey === 'tysk')
     expect(samf?.sections?.iTimen?.some((l) => l.includes('mars-bad'))).toBe(true)
-    expect(tysk?.sections?.iTimen?.some((l) => l.includes('tyskprøve'))).toBe(true)
+    expect(tysk?.sections?.proveVurdering?.some((l) => l.includes('tyskprøve'))).toBe(true)
     expect(tysk?.sections?.huskTaMed?.some((l) => l.includes('blyant'))).toBe(true)
+  })
+
+  it('mapper tyskprøve-linjer til proveVurdering og huskTaMed', () => {
+    expect(clientOrphanTargetSectionKeyForTyskLine('Skriftlig tyskprøve.', 'iTimen')).toBe('proveVurdering')
+    expect(clientOrphanTargetSectionKeyForTyskLine('Ha med blyant til tyskprøven', 'iTimen')).toBe('huskTaMed')
   })
 
   it('dropper admintekst fra other', () => {
