@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ChildSchoolProfile, Event, Person, SchoolWeekOverlay, Task, WeekdayMonFri } from '../../types'
 import { filterSubjectUpdatesByLanguageTrack } from '../../lib/schoolWeekOverlayFilters'
+import { dedupeNearDuplicateCalendarProposals } from '../../lib/tankestromImportDedupe'
 import { redistributeEnrichSubjectUpdatesForDay } from '../../lib/schoolWeekOverlayEnrichRouting'
 import type {
   PortalEventProposal,
@@ -1035,8 +1036,8 @@ export function useTankestromImport({
     try {
       if (inputMode === 'text') {
         const b = await analyzeTextWithTankestrom(textInput)
-        setBundle(b)
         if (isSchoolProfileBundle(b)) {
+          setBundle(b)
           const schoolItems = b.items.filter((i): i is PortalSchoolProfileProposal => i.kind === 'school_profile')
           const primary = schoolItems[0]!
           const childIds = people.filter((p) => p.memberKind === 'child').map((p) => p.id)
@@ -1075,9 +1076,11 @@ export function useTankestromImport({
         setSchoolProfileChildId(importChildId)
         const defaultPersonId = people[0]?.id ?? ''
         const sourceHint = humanImportSourceLabelForBundle(b)
-        const drafts = buildDraftsFromItems(b.items, validPersonIds, defaultPersonId, people, sourceHint)
+        const items = dedupeNearDuplicateCalendarProposals(b.items)
+        setBundle({ ...b, items })
+        const drafts = buildDraftsFromItems(items, validPersonIds, defaultPersonId, people, sourceHint)
         setDraftByProposalId(drafts)
-        setSelectedIds(initialSelectedIdsForGeneralImport(b.items, drafts, people, importChildId))
+        setSelectedIds(initialSelectedIdsForGeneralImport(items, drafts, people, importChildId))
         prevSchoolChildForLangAdjustRef.current = null
         setStep('review')
         return
@@ -1142,8 +1145,8 @@ export function useTankestromImport({
         })
       }
 
-      setBundle(merged)
       if (isSchoolProfileBundle(merged)) {
+        setBundle(merged)
         const schoolItems = merged.items.filter((i): i is PortalSchoolProfileProposal => i.kind === 'school_profile')
         const primary = schoolItems[0]!
         const childIds = people.filter((p) => p.memberKind === 'child').map((p) => p.id)
@@ -1189,9 +1192,11 @@ export function useTankestromImport({
       setSchoolProfileChildId(importChildId)
       const defaultPersonId = people[0]?.id ?? ''
       const sourceHint = humanImportSourceLabelForBundle(merged)
-      const drafts = buildDraftsFromItems(merged.items, validPersonIds, defaultPersonId, people, sourceHint)
+      const items = dedupeNearDuplicateCalendarProposals(merged.items)
+      setBundle({ ...merged, items })
+      const drafts = buildDraftsFromItems(items, validPersonIds, defaultPersonId, people, sourceHint)
       setDraftByProposalId(drafts)
-      setSelectedIds(initialSelectedIdsForGeneralImport(merged.items, drafts, people, importChildId))
+      setSelectedIds(initialSelectedIdsForGeneralImport(items, drafts, people, importChildId))
       prevSchoolChildForLangAdjustRef.current = null
       setStep('review')
 

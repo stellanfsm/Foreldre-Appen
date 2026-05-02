@@ -99,10 +99,21 @@ function confidenceBadgeCompactStyle(confidence: number): { label: string; class
 }
 
 function notesPreviewSnippet(notes: string, maxChars = 140): string {
-  const t = notes.replace(/\s+/g, ' ').trim()
+  let raw = notes.replace(/\r\n/g, '\n').trim()
+  if (!raw) return ''
+  const lines = raw.split('\n').map((l) => l.trim()).filter(Boolean)
+  if (lines.length > 0 && /^fra:\s*/i.test(lines[0] ?? '')) {
+    raw = lines.slice(1).join('\n').trim()
+  }
+  const t = raw.replace(/\s+/g, ' ').trim()
   if (!t) return ''
   if (t.length <= maxChars) return t
   return `${t.slice(0, Math.max(0, maxChars - 1))}…`
+}
+
+function isGenericCollapsedSourceTypeLabel(s: string): boolean {
+  const t = s.trim().toLowerCase()
+  return t === '' || t === 'text' || t === 'plain' || t === 'plaintext'
 }
 
 /** Ukedager (0=man … 6=søn). */
@@ -2702,22 +2713,22 @@ export function TankestromImportDialog({
                           : 'border-zinc-200 bg-zinc-50/90 opacity-[0.88]'
                       }`}
                     >
-                      <div className="flex items-start gap-2 border-b border-zinc-100/80 px-2.5 py-2 sm:gap-3 sm:px-4 sm:py-2.5">
+                      <div className="flex items-start gap-1.5 border-b border-zinc-100/80 px-2 py-1.5 sm:gap-3 sm:px-4 sm:py-2.5">
                         <input
                           type="checkbox"
-                          className="mt-1 h-[18px] w-[18px] shrink-0 rounded border-zinc-300 text-brandTeal focus:ring-brandTeal/30 sm:mt-1.5"
+                          className="mt-0.5 h-4 w-4 shrink-0 rounded border-zinc-300 text-brandTeal focus:ring-brandTeal/30 sm:mt-1 sm:h-[18px] sm:w-[18px]"
                           checked={checked}
                           onChange={() => toggleProposal(pid)}
                           aria-label={`Velg forslag: ${cardTitle}`}
                         />
                         <div className="min-w-0 flex-1">
-                          <div className="flex items-start justify-between gap-2">
-                            <p className="min-w-0 text-[14px] font-semibold leading-snug text-zinc-900 sm:text-[15px]">
+                          <div className="flex items-start gap-1.5">
+                            <p className="min-w-0 flex-1 text-[13px] font-semibold leading-tight text-zinc-900 sm:text-[15px] sm:leading-snug">
                               <span className="line-clamp-2">{cardTitle}</span>
                             </p>
-                            <div className="flex shrink-0 flex-col items-end gap-1">
+                            <div className="flex shrink-0 items-center gap-1">
                               <span
-                                className={`inline-flex rounded-full border px-1.5 py-0.5 text-[10px] font-semibold tabular-nums ${compactConf.className}`}
+                                className={`inline-flex rounded border px-1 py-px text-[9px] font-semibold tabular-nums sm:rounded-full sm:px-1.5 sm:py-0.5 sm:text-[10px] ${compactConf.className}`}
                                 title={badge.label}
                               >
                                 {compactConf.label}
@@ -2725,27 +2736,35 @@ export function TankestromImportDialog({
                               <button
                                 type="button"
                                 onClick={() => toggleReviewCardEditor(pid)}
-                                className="text-[11px] font-semibold text-brandNavy underline decoration-brandNavy/25 underline-offset-2"
+                                className="rounded px-1 py-0.5 text-[9px] font-semibold text-brandNavy hover:bg-brandSky/30 sm:text-[11px]"
                                 aria-expanded={editorOpen}
                               >
                                 {editorOpen ? 'Skjul' : 'Rediger'}
                               </button>
                             </div>
                           </div>
-                          <p className="mt-1 text-[11px] leading-snug text-zinc-600">{summaryMetaLine}</p>
+                          <p className="mt-0.5 text-[10px] leading-snug text-zinc-600 sm:mt-1 sm:text-[11px]">
+                            {summaryMetaLine}
+                          </p>
                           {!editorOpen && notesPrev ? (
-                            <p className="mt-1 line-clamp-2 text-[11px] leading-snug text-zinc-500">{notesPrev}</p>
+                            <p className="mt-0.5 line-clamp-2 text-[10px] leading-snug text-zinc-500 sm:text-[11px]">
+                              {notesPrev}
+                            </p>
                           ) : null}
-                          <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1">
-                            <span className="text-[9px] font-medium uppercase tracking-wide text-zinc-400">
-                              {item.originalSourceType}
-                            </span>
+                          <div className="mt-0.5 flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
+                            {(editorOpen || !isGenericCollapsedSourceTypeLabel(item.originalSourceType)) && (
+                              <span className="text-[8px] font-medium uppercase tracking-wide text-zinc-400 sm:text-[9px]">
+                                {item.originalSourceType}
+                              </span>
+                            )}
                             {schoolWeekOverlayProposal && item.kind === 'task' ? (
-                              <span className="text-[9px] font-medium text-zinc-500 normal-case">· Samme plan</span>
+                              <span className="text-[8px] font-medium text-zinc-500 normal-case sm:text-[9px]">
+                                · Plan
+                              </span>
                             ) : null}
                             {schoolCtx ? (
                               <span
-                                className={`max-w-[11rem] truncate rounded-full border px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide sm:max-w-none ${schoolItemTypeChipClass(schoolCtx.itemType)}`}
+                                className={`max-w-[10rem] truncate rounded border px-1 py-px text-[8px] font-semibold uppercase tracking-wide sm:max-w-none sm:rounded-full sm:px-1.5 sm:text-[9px] ${schoolItemTypeChipClass(schoolCtx.itemType)}`}
                                 title="Kobles til skoleblokk ved import"
                               >
                                 {schoolCtxSubjectLabel ? (
@@ -2759,30 +2778,32 @@ export function TankestromImportDialog({
                               </span>
                             ) : null}
                           </div>
-                          {checked ? (
-                            <p className="mt-1 text-[10px] font-medium text-brandNavy/90">Valgt for import</p>
-                          ) : (
-                            <p className="mt-1 text-[10px] text-zinc-500">Huk av for å importere</p>
-                          )}
+                          {!checked ? (
+                            <p className="mt-0.5 text-[9px] text-zinc-500 sm:text-[10px]">Ikke valgt</p>
+                          ) : null}
                           {taskLangMismatch ? (
-                            <p className="mt-1 text-[10px] leading-snug text-amber-800">
-                              Annen språktrack — ikke standardvalg.
+                            <p className="mt-0.5 text-[9px] leading-snug text-amber-800 sm:text-[10px]">
+                              Annen språktrack.
                             </p>
                           ) : null}
                           {!editorOpen && checked && hasFieldErrors ? (
-                            <p className="mt-1 text-[11px] font-medium text-rose-600" role="alert">
-                              Mangler felt — trykk Rediger
+                            <p className="mt-0.5 text-[10px] font-medium text-rose-600 sm:text-[11px]" role="alert">
+                              Mangler felt — Rediger
                             </p>
                           ) : null}
-                          <div className="mt-2 flex flex-wrap gap-1.5">
+                          <div
+                            className="mt-1 inline-flex rounded-md border border-zinc-200/90 bg-zinc-50/80 p-0.5 sm:mt-1.5"
+                            role="group"
+                            aria-label="Importer som"
+                          >
                             <button
                               type="button"
                               disabled={disabled}
                               onClick={() => setProposalImportKind(pid, 'event')}
-                              className={`rounded-full px-2 py-0.5 text-[10px] font-semibold transition sm:px-2.5 sm:py-1 sm:text-[11px] ${
+                              className={`rounded px-1.5 py-0.5 text-[9px] font-semibold transition sm:px-2 sm:text-[11px] ${
                                 u.importKind === 'event'
-                                  ? 'bg-brandNavy text-white'
-                                  : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200'
+                                  ? 'bg-brandNavy text-white shadow-sm'
+                                  : 'text-zinc-600 hover:bg-zinc-100'
                               }`}
                             >
                               Hendelse
@@ -2791,10 +2812,10 @@ export function TankestromImportDialog({
                               type="button"
                               disabled={disabled}
                               onClick={() => setProposalImportKind(pid, 'task')}
-                              className={`rounded-full px-2 py-0.5 text-[10px] font-semibold transition sm:px-2.5 sm:py-1 sm:text-[11px] ${
+                              className={`rounded px-1.5 py-0.5 text-[9px] font-semibold transition sm:px-2 sm:text-[11px] ${
                                 u.importKind === 'task'
-                                  ? 'bg-brandNavy text-white'
-                                  : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200'
+                                  ? 'bg-brandNavy text-white shadow-sm'
+                                  : 'text-zinc-600 hover:bg-zinc-100'
                               }`}
                             >
                               Gjøremål
