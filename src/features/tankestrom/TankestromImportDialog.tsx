@@ -86,6 +86,25 @@ function confidenceBadgeStyle(confidence: number): { label: string; className: s
   }
 }
 
+/** Kortere chip i kompakt kort-header (mobilvennlig skanning). */
+function confidenceBadgeCompactStyle(confidence: number): { label: string; className: string } {
+  const pct = Math.round(confidence * 100)
+  if (confidence >= 0.85) {
+    return { label: `${pct}%`, className: 'border-emerald-200/80 bg-emerald-50/90 text-emerald-900' }
+  }
+  if (confidence >= 0.55) {
+    return { label: `${pct}%`, className: 'border-amber-200/80 bg-amber-50/90 text-amber-950' }
+  }
+  return { label: 'Sjekk', className: 'border-zinc-300 bg-zinc-100 text-zinc-800' }
+}
+
+function notesPreviewSnippet(notes: string, maxChars = 140): string {
+  const t = notes.replace(/\s+/g, ' ').trim()
+  if (!t) return ''
+  if (t.length <= maxChars) return t
+  return `${t.slice(0, Math.max(0, maxChars - 1))}…`
+}
+
 /** Ukedager (0=man … 6=søn). */
 const WD_LABEL_NB: Record<number, string> = {
   0: 'Mandag',
@@ -1766,6 +1785,17 @@ export function TankestromImportDialog({
     })
   }, [])
 
+  /** Full redigering for importkort — standard sammenslått for rask oversikt (særlig mobil). */
+  const [reviewCardEditorOpen, setReviewCardEditorOpen] = useState<Set<string>>(() => new Set())
+  const toggleReviewCardEditor = useCallback((proposalId: string) => {
+    setReviewCardEditorOpen((prev) => {
+      const next = new Set(prev)
+      if (next.has(proposalId)) next.delete(proposalId)
+      else next.add(proposalId)
+      return next
+    })
+  }, [])
+
   const reviewSelectionStats = useMemo(() => {
     const total = calendarProposalItems.length
     const selected = selectedIds.size
@@ -1791,6 +1821,7 @@ export function TankestromImportDialog({
     if (!open) {
       setExpandedSourceIds(new Set())
       setExpandedDetailIds(new Set())
+      setReviewCardEditorOpen(new Set())
     }
   }, [open])
 
@@ -2586,7 +2617,7 @@ export function TankestromImportDialog({
                 ) : null}
               </div>
 
-              <ul className="space-y-4">
+              <ul className="space-y-2 sm:space-y-4">
                 {calendarProposalItems.map((item) => {
                   const u = draftByProposalId[item.proposalId]
                   if (!u) return null
@@ -2630,64 +2661,117 @@ export function TankestromImportDialog({
                       overlayReviewLanguageTrack
                     )
 
+                  const editorOpen = reviewCardEditorOpen.has(pid)
+                  const compactConf = confidenceBadgeCompactStyle(item.confidence)
+                  const notesRaw = u.importKind === 'event' ? u.event.notes : u.task.notes
+                  const notesPrev = notesPreviewSnippet(notesRaw, 130)
+                  const hasFieldErrors =
+                    u.importKind === 'event'
+                      ? Object.keys(eventFieldErrors).length > 0
+                      : Object.keys(taskFieldErrors).length > 0
+
+                  const eventTimeSummary = (() => {
+                    if (u.importKind !== 'event') return ''
+                    const ts = u.event.start.length > 5 ? u.event.start.slice(0, 5) : u.event.start
+                    const te = u.event.end.length > 5 ? u.event.end.slice(0, 5) : u.event.end
+                    const hm = /^([01]\d|2[0-3]):[0-5]\d$/
+                    return hm.test(ts) && hm.test(te) ? formatTimeRange(ts, te) : ts && te ? `${ts}–${te}` : '—'
+                  })()
+
+                  const summaryMetaLine =
+                    u.importKind === 'event'
+                      ? `${formatNorwegianDateLabel(u.event.date)} · ${eventTimeSummary}${
+                          people.find((p) => p.id === u.event.personId)?.name
+                            ? ` · ${people.find((p) => p.id === u.event.personId)?.name}`
+                            : ''
+                        }`
+                      : `${formatNorwegianDateLabel(u.task.date)}${
+                          u.task.dueTime.trim() ? ` · Frist ${u.task.dueTime.trim()}` : ''
+                        }${
+                          u.task.childPersonId && people.find((p) => p.id === u.task.childPersonId)?.name
+                            ? ` · ${people.find((p) => p.id === u.task.childPersonId)?.name}`
+                            : ''
+                        }`
+
                   return (
                     <li
                       key={pid}
-                      className={`overflow-hidden rounded-2xl border-2 transition-colors ${
+                      className={`overflow-hidden rounded-xl border-2 transition-colors sm:rounded-2xl ${
                         checked
                           ? 'border-brandTeal/50 bg-white shadow-planner-sm ring-1 ring-brandTeal/10'
                           : 'border-zinc-200 bg-zinc-50/90 opacity-[0.88]'
                       }`}
                     >
-                      <div className="flex items-start gap-3 border-b border-zinc-100/80 px-3 py-2.5 sm:px-4">
+                      <div className="flex items-start gap-2 border-b border-zinc-100/80 px-2.5 py-2 sm:gap-3 sm:px-4 sm:py-2.5">
                         <input
                           type="checkbox"
-                          className="mt-1.5 h-[18px] w-[18px] shrink-0 rounded border-zinc-300 text-brandTeal focus:ring-brandTeal/30"
+                          className="mt-1 h-[18px] w-[18px] shrink-0 rounded border-zinc-300 text-brandTeal focus:ring-brandTeal/30 sm:mt-1.5"
                           checked={checked}
                           onChange={() => toggleProposal(pid)}
                           aria-label={`Velg forslag: ${cardTitle}`}
                         />
                         <div className="min-w-0 flex-1">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <span
-                              className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold ${badge.className}`}
-                            >
-                              {badge.label}
-                            </span>
-                            <span className="text-[10px] font-medium uppercase tracking-wide text-zinc-400">
+                          <div className="flex items-start justify-between gap-2">
+                            <p className="min-w-0 text-[14px] font-semibold leading-snug text-zinc-900 sm:text-[15px]">
+                              <span className="line-clamp-2">{cardTitle}</span>
+                            </p>
+                            <div className="flex shrink-0 flex-col items-end gap-1">
+                              <span
+                                className={`inline-flex rounded-full border px-1.5 py-0.5 text-[10px] font-semibold tabular-nums ${compactConf.className}`}
+                                title={badge.label}
+                              >
+                                {compactConf.label}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => toggleReviewCardEditor(pid)}
+                                className="text-[11px] font-semibold text-brandNavy underline decoration-brandNavy/25 underline-offset-2"
+                                aria-expanded={editorOpen}
+                              >
+                                {editorOpen ? 'Skjul' : 'Rediger'}
+                              </button>
+                            </div>
+                          </div>
+                          <p className="mt-1 text-[11px] leading-snug text-zinc-600">{summaryMetaLine}</p>
+                          {!editorOpen && notesPrev ? (
+                            <p className="mt-1 line-clamp-2 text-[11px] leading-snug text-zinc-500">{notesPrev}</p>
+                          ) : null}
+                          <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1">
+                            <span className="text-[9px] font-medium uppercase tracking-wide text-zinc-400">
                               {item.originalSourceType}
                             </span>
                             {schoolWeekOverlayProposal && item.kind === 'task' ? (
-                              <span
-                                className="text-[10px] font-medium tracking-wide text-zinc-500 normal-case"
-                                title="Gjøremål hentet fra samme A-plan som uke-overlay over"
-                              >
-                                · Fra samme plan
-                              </span>
+                              <span className="text-[9px] font-medium text-zinc-500 normal-case">· Samme plan</span>
                             ) : null}
                             {schoolCtx ? (
                               <span
-                                className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${schoolItemTypeChipClass(schoolCtx.itemType)}`}
+                                className={`max-w-[11rem] truncate rounded-full border px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide sm:max-w-none ${schoolItemTypeChipClass(schoolCtx.itemType)}`}
                                 title="Kobles til skoleblokk ved import"
                               >
                                 {schoolCtxSubjectLabel ? (
-                                  <span className="normal-case tracking-normal">
-                                    {schoolCtxSubjectLabel}
-                                  </span>
+                                  <span className="normal-case tracking-normal">{schoolCtxSubjectLabel}</span>
                                 ) : null}
-                                <span aria-hidden className="opacity-50">·</span>
+                                <span aria-hidden className="opacity-50">
+                                  {' '}
+                                  ·{' '}
+                                </span>
                                 <span>{schoolItemTypeLabel(schoolCtx.itemType)}</span>
                               </span>
                             ) : null}
                           </div>
-                          <p
-                            className={`mt-1.5 text-[11px] font-semibold uppercase tracking-wide ${checked ? 'text-brandNavy' : 'text-zinc-500'}`}
-                          >
-                            {checked ? 'Valgt for import' : 'Ikke valgt — huk av for å importere'}
-                          </p>
+                          {checked ? (
+                            <p className="mt-1 text-[10px] font-medium text-brandNavy/90">Valgt for import</p>
+                          ) : (
+                            <p className="mt-1 text-[10px] text-zinc-500">Huk av for å importere</p>
+                          )}
                           {taskLangMismatch ? (
                             <p className="mt-1 text-[10px] leading-snug text-amber-800">
-                              Ser ut som annet fremmedspråk enn valgt barn — ikke huket av som standard.
+                              Annen språktrack — ikke standardvalg.
+                            </p>
+                          ) : null}
+                          {!editorOpen && checked && hasFieldErrors ? (
+                            <p className="mt-1 text-[11px] font-medium text-rose-600" role="alert">
+                              Mangler felt — trykk Rediger
                             </p>
                           ) : null}
                           <div className="mt-2 flex flex-wrap gap-1.5">
@@ -2695,7 +2779,7 @@ export function TankestromImportDialog({
                               type="button"
                               disabled={disabled}
                               onClick={() => setProposalImportKind(pid, 'event')}
-                              className={`rounded-full px-2.5 py-1 text-[11px] font-semibold transition ${
+                              className={`rounded-full px-2 py-0.5 text-[10px] font-semibold transition sm:px-2.5 sm:py-1 sm:text-[11px] ${
                                 u.importKind === 'event'
                                   ? 'bg-brandNavy text-white'
                                   : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200'
@@ -2707,7 +2791,7 @@ export function TankestromImportDialog({
                               type="button"
                               disabled={disabled}
                               onClick={() => setProposalImportKind(pid, 'task')}
-                              className={`rounded-full px-2.5 py-1 text-[11px] font-semibold transition ${
+                              className={`rounded-full px-2 py-0.5 text-[10px] font-semibold transition sm:px-2.5 sm:py-1 sm:text-[11px] ${
                                 u.importKind === 'task'
                                   ? 'bg-brandNavy text-white'
                                   : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200'
@@ -2720,36 +2804,8 @@ export function TankestromImportDialog({
                       </div>
 
                       {u.importKind === 'event' ? (
-                        <>
-                          <div className="border-b border-dashed border-zinc-200 bg-zinc-50/60 px-3 py-2 sm:px-4">
-                            <p className="text-[12px] font-medium leading-snug text-zinc-600">
-                              <span>{formatNorwegianDateLabel(u.event.date)}</span>
-                              <span className="mx-1.5 text-zinc-300">·</span>
-                              <span className="tabular-nums">
-                                {(() => {
-                                  const ts =
-                                    u.event.start.length > 5 ? u.event.start.slice(0, 5) : u.event.start
-                                  const te = u.event.end.length > 5 ? u.event.end.slice(0, 5) : u.event.end
-                                  const hm = /^([01]\d|2[0-3]):[0-5]\d$/
-                                  return hm.test(ts) && hm.test(te)
-                                    ? formatTimeRange(ts, te)
-                                    : ts && te
-                                      ? `${ts} – ${te}`
-                                      : '—'
-                                })()}
-                              </span>
-                              {people.find((p) => p.id === u.event.personId)?.name ? (
-                                <>
-                                  <span className="mx-1.5 text-zinc-300">·</span>
-                                  <span className="text-zinc-700">
-                                    {people.find((p) => p.id === u.event.personId)?.name}
-                                  </span>
-                                </>
-                              ) : null}
-                            </p>
-                          </div>
-
-                          <div className="space-y-3 px-3 py-3 sm:px-4">
+                        editorOpen ? (
+                          <div className="space-y-2 px-2.5 py-2 sm:space-y-3 sm:px-4 sm:py-3">
                             <Input
                               id={`ts-${pid}-title`}
                               label="Tittel"
@@ -2826,18 +2882,18 @@ export function TankestromImportDialog({
                               )}
                             </div>
 
-                            <div className="rounded-xl border border-rose-100 bg-rose-50/50 px-3 py-3">
-                              <p className="inline-flex items-center rounded-full border border-rose-200 bg-rose-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-rose-700">
+                            <div className="rounded-lg border border-rose-100 bg-rose-50/50 px-2.5 py-2 sm:rounded-xl sm:px-3 sm:py-3">
+                              <p className="inline-flex items-center rounded-full border border-rose-200 bg-rose-100 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-rose-700 sm:px-2 sm:text-[10px]">
                                 Notater
                               </p>
-                              <div className="mt-2">
+                              <div className="mt-1.5 sm:mt-2">
                                 <Textarea
                                   id={`ts-${pid}-notes`}
                                   label="Notater"
-                                  rows={3}
+                                  rows={2}
                                   autoResize
-                                  minRows={3}
-                                  maxRows={12}
+                                  minRows={2}
+                                  maxRows={8}
                                   value={u.event.notes}
                                   onChange={(e: ChangeEvent<HTMLTextAreaElement>) =>
                                     updateEventDraft(pid, { notes: e.target.value })
@@ -2852,7 +2908,7 @@ export function TankestromImportDialog({
                             <button
                               type="button"
                               onClick={() => toggleDetailsExpanded(pid)}
-                              className="flex w-full items-center justify-between rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2.5 text-left text-[12px] font-medium text-zinc-700 transition hover:bg-zinc-100"
+                              className="flex w-full items-center justify-between rounded-lg border border-zinc-200 bg-zinc-50 px-2.5 py-2 text-left text-[11px] font-medium text-zinc-700 transition hover:bg-zinc-100 sm:rounded-xl sm:px-3 sm:py-2.5 sm:text-[12px]"
                               aria-expanded={detailsExpanded}
                               aria-controls={`ts-extra-details-${pid}`}
                             >
@@ -3014,7 +3070,7 @@ export function TankestromImportDialog({
                                               Utvidet kildegrunnlag
                                             </p>
                                             <div
-                                              className="mt-1.5 max-h-56 overflow-y-auto overscroll-y-contain rounded-md border border-zinc-100 bg-white px-2.5 py-2 text-[12px] leading-relaxed text-zinc-700 whitespace-pre-wrap break-words"
+                                              className="mt-1.5 max-h-40 overflow-y-auto overscroll-y-contain rounded-md border border-zinc-100 bg-white px-2.5 py-2 text-[12px] leading-relaxed text-zinc-700 whitespace-pre-wrap break-words sm:max-h-56"
                                               role="region"
                                               aria-label="Fullt kildegrunnlag fra AI"
                                             >
@@ -3031,31 +3087,9 @@ export function TankestromImportDialog({
                               </div>
                             ) : null}
                           </div>
-                        </>
-                      ) : (
-                        <>
-                          <div className="border-b border-dashed border-zinc-200 bg-zinc-50/60 px-3 py-2 sm:px-4">
-                            <p className="text-[12px] font-medium leading-snug text-zinc-600">
-                              <span>{formatNorwegianDateLabel(u.task.date)}</span>
-                              {u.task.dueTime.trim() ? (
-                                <>
-                                  <span className="mx-1.5 text-zinc-300">·</span>
-                                  <span className="tabular-nums text-amber-700">
-                                    Frist: {u.task.dueTime.trim()}
-                                  </span>
-                                </>
-                              ) : null}
-                              {u.task.childPersonId && people.find((p) => p.id === u.task.childPersonId)?.name ? (
-                                <>
-                                  <span className="mx-1.5 text-zinc-300">·</span>
-                                  <span className="text-zinc-700">
-                                    {people.find((p) => p.id === u.task.childPersonId)?.name}
-                                  </span>
-                                </>
-                              ) : null}
-                            </p>
-                          </div>
-                          <div className="space-y-3 px-3 py-3 sm:px-4">
+                        ) : null
+                      ) : editorOpen ? (
+                          <div className="space-y-2 px-2.5 py-2 sm:space-y-3 sm:px-4 sm:py-3">
                             <Input
                               id={`ts-${pid}-task-title`}
                               label="Tittel"
@@ -3148,18 +3182,18 @@ export function TankestromImportDialog({
                               />
                               Vis markør i månedskalender
                             </label>
-                            <div className="rounded-xl border border-rose-100 bg-rose-50/50 px-3 py-3">
-                              <p className="inline-flex items-center rounded-full border border-rose-200 bg-rose-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-rose-700">
+                            <div className="rounded-lg border border-rose-100 bg-rose-50/50 px-2.5 py-2 sm:rounded-xl sm:px-3 sm:py-3">
+                              <p className="inline-flex items-center rounded-full border border-rose-200 bg-rose-100 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-rose-700 sm:px-2 sm:text-[10px]">
                                 Notater
                               </p>
-                              <div className="mt-2">
+                              <div className="mt-1.5 sm:mt-2">
                                 <Textarea
                                   id={`ts-${pid}-task-notes`}
                                   label="Notater"
-                                  rows={3}
+                                  rows={2}
                                   autoResize
-                                  minRows={3}
-                                  maxRows={12}
+                                  minRows={2}
+                                  maxRows={8}
                                   value={u.task.notes}
                                   onChange={(e: ChangeEvent<HTMLTextAreaElement>) =>
                                     updateTaskDraft(pid, { notes: e.target.value })
@@ -3175,7 +3209,7 @@ export function TankestromImportDialog({
                                 <button
                                   type="button"
                                   onClick={() => toggleDetailsExpanded(pid)}
-                                  className="flex w-full items-center justify-between rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2.5 text-left text-[12px] font-medium text-zinc-700 transition hover:bg-zinc-100"
+                                  className="flex w-full items-center justify-between rounded-lg border border-zinc-200 bg-zinc-50 px-2.5 py-2 text-left text-[11px] font-medium text-zinc-700 transition hover:bg-zinc-100 sm:rounded-xl sm:px-3 sm:py-2.5 sm:text-[12px]"
                                   aria-expanded={detailsExpanded}
                                   aria-controls={`ts-task-extra-${pid}`}
                                 >
@@ -3210,7 +3244,7 @@ export function TankestromImportDialog({
                                           {sourceExpanded ? 'Vis mindre' : 'Vis mer'}
                                         </button>
                                         {sourceExpanded && fullSourceDoc ? (
-                                          <div className="mt-2 max-h-40 overflow-y-auto text-[12px] whitespace-pre-wrap text-zinc-700">
+                                          <div className="mt-2 max-h-32 overflow-y-auto text-[12px] whitespace-pre-wrap text-zinc-700 sm:max-h-40">
                                             {fullSourceDoc.length > 8000
                                               ? `${fullSourceDoc.slice(0, 7997)}…`
                                               : fullSourceDoc}
@@ -3223,8 +3257,8 @@ export function TankestromImportDialog({
                               </>
                             ) : null}
                           </div>
-                        </>
-                      )}
+                        ) : null
+                    }
                     </li>
                   )
                 })}
