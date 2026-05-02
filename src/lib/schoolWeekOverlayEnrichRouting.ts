@@ -395,17 +395,30 @@ export function isClientOverlayAdminLine(line: string): boolean {
   return CLIENT_OVERLAY_ADMIN_LINE_RES.some((re) => re.test(line))
 }
 
-function lessonIndicesForTyskIntent(lessons: SchoolLessonSlot[]): number[] {
-  const out: number[] = []
+/**
+ * Timer som kan motta tysk-overlay. Ved nøyaktig én «naken» fremmedspråk-time (uten språk-label)
+ * kan den brukes kun når linjen har sterkt tysk-signal (score ≥ 10), se `tryClientOrphanLineToLessonIndex`.
+ */
+function lessonIndicesForTyskIntent(
+  lessons: SchoolLessonSlot[],
+  opts: { allowSingleUnlabeledFremmedspråk: boolean }
+): number[] {
+  const explicit: number[] = []
+  const unlabeledFrem: number[] = []
   for (let i = 0; i < lessons.length; i++) {
     const L = lessons[i]!
-    if (L.subjectKey === 'tysk') out.push(i)
+    if (L.subjectKey === 'tysk') explicit.push(i)
     if (L.subjectKey === 'fremmedspråk') {
       const bag = `${L.customLabel ?? ''} ${L.lessonSubcategory ?? ''}`
-      if (/\btysk\b|tyskland|german|deutsch/i.test(bag)) out.push(i)
+      if (/\btysk\b|tyskland|german|deutsch/i.test(bag)) explicit.push(i)
+      else unlabeledFrem.push(i)
     }
   }
-  return [...new Set(out)]
+  const uniq = [...new Set(explicit)]
+  if (uniq.length === 1) return uniq
+  if (uniq.length > 1) return uniq
+  if (opts.allowSingleUnlabeledFremmedspråk && unlabeledFrem.length === 1) return [unlabeledFrem[0]!]
+  return []
 }
 
 function lessonIndicesForSamfIntent(lessons: SchoolLessonSlot[]): number[] {
@@ -420,7 +433,10 @@ function lessonIndicesForSamfIntent(lessons: SchoolLessonSlot[]): number[] {
 function clientOrphanSignalScores(n: string): { tysk: number; samf: number } {
   let tysk = 0
   let samf = 0
-  if (/\b(tyskprøve|tyskprøven|tysk\s*prøve|skriftlig\s+tysk|til\s+tyskprøven?)\b/.test(n)) tysk = 10
+  const strongTyskPhrase =
+    /\b(tyskprøve|tyskprøven|tysk\s*prøve|skriftlig\s+tysk|til\s+tyskprøven?)\b/.test(n) ||
+    (/\b(ha\s+med|ta\s+med|husk(?:\s+å)?)\b/.test(n) && /\b(tyskprøve|tyskprøven)\b/.test(n))
+  if (strongTyskPhrase) tysk = 10
   else if (/\btysk\b/.test(n) && /\b(prøve|skriftlig|muntlig|blyant|viskelær)\b/.test(n)) tysk = 6
   if (/mars-?bad|badetøy|håndkle/.test(n)) samf = 10
   else if (/\bspråktimen\b|møt\s+presis\b/.test(n)) samf = 5
@@ -449,7 +465,9 @@ export function tryClientOrphanLineToLessonIndex(
   if (preferTysk && preferSamf) return null
 
   if (preferTysk) {
-    const idxs = lessonIndicesForTyskIntent(lessons)
+    const idxs = lessonIndicesForTyskIntent(lessons, {
+      allowSingleUnlabeledFremmedspråk: tysk >= 10,
+    })
     if (idxs.length !== 1) return null
     return { idx: idxs[0]!, reason: `client_signal_tysk_${tysk >= 10 ? 'strong' : 'medium'}` }
   }
@@ -555,6 +573,18 @@ export function applyClientOrphanFallbackToSubjectUpdates(
     const dropped = assignmentLog.filter((a) => a.outcome === 'drop_admin').length
     const kept = assignmentLog.filter((a) => a.outcome === 'keep_other').length
     const fallbackOtherUsed = next.some((u) => u.subjectKey === 'other')
+    const taMedLikeBefore = orphanLinesBefore.filter(
+      ({ line, sectionKey }) =>
+        /\b(ha med|ta med|husk(?:\s+å)?)\b/i.test(line) ||
+        normOverlayText(sectionKey).includes('ta med') ||
+        normOverlayText(sectionKey).includes('husk')
+    )
+    const taMedAssigned = assignmentLog.filter(
+      (a) =>
+        a.outcome === 'assigned' &&
+        (/\b(ha med|ta med|husk(?:\s+å)?)\b/i.test(a.line) ||
+          /\btyskprøve|tyskprøven|til\s+tyskprøv/i.test(a.line))
+    )
     console.debug('[overlay client orphan fallback]', {
       overlayClientOrphanLinesBeforeAssignment: orphanLinesBefore.length,
       overlayClientOrphanLineAssignedToSubject: assigned,
@@ -563,6 +593,9 @@ export function applyClientOrphanFallbackToSubjectUpdates(
       overlaySubjectUpdatesBuilt: next.length,
       overlaySubjectUpdateFallbackOtherUsed: fallbackOtherUsed,
       overlayAdminLinesDropped: dropped,
+      overlayClientOrphanTaMedBeforeAssignment: taMedLikeBefore.length,
+      overlayClientOrphanTaMedAssignedToSubject: taMedAssigned.length,
+      overlayClientOrphanTaMedAssignmentReason: taMedAssigned,
     })
   }
 

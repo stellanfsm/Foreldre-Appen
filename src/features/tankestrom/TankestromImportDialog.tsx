@@ -1184,10 +1184,32 @@ function SchoolWeekOverlayReviewCard({
                         (n, key) => n + unplaced[key].length,
                         0
                       )
+                      const overlayClientOrphanTaMedBeforeAssignment = OVERLAY_PREVIEW_SECTION_ORDER.reduce(
+                        (n, sectionKey) => {
+                          const sk = normOverlayText(sectionKey)
+                          const isTaMedSection =
+                            sectionKey === 'Ta med' || sk.includes('ta med') || sk.includes('husk')
+                          return (
+                            n +
+                            unplaced[sectionKey].filter((line) => {
+                              const t = line.trim()
+                              return (
+                                isTaMedSection ||
+                                /\b(ha med|ta med|husk(?:\s+å)?)\b/i.test(t) ||
+                                /\btyskprøve|tyskprøven|til\s+tyskprøv/i.test(t)
+                              )
+                            }).length
+                          )
+                        },
+                        0
+                      )
                       let overlayClientOrphanLineAssignedToSubject = 0
+                      let overlayClientOrphanTaMedAssignedToSubject = 0
                       if (baseLessons.length > 0 && details.action === 'enrich_existing_school_block') {
                         for (const key of OVERLAY_PREVIEW_SECTION_ORDER) {
                           const nextUnplaced: string[] = []
+                          const skNorm = normOverlayText(key)
+                          const isTaMedSection = key === 'Ta med' || skNorm.includes('ta med') || skNorm.includes('husk')
                           for (const line of unplaced[key]) {
                             const t = line.trim()
                             if (!t) continue
@@ -1208,6 +1230,13 @@ function SchoolWeekOverlayReviewCard({
                               if (!isTautologicalOverlayPreviewLine(finalLine, finalSection)) {
                                 blocks[hit.idx]!.sections[finalSection].push(finalLine)
                                 overlayClientOrphanLineAssignedToSubject++
+                                if (
+                                  isTaMedSection ||
+                                  /\b(ha med|ta med|husk(?:\s+å)?)\b/i.test(t) ||
+                                  /\btyskprøve|tyskprøven|til\s+tyskprøv/i.test(t)
+                                ) {
+                                  overlayClientOrphanTaMedAssignedToSubject++
+                                }
                               }
                             } else {
                               nextUnplaced.push(line)
@@ -1241,6 +1270,8 @@ function SchoolWeekOverlayReviewCard({
                           ),
                           overlayClientOrphanLinesBeforeAssignment,
                           overlayClientOrphanLineAssignedToSubject,
+                          overlayClientOrphanTaMedBeforeAssignment,
+                          overlayClientOrphanTaMedAssignedToSubject,
                           overlayClientUnplacedLinesRemaining: OVERLAY_PREVIEW_SECTION_ORDER.reduce(
                             (n, key) => n + unplaced[key].length,
                             0

@@ -33,6 +33,22 @@ describe('tryClientOrphanLineToLessonIndex', () => {
   it('returnerer null når signalet mangler', () => {
     expect(tryClientOrphanLineToLessonIndex('Generell beskjed uten fag', BAND, L)).toBeNull()
   })
+
+  it('treffer én «naken» fremmedspråk-time ved sterkt tysk-signal', () => {
+    const lessons: SchoolLessonSlot[] = [
+      { subjectKey: 'naturfag', start: '08:15', end: '09:00' },
+      { subjectKey: 'fremmedspråk', start: '10:45', end: '11:30' },
+    ]
+    expect(tryClientOrphanLineToLessonIndex('Ha med blyant og viskelær til tyskprøven', BAND, lessons)?.idx).toBe(1)
+  })
+
+  it('bruker ikke naken fremmedspråk-time uten sterkt tysk-signal', () => {
+    const lessons: SchoolLessonSlot[] = [
+      { subjectKey: 'naturfag', start: '08:15', end: '09:00' },
+      { subjectKey: 'fremmedspråk', start: '10:45', end: '11:30' },
+    ]
+    expect(tryClientOrphanLineToLessonIndex('Ha med blyant og viskelær', BAND, lessons)).toBeNull()
+  })
 })
 
 describe('applyClientOrphanFallbackToSubjectUpdates', () => {
