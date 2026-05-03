@@ -37,6 +37,21 @@ import {
   findConservativeExistingEventMatch,
   type ExistingEventMatchResult,
 } from '../../lib/tankestromExistingEventMatch'
+import {
+  aggregatePersistFailureKinds,
+  buildTankestromImportFailureUserMessage,
+  classifyTankestromPersistThrownError,
+  type TankestromImportPersistFailureRecord,
+  type TankestromImportPersistOperation,
+} from '../../lib/tankestromImportPersistDiagnostics'
+
+const TANKESTROM_IMPORT_PERSIST_DEBUG =
+  import.meta.env.DEV || import.meta.env.VITE_DEBUG_SCHOOL_IMPORT === 'true'
+
+function logTankestromImportPersist(payload: Record<string, unknown>): void {
+  if (!TANKESTROM_IMPORT_PERSIST_DEBUG) return
+  console.debug('[tankestrom import persist]', payload)
+}
 
 type Step = 'pick' | 'review'
 export type TankestromInputMode = 'file' | 'text'
@@ -1942,6 +1957,45 @@ export function useTankestromImport({
     setSaveLoading(true)
     let failed = 0
     try {
+      const failureRecords: TankestromImportPersistFailureRecord[] = []
+      const failedIds = new Set<string>()
+
+      const recordFailure = (
+        proposalId: string,
+        surface: 'event' | 'task',
+        operation: TankestromImportPersistFailureRecord['operation'],
+        kind: TankestromImportPersistFailureRecord['kind'],
+        message: string
+      ) => {
+        failed += 1
+        failedIds.add(proposalId)
+        failureRecords.push({ proposalId, proposalSurfaceType: surface, operation, kind, message })
+        logTankestromImportPersist({
+          tankestromImportPersistSuccess: false,
+          tankestromImportPersistFailure: true,
+          tankestromImportPersistOperation:
+            operation === 'editEventPrecheck' ? 'editEvent' : operation,
+          tankestromImportPersistErrorKind: kind,
+          tankestromImportPersistErrorMessage: message,
+          proposalId,
+          proposalSurfaceType: surface,
+        })
+      }
+
+      const recordSuccess = (
+        proposalId: string,
+        surface: 'event' | 'task',
+        operation: TankestromImportPersistOperation
+      ) => {
+        logTankestromImportPersist({
+          tankestromImportPersistSuccess: true,
+          tankestromImportPersistFailure: false,
+          tankestromImportPersistOperation: operation,
+          proposalId,
+          proposalSurfaceType: surface,
+        })
+      }
+
       for (const id of ids) {
         const parsedEmb = parseEmbeddedChildProposalId(id)
         if (parsedEmb) {
@@ -2018,8 +2072,10 @@ export function useTankestromImport({
           }
           try {
             await createEvent(draftEv.date, input)
-          } catch {
-            failed += 1
+            recordSuccess(id, 'event', 'createEvent')
+          } catch (e) {
+            const { kind, message } = classifyTankestromPersistThrownError(e, 'createEvent')
+            recordFailure(id, 'event', 'createEvent', kind, message)
           }
           continue
         }
@@ -2051,8 +2107,10 @@ export function useTankestromImport({
               })
             }
             await createTask(taskInput)
-          } catch {
-            failed += 1
+            recordSuccess(id, 'task', 'createTask')
+          } catch (e) {
+            const { kind, message } = classifyTankestromPersistThrownError(e, 'createTask')
+            recordFailure(id, 'task', 'createTask', kind, message)
           }
           continue
         }
@@ -2080,7 +2138,13 @@ export function useTankestromImport({
           const anchorsNow = getAnchoredForegroundEventsForMatching()
           const found = anchorsNow.find((a) => a.event.id === target.eventId)
           if (!found) {
-            failed += 1
+            recordFailure(
+              id,
+              'event',
+              'editEventPrecheck',
+              'event_update_target_missing',
+              'Fant ikke målhendelsen for oppdatering (kan være slettet eller flyttet).'
+            )
             continue
           }
           const existingEvent = found.event
@@ -2156,8 +2220,10 @@ export function useTankestromImport({
 
           try {
             await editEvent(anchorDate, existingEvent, updates)
-          } catch {
-            failed += 1
+            recordSuccess(id, 'event', 'editEvent')
+          } catch (e) {
+            const { kind, message } = classifyTankestromPersistThrownError(e, 'editEvent')
+            recordFailure(id, 'event', 'editEvent', kind, message)
           }
           continue
         }
@@ -2233,14 +2299,28 @@ export function useTankestromImport({
         }
         try {
           await createEvent(draft.date, input)
-        } catch {
-          failed += 1
+          recordSuccess(id, 'event', 'createEvent')
+        } catch (e) {
+          const { kind, message } = classifyTankestromPersistThrownError(e, 'createEvent')
+          recordFailure(id, 'event', 'createEvent', kind, message)
         }
       }
       if (failed > 0) {
-        setError(`${failed} av ${ids.length} forslag kunne ikke lagres. Sjekk nettverk og prøv igjen.`)
+        setError(buildTankestromImportFailureUserMessage(failureRecords, ids.length))
+        logTankestromImportPersist({
+          tankestromImportFailureSummaryBuilt: true,
+          tankestromImportFailedProposalIds: [...failedIds],
+          tankestromImportSucceededProposalIds: ids.filter((i) => !failedIds.has(i)),
+          tankestromImportFailureKindCounts: aggregatePersistFailureKinds(failureRecords),
+        })
         return false
       }
+      logTankestromImportPersist({
+        tankestromImportFailureSummaryBuilt: true,
+        tankestromImportFailedProposalIds: [],
+        tankestromImportSucceededProposalIds: ids,
+        tankestromImportPersistBatchComplete: true,
+      })
       return true
     } finally {
       setSaveLoading(false)
