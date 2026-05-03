@@ -102,11 +102,28 @@ export interface PortalSchoolWeekOverlayProposal {
   dailyActions: Partial<Record<number, SchoolWeekOverlayDailyAction>>
 }
 
+/** Usikre «nesten»-forslag — vises i egen seksjon; kan løftes inn som hendelse/gjøremål. */
+export type PortalSecondaryCandidateSuggestedKind = 'event' | 'task'
+
+export interface PortalSecondaryImportCandidate {
+  candidateId: string
+  title: string
+  summary?: string
+  confidence: number
+  suggestedKind: PortalSecondaryCandidateSuggestedKind
+  date?: string
+  notes?: string
+  /** Når kandidaten kommer fra lav sikkerhet på et vanlig forslag */
+  sourceProposalId?: string
+}
+
 export interface PortalImportProposalBundle {
   schemaVersion: PortalImportSchemaVersion
   provenance: PortalImportProvenance
   items: PortalProposalItem[]
   schoolWeekOverlayProposal?: PortalSchoolWeekOverlayProposal
+  /** Valgfri liste fra analyse — ellers utledes noen få fra lav sikkerhet på items (klient). */
+  secondaryCandidates?: PortalSecondaryImportCandidate[]
 }
 
 /** Lokalt redigerbart utkast per forslag før import (speiler det brukeren kan endre i UI). */

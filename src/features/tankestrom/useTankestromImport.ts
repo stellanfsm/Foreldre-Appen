@@ -19,6 +19,7 @@ import type {
   PortalProposalItem,
   PortalSchoolProfileProposal,
   PortalSchoolWeekOverlayProposal,
+  PortalSecondaryImportCandidate,
   PortalTaskProposal,
   TankestromEventDraft,
   TankestromImportDraft,
@@ -44,6 +45,14 @@ import {
   type TankestromImportPersistFailureRecord,
   type TankestromImportPersistOperation,
 } from '../../lib/tankestromImportPersistDiagnostics'
+import { logEvent } from '../../lib/appLogger'
+import {
+  buildEventProposalFromSecondaryCandidate,
+  buildMergedSecondaryImportCandidates,
+  buildTaskProposalFromSecondaryCandidate,
+  filterVisibleSecondaryCandidates,
+  proposalItemQualifiesSecondaryZone,
+} from '../../lib/tankestromSecondaryCandidates'
 
 const TANKESTROM_IMPORT_PERSIST_DEBUG =
   import.meta.env.DEV || import.meta.env.VITE_DEBUG_SCHOOL_IMPORT === 'true'
@@ -473,10 +482,12 @@ function initialSelectedIdsForGeneralImport(
   for (const item of items) {
     if (item.kind === 'school_profile') continue
     if (item.kind === 'event') {
+      if (proposalItemQualifiesSecondaryZone(item)) continue
       out.add(item.proposalId)
       continue
     }
     if (item.kind === 'task') {
+      if (proposalItemQualifiesSecondaryZone(item)) continue
       const d = drafts[item.proposalId]
       if (!d || d.importKind !== 'task') continue
       const body = scanNotesBodyForLanguage(d.task.notes)
@@ -816,6 +827,56 @@ function buildTaskDraftFromProposal(
   }
 }
 
+const MANUAL_REVIEW_SOURCE_TYPE = 'manual_review'
+const MANUAL_REVIEW_SOURCE_LABEL = 'Manuelt tillegg i import'
+
+function newManualReviewProposalId(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return `ts-manual-${crypto.randomUUID()}`
+  }
+  return `ts-manual-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
+}
+
+function buildManualPlaceholderTask(defaultChildId: string): PortalTaskProposal {
+  const today = new Date().toISOString().slice(0, 10)
+  const proposalId = newManualReviewProposalId()
+  return {
+    proposalId,
+    kind: 'task',
+    sourceId: proposalId,
+    originalSourceType: MANUAL_REVIEW_SOURCE_TYPE,
+    confidence: 1,
+    task: {
+      date: today,
+      title: '',
+      notes: undefined,
+      dueTime: undefined,
+      childPersonId: defaultChildId,
+      assignedToPersonId: undefined,
+      taskIntent: 'must_do',
+    },
+  }
+}
+
+function buildManualPlaceholderEvent(defaultPersonId: string): PortalEventProposal {
+  const today = new Date().toISOString().slice(0, 10)
+  const proposalId = newManualReviewProposalId()
+  return {
+    proposalId,
+    kind: 'event',
+    sourceId: proposalId,
+    originalSourceType: MANUAL_REVIEW_SOURCE_TYPE,
+    confidence: 1,
+    event: {
+      date: today,
+      personId: defaultPersonId,
+      title: '',
+      start: '09:00',
+      end: '10:00',
+    },
+  }
+}
+
 function importDraftFromProposal(
   item: PortalEventProposal | PortalTaskProposal,
   validPersonIds: Set<string>,
@@ -1072,12 +1133,76 @@ export function useTankestromImport({
     [proposalItems]
   )
 
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  /** Kandidater i «Kanskje også relevant» som brukeren har skjult. */
+  const [secondaryDismissedCandidateIds, setSecondaryDismissedCandidateIds] = useState<Set<string>>(
+    () => new Set()
+  )
+  /** Lav-sikkerhetsforslag som er løftet inn i hovedlisten. */
+  const [secondaryPromotedProposalIds, setSecondaryPromotedProposalIds] = useState<Set<string>>(
+    () => new Set()
+  )
+  const secondaryShownLogKeyRef = useRef('')
+
+  const primaryCalendarProposalItems = useMemo((): PortalProposalItem[] => {
+    return calendarProposalItems.filter((it) => {
+      if (it.kind !== 'event' && it.kind !== 'task') return true
+      if (secondaryPromotedProposalIds.has(it.proposalId)) return true
+      if (proposalItemQualifiesSecondaryZone(it)) return false
+      return true
+    })
+  }, [calendarProposalItems, secondaryPromotedProposalIds])
+
+  const mergedSecondaryImportCandidates = useMemo(
+    () => buildMergedSecondaryImportCandidates(bundle, calendarProposalItems),
+    [bundle, calendarProposalItems]
+  )
+
+  const visibleSecondaryImportCandidates = useMemo(() => {
+    const base = filterVisibleSecondaryCandidates(
+      mergedSecondaryImportCandidates,
+      secondaryDismissedCandidateIds,
+      secondaryPromotedProposalIds
+    )
+    return base.filter((c) => {
+      if (!c.sourceProposalId) return true
+      const it = calendarProposalItems.find((i) => i.proposalId === c.sourceProposalId)
+      if (!it || (it.kind !== 'event' && it.kind !== 'task')) return true
+      if (!proposalItemQualifiesSecondaryZone(it)) return false
+      return true
+    })
+  }, [
+    mergedSecondaryImportCandidates,
+    secondaryDismissedCandidateIds,
+    secondaryPromotedProposalIds,
+    calendarProposalItems,
+  ])
+
+  useEffect(() => {
+    if (step !== 'review' || schoolReview != null || visibleSecondaryImportCandidates.length === 0) return
+    const key = `${bundle?.provenance.importRunId ?? 'norun'}:${visibleSecondaryImportCandidates
+      .map((c) => c.candidateId)
+      .join('|')}`
+    if (secondaryShownLogKeyRef.current === key) return
+    secondaryShownLogKeyRef.current = key
+    logEvent('secondaryCandidateShown', {
+      candidateIds: visibleSecondaryImportCandidates.map((c) => c.candidateId),
+      count: visibleSecondaryImportCandidates.length,
+      importRunId: bundle?.provenance.importRunId,
+    })
+    if (import.meta.env.DEV || import.meta.env.VITE_DEBUG_SCHOOL_IMPORT === 'true') {
+      console.debug('[tankestrom secondary zone]', {
+        secondaryCandidateShown: true,
+        candidateIds: visibleSecondaryImportCandidates.map((c) => c.candidateId),
+      })
+    }
+  }, [step, schoolReview, bundle?.provenance.importRunId, visibleSecondaryImportCandidates])
+
   /** @deprecated Bruk proposalItems; beholdt for enkel bakoverkompatibilitet i imports. */
   const eventProposals = useMemo((): PortalEventProposal[] => {
     return proposalItems.filter((i): i is PortalEventProposal => i.kind === 'event')
   }, [proposalItems])
 
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [draftByProposalId, setDraftByProposalId] = useState<Record<string, TankestromImportDraft>>({})
   const [analyzeLoading, setAnalyzeLoading] = useState(false)
   const [saveLoading, setSaveLoading] = useState(false)
@@ -1148,7 +1273,7 @@ export function useTankestromImport({
     if (step !== 'review' || !bundle || !getAnchoredForegroundEventsForMatching) return {}
     const anchored = getAnchoredForegroundEventsForMatching()
     const out: Record<string, ExistingEventMatchResult> = {}
-    for (const item of calendarProposalItems) {
+    for (const item of primaryCalendarProposalItems) {
       if (item.kind !== 'event') continue
       const draftWrap = draftByProposalId[item.proposalId]
       if (!draftWrap || draftWrap.importKind !== 'event') continue
@@ -1173,7 +1298,7 @@ export function useTankestromImport({
   }, [
     step,
     bundle,
-    calendarProposalItems,
+    primaryCalendarProposalItems,
     draftByProposalId,
     getAnchoredForegroundEventsForMatching,
     embeddedScheduleReviewRowsByParentId,
@@ -1213,6 +1338,8 @@ export function useTankestromImport({
     setSchoolReview(null)
     setSchoolProfileChildId('')
     setSelectedIds(new Set())
+    setSecondaryDismissedCandidateIds(new Set())
+    setSecondaryPromotedProposalIds(new Set())
     setDraftByProposalId({})
     setEmbeddedScheduleReviewRowsByParentId({})
     setDetachedEmbeddedChildren([])
@@ -1663,15 +1790,15 @@ export function useTankestromImport({
     setPendingFiles((prev) => prev.map((p) => (p.id === id ? { ...p, ...patch } : p)))
   }, [])
 
-  const runAnalyze = useCallback(async () => {
+  const runAnalyze = useCallback(async (): Promise<boolean> => {
     if (inputMode === 'file') {
       if (pendingFiles.length === 0) {
         setError('Velg minst én fil.')
-        return
+        return false
       }
     } else if (!textInput.trim()) {
       setError('Skriv inn tekst først.')
-      return
+      return false
     }
     setError(null)
     setAnalyzeWarning(null)
@@ -1711,9 +1838,11 @@ export function useTankestromImport({
             setAnalyzeWarning('Flere timeplaner i svaret — kun den første brukes.')
           }
           setStep('review')
-          return
+          return true
         }
         setSchoolReview(null)
+        setSecondaryDismissedCandidateIds(new Set())
+        setSecondaryPromotedProposalIds(new Set())
         const childIds = people.filter((p) => p.memberKind === 'child').map((p) => p.id)
         const importChildId = b.schoolWeekOverlayProposal ? childIds[0] ?? '' : ''
         setSchoolProfileChildId(importChildId)
@@ -1728,7 +1857,7 @@ export function useTankestromImport({
         setSelectedIds(initialSelectedIdsForGeneralImport(items, drafts, people, importChildId))
         prevSchoolChildForLangAdjustRef.current = null
         setStep('review')
-        return
+        return true
       }
 
       const queue = [...pendingFiles]
@@ -1770,13 +1899,13 @@ export function useTankestromImport({
             ? failureLines.join('\n')
             : 'Ingen filer ga forslag. Prøv andre filer eller tekstmodus.'
         )
-        return
+        return false
       }
 
       const merged = mergePortalImportProposalBundles(bundles)
       if (!hasAnalyzeContent(merged)) {
         setError('Ingen forslag etter sammenslåing.')
-        return
+        return false
       }
       if (import.meta.env.VITE_DEBUG_SCHOOL_IMPORT === 'true') {
         const taskItemsCount = merged.items.filter((i) => i.kind === 'task').length
@@ -1828,10 +1957,12 @@ export function useTankestromImport({
           setAnalyzeWarning(extra.trim())
         }
         setStep('review')
-        return
+        return true
       }
 
       setSchoolReview(null)
+      setSecondaryDismissedCandidateIds(new Set())
+      setSecondaryPromotedProposalIds(new Set())
       const childIds = people.filter((p) => p.memberKind === 'child').map((p) => p.id)
       const importChildId = merged.schoolWeekOverlayProposal ? childIds[0] ?? '' : ''
       setSchoolProfileChildId(importChildId)
@@ -1852,12 +1983,129 @@ export function useTankestromImport({
           `${failureLines.length} fil(er) ble hoppet over:\n${failureLines.join('\n')}`
         )
       }
+      return true
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Analyse feilet.')
+      return false
     } finally {
       setAnalyzeLoading(false)
     }
   }, [inputMode, patchPendingFile, pendingFiles, people, textInput, validPersonIds])
+
+  /** Tømmer review-tilstand uten å gå til «Velg innhold» eller endre tekst/filer. */
+  const clearReviewStateForReanalyze = useCallback(() => {
+    setBundle(null)
+    setSchoolReview(null)
+    setSchoolProfileChildId('')
+    setSelectedIds(new Set())
+    setSecondaryDismissedCandidateIds(new Set())
+    setSecondaryPromotedProposalIds(new Set())
+    setDraftByProposalId({})
+    setEmbeddedScheduleReviewRowsByParentId({})
+    setDetachedEmbeddedChildren([])
+    setDetachedEmbeddedChildIds(new Set())
+    setExistingEventLinkByProposalId({})
+    setExistingEventUpdateTarget({})
+    setError(null)
+    setAnalyzeWarning(null)
+    prevSchoolChildForLangAdjustRef.current = null
+    secondaryShownLogKeyRef.current = ''
+  }, [])
+
+  const reanalyzeFromSameInput = useCallback(async () => {
+    if (step !== 'review') return
+    if (analyzeLoading || saveLoading) return
+    if (inputMode === 'file') {
+      if (pendingFiles.length === 0) {
+        setError('Velg minst én fil.')
+        return
+      }
+    } else if (!textInput.trim()) {
+      setError('Skriv inn tekst først.')
+      return
+    }
+    logEvent('tankestromReanalyzeTriggered', {
+      inputMode,
+      fileCount: inputMode === 'file' ? pendingFiles.length : 0,
+      textLength: inputMode === 'text' ? textInput.trim().length : 0,
+    })
+    clearReviewStateForReanalyze()
+    logEvent('tankestromReanalyzeStarted', { inputMode })
+    if (import.meta.env.DEV || import.meta.env.VITE_DEBUG_SCHOOL_IMPORT === 'true') {
+      console.debug('[tankestrom reanalyze]', { tankestromReanalyzeStarted: true, inputMode })
+    }
+    const ok = await runAnalyze()
+    if (ok) {
+      logEvent('tankestromReanalyzeCompleted', { inputMode })
+      if (import.meta.env.DEV || import.meta.env.VITE_DEBUG_SCHOOL_IMPORT === 'true') {
+        console.debug('[tankestrom reanalyze]', { tankestromReanalyzeCompleted: true, inputMode })
+      }
+    } else {
+      logEvent('tankestromReanalyzeFailed', { inputMode })
+      if (import.meta.env.DEV || import.meta.env.VITE_DEBUG_SCHOOL_IMPORT === 'true') {
+        console.debug('[tankestrom reanalyze]', { tankestromReanalyzeFailed: true, inputMode })
+      }
+    }
+  }, [
+    step,
+    analyzeLoading,
+    saveLoading,
+    inputMode,
+    pendingFiles,
+    textInput,
+    clearReviewStateForReanalyze,
+    runAnalyze,
+  ])
+
+  const addManualReviewTask = useCallback(() => {
+    if (!bundle || schoolReview != null) return
+    const defaultPersonId = people[0]?.id ?? ''
+    const childDefault = defaultChildPersonId(people, validPersonIds) || defaultPersonId
+    const newItem = buildManualPlaceholderTask(childDefault)
+    setBundle((prev) => (prev ? { ...prev, items: [...prev.items, newItem] } : null))
+    setDraftByProposalId((prev) => ({
+      ...prev,
+      [newItem.proposalId]: importDraftFromProposal(
+        newItem,
+        validPersonIds,
+        defaultPersonId,
+        people,
+        MANUAL_REVIEW_SOURCE_LABEL
+      ),
+    }))
+    setSelectedIds((prev) => new Set(prev).add(newItem.proposalId))
+    logEvent('manualReviewItemAdded', { kind: 'task', proposalId: newItem.proposalId })
+    logEvent('manualReviewTaskAdded', { proposalId: newItem.proposalId })
+    if (import.meta.env.DEV || import.meta.env.VITE_DEBUG_SCHOOL_IMPORT === 'true') {
+      console.debug('[tankestrom manual review]', { manualReviewTaskAdded: true, proposalId: newItem.proposalId })
+    }
+  }, [bundle, schoolReview, people, validPersonIds])
+
+  const addManualReviewEvent = useCallback(() => {
+    if (!bundle || schoolReview != null) return
+    const defaultPersonId = people[0]?.id ?? ''
+    const eventPersonId = validPersonIds.has(defaultPersonId)
+      ? defaultPersonId
+      : (people.find((p) => validPersonIds.has(p.id))?.id ?? defaultPersonId)
+    const newItem = buildManualPlaceholderEvent(eventPersonId)
+    setBundle((prev) => (prev ? { ...prev, items: [...prev.items, newItem] } : null))
+    setDraftByProposalId((prev) => ({
+      ...prev,
+      [newItem.proposalId]: importDraftFromProposal(
+        newItem,
+        validPersonIds,
+        defaultPersonId,
+        people,
+        MANUAL_REVIEW_SOURCE_LABEL
+      ),
+    }))
+    setSelectedIds((prev) => new Set(prev).add(newItem.proposalId))
+    logEvent('manualReviewItemAdded', { kind: 'event', proposalId: newItem.proposalId })
+    logEvent('manualReviewEventAdded', { proposalId: newItem.proposalId })
+    if (import.meta.env.DEV || import.meta.env.VITE_DEBUG_SCHOOL_IMPORT === 'true') {
+      console.debug('[tankestrom manual review]', { manualReviewEventAdded: true, proposalId: newItem.proposalId })
+    }
+  }, [bundle, schoolReview, people, validPersonIds])
 
   const saveSchoolProfile = useCallback(async (): Promise<boolean> => {
     if (!schoolReview || !updatePerson) {
@@ -2108,6 +2356,9 @@ export function useTankestromImport({
             }
             await createTask(taskInput)
             recordSuccess(id, 'task', 'createTask')
+            if (item.originalSourceType === MANUAL_REVIEW_SOURCE_TYPE) {
+              logEvent('manualReviewItemImported', { proposalId: id, kind: 'task' })
+            }
           } catch (e) {
             const { kind, message } = classifyTankestromPersistThrownError(e, 'createTask')
             recordFailure(id, 'task', 'createTask', kind, message)
@@ -2221,6 +2472,9 @@ export function useTankestromImport({
           try {
             await editEvent(anchorDate, existingEvent, updates)
             recordSuccess(id, 'event', 'editEvent')
+            if (item.originalSourceType === MANUAL_REVIEW_SOURCE_TYPE) {
+              logEvent('manualReviewItemImported', { proposalId: id, kind: 'event' })
+            }
           } catch (e) {
             const { kind, message } = classifyTankestromPersistThrownError(e, 'editEvent')
             recordFailure(id, 'event', 'editEvent', kind, message)
@@ -2300,6 +2554,9 @@ export function useTankestromImport({
         try {
           await createEvent(draft.date, input)
           recordSuccess(id, 'event', 'createEvent')
+          if (item.originalSourceType === MANUAL_REVIEW_SOURCE_TYPE) {
+            logEvent('manualReviewItemImported', { proposalId: id, kind: 'event' })
+          }
         } catch (e) {
           const { kind, message } = classifyTankestromPersistThrownError(e, 'createEvent')
           recordFailure(id, 'event', 'createEvent', kind, message)
@@ -2358,6 +2615,95 @@ export function useTankestromImport({
     return approveSelected()
   }, [schoolReview, bundle?.schoolWeekOverlayProposal, saveSchoolWeekOverlay, selectedIds, approveSelected])
 
+  const promoteSecondaryImportCandidate = useCallback(
+    (c: PortalSecondaryImportCandidate, targetKind: 'event' | 'task') => {
+      const defaultPersonId = people[0]?.id ?? ''
+      const hint = bundle ? humanImportSourceLabelForBundle(bundle) : undefined
+
+      if (c.sourceProposalId) {
+        const pid = c.sourceProposalId
+        const item = bundle?.items.find((i) => i.proposalId === pid)
+        if (item && (item.kind === 'event' || item.kind === 'task')) {
+          if (
+            (targetKind === 'task' && item.kind !== 'task') ||
+            (targetKind === 'event' && item.kind !== 'event')
+          ) {
+            setProposalImportKind(pid, targetKind)
+          }
+        }
+        setSecondaryPromotedProposalIds((prev) => new Set(prev).add(pid))
+        setSelectedIds((prev) => new Set(prev).add(pid))
+        logEvent(targetKind === 'task' ? 'secondaryCandidatePromotedToTask' : 'secondaryCandidatePromotedToEvent', {
+          candidateId: c.candidateId,
+          sourceProposalId: pid,
+          confidence: c.confidence,
+          suggestedKind: c.suggestedKind,
+        })
+        if (import.meta.env.DEV || import.meta.env.VITE_DEBUG_SCHOOL_IMPORT === 'true') {
+          console.debug(
+            targetKind === 'task' ? 'secondaryCandidatePromotedToTask' : 'secondaryCandidatePromotedToEvent',
+            { candidateId: c.candidateId, sourceProposalId: pid }
+          )
+        }
+        return
+      }
+
+      if (!bundle) return
+      const childDefault = defaultChildPersonId(people, validPersonIds) || defaultPersonId
+      const newItem: PortalProposalItem =
+        targetKind === 'task'
+          ? buildTaskProposalFromSecondaryCandidate(c, bundle.provenance, childDefault)
+          : buildEventProposalFromSecondaryCandidate(c, bundle.provenance, childDefault)
+
+      setBundle((prev) => (prev ? { ...prev, items: [...prev.items, newItem] } : null))
+      setDraftByProposalId((prev) => ({
+        ...prev,
+        [newItem.proposalId]: importDraftFromProposal(
+          newItem,
+          validPersonIds,
+          defaultPersonId,
+          people,
+          hint
+        ),
+      }))
+      setSelectedIds((prev) => new Set(prev).add(newItem.proposalId))
+      setSecondaryDismissedCandidateIds((prev) => new Set(prev).add(c.candidateId))
+      logEvent(targetKind === 'task' ? 'secondaryCandidatePromotedToTask' : 'secondaryCandidatePromotedToEvent', {
+        candidateId: c.candidateId,
+        newProposalId: newItem.proposalId,
+        confidence: c.confidence,
+        suggestedKind: c.suggestedKind,
+        apiOnly: true,
+      })
+      if (import.meta.env.DEV || import.meta.env.VITE_DEBUG_SCHOOL_IMPORT === 'true') {
+        console.debug(
+          targetKind === 'task' ? 'secondaryCandidatePromotedToTask' : 'secondaryCandidatePromotedToEvent',
+          { candidateId: c.candidateId, newProposalId: newItem.proposalId, apiOnly: true }
+        )
+      }
+    },
+    [bundle, people, validPersonIds, setProposalImportKind]
+  )
+
+  const dismissSecondaryImportCandidate = useCallback((c: PortalSecondaryImportCandidate, reason: 'ignore' | 'noise') => {
+    setSecondaryDismissedCandidateIds((prev) => new Set(prev).add(c.candidateId))
+    if (reason === 'noise') {
+      logEvent('secondaryCandidateSuppressedAsNoise', {
+        candidateId: c.candidateId,
+        titleSnippet: c.title.slice(0, 120),
+      })
+      if (import.meta.env.DEV || import.meta.env.VITE_DEBUG_SCHOOL_IMPORT === 'true') {
+        console.debug('secondaryCandidateSuppressedAsNoise', { candidateId: c.candidateId })
+      }
+    } else {
+      logEvent('secondaryCandidateIgnored', {
+        candidateId: c.candidateId,
+        confidence: c.confidence,
+        suggestedKind: c.suggestedKind,
+      })
+    }
+  }, [])
+
   return {
     step,
     inputMode,
@@ -2371,6 +2717,10 @@ export function useTankestromImport({
     bundle,
     proposalItems,
     calendarProposalItems,
+    primaryCalendarProposalItems,
+    visibleSecondaryImportCandidates,
+    promoteSecondaryImportCandidate,
+    dismissSecondaryImportCandidate,
     eventProposals,
     selectedIds,
     toggleProposal,
@@ -2383,6 +2733,9 @@ export function useTankestromImport({
     error,
     analyzeWarning,
     runAnalyze,
+    reanalyzeFromSameInput,
+    addManualReviewTask,
+    addManualReviewEvent,
     approveSelected,
     saveSchoolProfile,
     people,

@@ -6,6 +6,7 @@ import type {
   PortalProposalItem,
   PortalSchoolProfileProposal,
   PortalSchoolWeekOverlayProposal,
+  PortalSecondaryImportCandidate,
   PortalSourceSystem,
   PortalTaskProposal,
   SchoolWeekOverlayDailyAction,
@@ -707,7 +708,59 @@ export function parsePortalImportProposalBundle(data: unknown): PortalImportProp
     )
   }
   assertBundleItemKindsCoherent(items)
-  return { schemaVersion: '1.0.0', provenance, items, schoolWeekOverlayProposal }
+  const secondaryCandidates = parseSecondaryCandidatesField(data)
+  return { schemaVersion: '1.0.0', provenance, items, schoolWeekOverlayProposal, secondaryCandidates }
+}
+
+function tryParseSecondaryImportCandidate(raw: unknown, index: number): PortalSecondaryImportCandidate | null {
+  if (!isRecord(raw)) return null
+  const title = typeof raw.title === 'string' ? raw.title.trim() : ''
+  if (title.length < 4 || title.length > 220) return null
+  const candidateId =
+    typeof raw.candidateId === 'string' && raw.candidateId.trim().length > 0
+      ? raw.candidateId.trim()
+      : typeof raw.id === 'string' && raw.id.trim().length > 0
+        ? raw.id.trim()
+        : `api-secondary-${index}`
+  const confRaw = raw.confidence
+  const conf =
+    typeof confRaw === 'number' && Number.isFinite(confRaw)
+      ? confRaw
+      : typeof confRaw === 'string' && confRaw.trim() !== ''
+        ? Number(confRaw)
+        : NaN
+  const confidence = Number.isFinite(conf) ? conf : 0.48
+  if (confidence < 0.22 || confidence > 0.94) return null
+  const skRaw = raw.suggestedKind
+  const suggestedKind = skRaw === 'task' || skRaw === 'event' ? skRaw : 'event'
+  const date = typeof raw.date === 'string' && isDateKey(raw.date) ? raw.date : undefined
+  const notes = typeof raw.notes === 'string' ? raw.notes.trim().slice(0, 2000) : undefined
+  const summary = typeof raw.summary === 'string' ? raw.summary.trim().slice(0, 500) : undefined
+  const sourceProposalId =
+    typeof raw.sourceProposalId === 'string' && raw.sourceProposalId.trim().length > 0
+      ? raw.sourceProposalId.trim()
+      : undefined
+  return {
+    candidateId,
+    title,
+    confidence,
+    suggestedKind,
+    date,
+    notes,
+    summary,
+    sourceProposalId,
+  }
+}
+
+function parseSecondaryCandidatesField(data: Record<string, unknown>): PortalSecondaryImportCandidate[] | undefined {
+  const raw = data.secondaryCandidates ?? data.maybeRelevant ?? data.maybeRelevantCandidates
+  if (!Array.isArray(raw)) return undefined
+  const out: PortalSecondaryImportCandidate[] = []
+  for (let i = 0; i < raw.length; i++) {
+    const c = tryParseSecondaryImportCandidate(raw[i], i)
+    if (c) out.push(c)
+  }
+  return out.length > 0 ? out.slice(0, 12) : undefined
 }
 
 type AnalyzePayload =
@@ -836,6 +889,14 @@ export function mergePortalImportProposalBundles(bundles: PortalImportProposalBu
   const overlay = bundles.map((b) => b.schoolWeekOverlayProposal).find((p) => p != null)
   assertBundleItemKindsCoherent(items)
   const base = bundles[0]!.provenance
+  const secondaryById = new Map<string, PortalSecondaryImportCandidate>()
+  for (const b of bundles) {
+    for (const c of b.secondaryCandidates ?? []) {
+      if (!secondaryById.has(c.candidateId)) secondaryById.set(c.candidateId, c)
+    }
+  }
+  const secondaryMerged =
+    secondaryById.size > 0 ? [...secondaryById.values()].slice(0, 12) : undefined
   return {
     schemaVersion: '1.0.0',
     provenance: {
@@ -845,6 +906,7 @@ export function mergePortalImportProposalBundles(bundles: PortalImportProposalBu
     },
     items,
     schoolWeekOverlayProposal: overlay,
+    secondaryCandidates: secondaryMerged,
   }
 }
 

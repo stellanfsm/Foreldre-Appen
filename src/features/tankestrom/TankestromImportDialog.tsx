@@ -2193,6 +2193,10 @@ export function TankestromImportDialog({
     bundle,
     analyzeWarning,
     calendarProposalItems,
+    primaryCalendarProposalItems,
+    visibleSecondaryImportCandidates,
+    promoteSecondaryImportCandidate,
+    dismissSecondaryImportCandidate,
     embeddedScheduleReviewRowsByParentId,
     detachedEmbeddedChildren,
     detachEmbeddedScheduleChild,
@@ -2207,6 +2211,9 @@ export function TankestromImportDialog({
     saveLoading,
     error,
     runAnalyze,
+    reanalyzeFromSameInput,
+    addManualReviewTask,
+    addManualReviewEvent,
     approveSelected,
     saveSchoolProfile,
     saveSchoolWeekOverlayThenCalendarSelection,
@@ -2313,7 +2320,7 @@ export function TankestromImportDialog({
 
   const calendarReviewFlatEntries = useMemo(() => {
     const out: Array<{ item: PortalProposalItem; detachedFromParentLabel?: string }> = []
-    for (const it of calendarProposalItems) {
+    for (const it of primaryCalendarProposalItems) {
       out.push({ item: it })
       for (const d of detachedEmbeddedChildren) {
         if (d.parentProposalId === it.proposalId) {
@@ -2322,7 +2329,7 @@ export function TankestromImportDialog({
       }
     }
     return out
-  }, [calendarProposalItems, detachedEmbeddedChildren])
+  }, [primaryCalendarProposalItems, detachedEmbeddedChildren])
 
   const reviewSelectionStats = useMemo(() => {
     const total = calendarReviewFlatEntries.length
@@ -2422,8 +2429,8 @@ export function TankestromImportDialog({
   }, [schoolWeekOverlayProposal])
 
   const homeworkTaskItemsCount = useMemo(
-    () => calendarProposalItems.filter((i) => i.kind === 'task').length,
-    [calendarProposalItems]
+    () => primaryCalendarProposalItems.filter((i) => i.kind === 'task').length,
+    [primaryCalendarProposalItems]
   )
   const selectedHomeworkTaskCount = useMemo(() => {
     let n = 0
@@ -2455,7 +2462,7 @@ export function TankestromImportDialog({
   const tasksDefaultedToGlobalChild = useMemo(() => {
     if (!schoolProfileChildId.trim()) return 0
     let n = 0
-    for (const item of calendarProposalItems) {
+    for (const item of primaryCalendarProposalItems) {
       if (item.kind !== 'task') continue
       const draft = draftByProposalId[item.proposalId]
       if (draft?.importKind === 'task' && draft.task.childPersonId.trim() === schoolProfileChildId.trim()) {
@@ -2463,7 +2470,7 @@ export function TankestromImportDialog({
       }
     }
     return n
-  }, [calendarProposalItems, draftByProposalId, schoolProfileChildId])
+  }, [primaryCalendarProposalItems, draftByProposalId, schoolProfileChildId])
 
   const overlayDraftBaselineRef = useRef<string>('')
   useEffect(() => {
@@ -2526,7 +2533,7 @@ export function TankestromImportDialog({
     }
 
     let changedTaskDrafts = 0
-    for (const item of calendarProposalItems) {
+    for (const item of primaryCalendarProposalItems) {
       if (item.kind !== 'task') continue
       const pid = item.proposalId
       const d = draftByProposalId[pid]
@@ -2553,7 +2560,7 @@ export function TankestromImportDialog({
     schoolReview,
     schoolWeekOverlayProposal,
     schoolProfileChildId,
-    calendarProposalItems,
+    primaryCalendarProposalItems,
     draftByProposalId,
     updateTaskDraft,
   ])
@@ -2641,6 +2648,22 @@ export function TankestromImportDialog({
                   {inputMode === 'file' ? analyzedSourceSummary ?? 'Filer' : 'Limt inn tekst'}
                 </span>
               </p>
+              <div className="px-4 pb-2">
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  fullWidth
+                  loading={analyzeLoading}
+                  disabled={saveLoading || !hasPeople}
+                  onClick={() => void reanalyzeFromSameInput()}
+                >
+                  Analyser på nytt
+                </Button>
+                <p className="mt-1.5 text-[10px] leading-snug text-zinc-500">
+                  Samme {inputMode === 'file' ? 'filer' : 'tekst'} som forrige analyse — nytt forsøk fra tjenesten.
+                </p>
+              </div>
               {DEBUG_SCHOOL_IMPORT_PANEL && schoolReview ? (
                 <div
                   role="status"
@@ -3070,6 +3093,15 @@ export function TankestromImportDialog({
             </div>
           ) : (
             <div className="space-y-4">
+              {analyzeLoading && !bundle ? (
+                <p
+                  className="rounded-lg border border-brandTeal/20 bg-brandSky/20 px-3 py-2.5 text-[13px] text-brandNavy"
+                  role="status"
+                  aria-live="polite"
+                >
+                  Analyserer på nytt …
+                </p>
+              ) : null}
               {schoolWeekOverlayProposal ? (
                 <div className="rounded-xl border border-indigo-200/90 bg-indigo-50/60 px-3 py-2.5">
                   <label htmlFor="ts-global-overlay-child" className="text-[12px] font-medium text-indigo-950">
@@ -3162,7 +3194,40 @@ export function TankestromImportDialog({
                 ) : null}
               </div>
 
-              {calendarProposalItems.length > 0 ? (
+              {bundle ? (
+                <div className="rounded-xl border border-zinc-200 bg-white px-3 py-2.5 shadow-sm">
+                  <p className="text-[12px] font-semibold text-zinc-900">Legg til selv</p>
+                  <p className="mt-1 text-[10px] leading-snug text-zinc-500">
+                    Nye kort får samme behandling som analysen: rediger, huk av, og importer sammen med resten.
+                  </p>
+                  <div className="mt-2 flex flex-col gap-2 sm:flex-row">
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      size="sm"
+                      fullWidth
+                      className="sm:flex-1"
+                      disabled={analyzeLoading || saveLoading}
+                      onClick={() => addManualReviewTask()}
+                    >
+                      Legg til gjøremål
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      size="sm"
+                      fullWidth
+                      className="sm:flex-1"
+                      disabled={analyzeLoading || saveLoading}
+                      onClick={() => addManualReviewEvent()}
+                    >
+                      Legg til hendelse
+                    </Button>
+                  </div>
+                </div>
+              ) : null}
+
+              {primaryCalendarProposalItems.length > 0 ? (
                 <div className="rounded-xl border border-zinc-200/95 bg-white px-3 py-2.5 shadow-sm">
                   <p className="text-[12px] font-semibold text-zinc-900">Gjelder for</p>
                   <p className="mt-1 text-[10px] leading-snug text-zinc-500 sm:text-[11px]">
@@ -4657,6 +4722,71 @@ export function TankestromImportDialog({
                 })}
               </ul>
 
+              {visibleSecondaryImportCandidates.length > 0 ? (
+                <div className="mt-4 rounded-xl border border-dashed border-zinc-200 bg-zinc-50/60 px-3 py-3 sm:mt-5">
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">
+                    Kanskje også relevant
+                  </p>
+                  <p className="mt-1 text-[10px] leading-snug text-zinc-500">
+                    Noen treff er holdt utenfor hovedlisten. Du kan fortsatt ta dem med som gjøremål eller hendelse.
+                  </p>
+                  <ul className="mt-3 space-y-2.5" aria-label="Usikre kandidater">
+                    {visibleSecondaryImportCandidates.map((c) => {
+                      const kindHint = c.suggestedKind === 'task' ? 'Gjøremål' : 'Hendelse'
+                      const compactConf = confidenceBadgeCompactStyle(c.confidence)
+                      return (
+                        <li
+                          key={c.candidateId}
+                          className="rounded-lg border border-zinc-200/80 bg-white/90 px-2.5 py-2.5 shadow-sm"
+                        >
+                          <div className="min-w-0">
+                            <p className="text-[12px] font-medium leading-snug text-zinc-800 line-clamp-3">
+                              {c.title}
+                            </p>
+                            {c.summary ? (
+                              <p className="mt-0.5 line-clamp-2 text-[10px] leading-snug text-zinc-500">
+                                {c.summary}
+                              </p>
+                            ) : null}
+                            <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                              <span
+                                className={`inline-flex rounded border px-1 py-px text-[9px] font-semibold tabular-nums ${compactConf.className}`}
+                              >
+                                {compactConf.label}
+                              </span>
+                              <span className="text-[9px] text-zinc-400">Modellforslag: {kindHint}</span>
+                            </div>
+                          </div>
+                          <div className="mt-2.5 flex flex-col gap-1.5 sm:flex-row sm:flex-wrap">
+                            <button
+                              type="button"
+                              className="rounded-lg border border-zinc-200 bg-white px-2.5 py-2 text-[11px] font-semibold text-zinc-800 touch-manipulation hover:bg-zinc-50 active:bg-zinc-100"
+                              onClick={() => promoteSecondaryImportCandidate(c, 'task')}
+                            >
+                              Gjør til gjøremål
+                            </button>
+                            <button
+                              type="button"
+                              className="rounded-lg border border-zinc-200 bg-white px-2.5 py-2 text-[11px] font-semibold text-zinc-800 touch-manipulation hover:bg-zinc-50 active:bg-zinc-100"
+                              onClick={() => promoteSecondaryImportCandidate(c, 'event')}
+                            >
+                              Gjør til hendelse
+                            </button>
+                            <button
+                              type="button"
+                              className="rounded-lg px-2.5 py-2 text-[11px] font-semibold text-zinc-500 touch-manipulation hover:bg-zinc-100 hover:text-zinc-700"
+                              onClick={() => dismissSecondaryImportCandidate(c, 'ignore')}
+                            >
+                              Ignorer
+                            </button>
+                          </div>
+                        </li>
+                      )
+                    })}
+                  </ul>
+                </div>
+              ) : null}
+
               {selectedIds.size > 0 && !canApproveSelection && (
                 <p className="text-[12px] leading-snug text-amber-900">
                   <span className="font-semibold">Mangler eller ugyldig data</span> på et eller flere valgte kort. Se
@@ -4701,7 +4831,7 @@ export function TankestromImportDialog({
               variant="primary"
               className="flex-1"
               loading={saveLoading}
-              disabled={!hasPeople || !canSaveSchoolProfile}
+              disabled={!hasPeople || !canSaveSchoolProfile || analyzeLoading}
               title={
                 schoolLessonConflicts.length > 0
                   ? 'Velg ett fag for hvert spor som kolliderer før du lagrer'
@@ -4719,6 +4849,7 @@ export function TankestromImportDialog({
               loading={saveLoading}
               disabled={
                 !hasPeople ||
+                analyzeLoading ||
                 (schoolWeekOverlayProposal
                   ? !canSaveSchoolWeekOverlay || (selectedIds.size > 0 && !canApproveSelection)
                   : !canApproveSelection)
