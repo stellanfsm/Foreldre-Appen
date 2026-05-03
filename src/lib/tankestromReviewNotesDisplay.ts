@@ -3,7 +3,7 @@
  * Endrer ikke persisted data — kun presentasjon i import-review.
  */
 
-function normalizeNotesDedupeKey(s: string): string {
+export function normalizeNotesDedupeKey(s: string): string {
   return s
     .toLocaleLowerCase('nb-NO')
     .replace(/\s+/g, ' ')

@@ -22,6 +22,10 @@ import {
 } from '../../lib/embeddedSchedule'
 import { normalizeEmbeddedScheduleParentDisplayTitle } from '../../lib/tankestromCupEmbeddedScheduleMerge'
 import { semanticTitleCore } from '../../lib/tankestromImportDedupe'
+import {
+  presentEmbeddedChildNotesForReview,
+  presentationHasRenderableContent,
+} from '../../lib/tankestromEmbeddedChildNotesPresentation'
 import { stripRedundantHighlightsForReviewDisplay } from '../../lib/tankestromReviewNotesDisplay'
 import type {
   ChildSchoolDayPlan,
@@ -1790,22 +1794,6 @@ function logHighlightsReviewDebug(
   })
 }
 
-/** Segmentnotater i delprogram: fjern redundant «Høydepunkter» som gjentar tittel/notat. */
-function embeddedChildNotesForReviewDisplay(
-  seg: EmbeddedScheduleSegment,
-  compareAgainstTitle: string | undefined,
-  childProposalId: string
-): string | null {
-  const raw = embeddedScheduleChildSegmentNotesBody(seg)
-  if (!raw) return null
-  const { text, suppressed } = stripRedundantHighlightsForReviewDisplay(raw, {
-    compareAgainst: compareAgainstTitle?.trim() || undefined,
-  })
-  logHighlightsReviewDebug(raw, suppressed, { context: 'embedded_child', childProposalId })
-  const out = text?.trim() ?? ''
-  return out.length > 0 ? out : null
-}
-
 function parentEventNotesForReviewPreview(
   notesRaw: string | undefined,
   embeddedParent: boolean,
@@ -3410,11 +3398,12 @@ export function TankestromImportDialog({
                                     })
                                   }
                                   const delprogramDetailOpen = expandedDelprogramChildIds.has(childId)
-                                  const childNotesBody = embeddedChildNotesForReviewDisplay(
-                                    row.segment,
+                                  const childNotesPresentation = presentEmbeddedChildNotesForReview({
+                                    seg: row.segment,
+                                    parentCardTitle: parentTitleForChild,
                                     displayTitle,
-                                    childId
-                                  )
+                                    childProposalId: childId,
+                                  })
                                   const detailPanelId = `delprogram-child-detail-${childId}`
                                   const detailTriggerId = `delprogram-child-trigger-${childId}`
                                   return (
@@ -3525,19 +3514,60 @@ export function TankestromImportDialog({
                                               </div>
                                             ) : null}
                                           </dl>
-                                          <div>
-                                            <p className="text-[9px] font-semibold uppercase tracking-wide text-zinc-400 sm:text-[10px]">
-                                              Notater for dette punktet
-                                            </p>
-                                            {childNotesBody ? (
-                                              <div className="mt-1 max-h-36 overflow-y-auto rounded-md border border-zinc-100 bg-zinc-50/80 px-2 py-1.5 text-[11px] leading-snug text-zinc-800 sm:max-h-44 sm:text-[12px]">
-                                                <p className="whitespace-pre-wrap break-words">{childNotesBody}</p>
+                                          <div className="space-y-3">
+                                            {childNotesPresentation?.mode === 'structured' &&
+                                            childNotesPresentation.highlights.length > 0 ? (
+                                              <div>
+                                                <p className="text-[9px] font-semibold uppercase tracking-wide text-zinc-500 sm:text-[10px]">
+                                                  Høydepunkter
+                                                </p>
+                                                <ul className="mt-1.5 space-y-1.5 sm:space-y-2">
+                                                  {childNotesPresentation.highlights.map((h, i) => (
+                                                    <li
+                                                      key={`${h.sortMinutes}-${i}`}
+                                                      className="flex gap-2 text-[11px] leading-snug sm:text-[12px]"
+                                                    >
+                                                      <span className="shrink-0 font-semibold tabular-nums text-brandNavy">
+                                                        {h.displayTime}
+                                                      </span>
+                                                      <span className="min-w-0 text-zinc-800">{h.label}</span>
+                                                    </li>
+                                                  ))}
+                                                </ul>
                                               </div>
-                                            ) : (
-                                              <p className="mt-1 text-[11px] leading-snug text-zinc-500 sm:text-[12px]">
+                                            ) : null}
+                                            {childNotesPresentation?.mode === 'structured' &&
+                                            childNotesPresentation.noteLines.length > 0 ? (
+                                              <div>
+                                                <p className="text-[9px] font-semibold uppercase tracking-wide text-zinc-500 sm:text-[10px]">
+                                                  Notater
+                                                </p>
+                                                <ul className="mt-1.5 list-disc space-y-1 pl-4 text-[11px] leading-snug text-zinc-800 sm:text-[12px]">
+                                                  {childNotesPresentation.noteLines.map((n, i) => (
+                                                    <li key={i} className="break-words pl-0.5">
+                                                      {n}
+                                                    </li>
+                                                  ))}
+                                                </ul>
+                                              </div>
+                                            ) : null}
+                                            {childNotesPresentation?.mode === 'plain' ? (
+                                              <div>
+                                                <p className="text-[9px] font-semibold uppercase tracking-wide text-zinc-500 sm:text-[10px]">
+                                                  Notater
+                                                </p>
+                                                <div className="mt-1.5 max-h-36 overflow-y-auto rounded-md border border-zinc-100 bg-zinc-50/80 px-2 py-1.5 text-[11px] leading-snug text-zinc-800 sm:max-h-44 sm:text-[12px]">
+                                                  <p className="whitespace-pre-wrap break-words">
+                                                    {childNotesPresentation.notesText}
+                                                  </p>
+                                                </div>
+                                              </div>
+                                            ) : null}
+                                            {!presentationHasRenderableContent(childNotesPresentation) ? (
+                                              <p className="text-[11px] leading-snug text-zinc-500 sm:text-[12px]">
                                                 Ingen egne notater for dette programpunktet.
                                               </p>
-                                            )}
+                                            ) : null}
                                           </div>
                                         </div>
                                       ) : null}
