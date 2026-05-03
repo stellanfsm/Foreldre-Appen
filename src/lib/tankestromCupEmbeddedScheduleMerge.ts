@@ -73,6 +73,8 @@ const PARENT_TITLE_TRAILERS: RegExp[] = [
   /\s*[–—\-:]\s*(?:uke|helg)\s+\d+.*$/i,
   /\s*[–—\-:]\s*(?:mandag|tirsdag|onsdag|torsdag|fredag|lørdag|søndag)\b(?:\s+\d{1,2}\.?(?:\s+[a-zæøå]+)?(?:\s+\d{4})?)?\s*$/i,
   /\s+[–—\-]\s*(?:fredag|lørdag|søndag)\s*$/i,
+  /** Tankestrøm: «Cup – fredag 12. juni – søndag 14. juni» i én sveip (flere ledd etter første ukedag). */
+  /\s*[–—\-]\s*(?:mandag|tirsdag|onsdag|torsdag|fredag|lørdag|søndag)\b.*$/i,
 ]
 
 /**

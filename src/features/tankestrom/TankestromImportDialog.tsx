@@ -1823,6 +1823,7 @@ function TankestromEmbeddedSchedulePreview({
   proposalId,
   item,
   segmentsOverride,
+  parentTitleForPreviewLines,
   expanded,
   onToggleExpanded,
 }: {
@@ -1830,6 +1831,8 @@ function TankestromEmbeddedSchedulePreview({
   item: PortalEventProposal
   /** Når satt (f.eks. gjenværende rader etter løsning), brukes den i stedet for metadata på item. */
   segmentsOverride?: EmbeddedScheduleSegment[]
+  /** Container-normalisert foreldertittel (unngår dag/dato i programlinjer). */
+  parentTitleForPreviewLines?: string
   expanded: boolean
   onToggleExpanded: () => void
 }) {
@@ -1839,6 +1842,7 @@ function TankestromEmbeddedSchedulePreview({
 
   const visible = expanded ? flat : flat.slice(0, EMBEDDED_SCHEDULE_PREVIEW_COLLAPSED_MAX)
   const remainder = flat.length > EMBEDDED_SCHEDULE_PREVIEW_COLLAPSED_MAX ? flat.length - EMBEDDED_SCHEDULE_PREVIEW_COLLAPSED_MAX : 0
+  const previewParentTitle = parentTitleForPreviewLines?.trim() || item.event.title
 
   if (import.meta.env.DEV || import.meta.env.VITE_DEBUG_SCHOOL_IMPORT === 'true') {
     console.debug('[tankestrom review embedded schedule preview]', {
@@ -1858,7 +1862,7 @@ function TankestromEmbeddedSchedulePreview({
             key={`${proposalId}-emb-${i}-${seg.date}-${seg.start ?? ''}-${seg.title.slice(0, 12)}`}
             className="text-[10px] leading-snug text-zinc-800 sm:text-[11px]"
           >
-            {formatEmbeddedSchedulePreviewLine(seg, item.event.title)}
+            {formatEmbeddedSchedulePreviewLine(seg, previewParentTitle)}
           </li>
         ))}
       </ul>
@@ -3047,8 +3051,8 @@ export function TankestromImportDialog({
                   const showSourceExpandToggle = sourceCtx && shouldOfferSourceExpand(fullSourceDoc, sourceCtx)
                   const sourceExpanded = expandedSourceIds.has(pid)
                   const detailsExpanded = expandedDetailIds.has(pid)
-                  const cardTitle =
-                    (u.importKind === 'event' ? u.event.title : u.task.title).trim() || 'Uten tittel'
+                  const embeddedScheduleParentCard =
+                    !detachedFromParentLabel && isEmbeddedScheduleParentReviewCard(item, u.importKind)
                   const eventFieldErrors =
                     u.importKind === 'event' && checked
                       ? getTankestromDraftFieldErrors(u.event, validPersonIds)
@@ -3092,8 +3096,6 @@ export function TankestromImportDialog({
                     return hm.test(ts) && hm.test(te) ? formatTimeRange(ts, te) : ts && te ? `${ts}–${te}` : '—'
                   })()
 
-                  const embeddedScheduleParentCard =
-                    !detachedFromParentLabel && isEmbeddedScheduleParentReviewCard(item, u.importKind)
                   const embeddedScheduleLen =
                     item.kind === 'event' && Array.isArray(item.event.metadata?.embeddedSchedule)
                       ? item.event.metadata.embeddedSchedule.length
@@ -3102,12 +3104,41 @@ export function TankestromImportDialog({
                     embeddedScheduleParentCard && embeddedScheduleReviewRowsByParentId[pid]
                       ? embeddedScheduleReviewRowsByParentId[pid]!.length
                       : embeddedScheduleLen
-                  const embeddedEndDate =
-                    item.kind === 'event' && typeof item.event.metadata?.endDate === 'string'
-                      ? item.event.metadata.endDate
-                      : u.importKind === 'event'
-                        ? u.event.date
+                  const embeddedEndDateMaxFromProgram = (() => {
+                    if (!embeddedScheduleParentCard || item.kind !== 'event') return ''
+                    const rows = embeddedScheduleReviewRowsByParentId[pid] ?? []
+                    let maxD = u.importKind === 'event' ? u.event.date : ''
+                    for (const r of rows) {
+                      if (r.segment.date.localeCompare(maxD) > 0) maxD = r.segment.date
+                    }
+                    return maxD
+                  })()
+                  const embeddedEndDate = (() => {
+                    if (item.kind !== 'event' || u.importKind !== 'event') return ''
+                    const start = u.event.date
+                    let maxD = start
+                    const metaEnd =
+                      typeof item.event.metadata?.endDate === 'string'
+                        ? item.event.metadata.endDate.trim()
                         : ''
+                    if (metaEnd && /^\d{4}-\d{2}-\d{2}$/.test(metaEnd) && metaEnd.localeCompare(maxD) > 0) {
+                      maxD = metaEnd
+                    }
+                    if (
+                      embeddedEndDateMaxFromProgram &&
+                      embeddedEndDateMaxFromProgram.localeCompare(maxD) > 0
+                    ) {
+                      maxD = embeddedEndDateMaxFromProgram
+                    }
+                    return maxD
+                  })()
+
+                  const cardTitleRaw =
+                    (u.importKind === 'event' ? u.event.title : u.task.title).trim() || 'Uten tittel'
+                  const cardTitle =
+                    embeddedScheduleParentCard && u.importKind === 'event'
+                      ? normalizeEmbeddedScheduleParentDisplayTitle(cardTitleRaw).title
+                      : cardTitleRaw
 
                   const eventPeopleSummary =
                     u.importKind === 'event' ? formatEventDraftPeopleSummary(u.event, people) : ''
@@ -3127,6 +3158,20 @@ export function TankestromImportDialog({
                             ? ` · ${people.find((p) => p.id === u.task.childPersonId)?.name}`
                             : ''
                         }`
+
+                  if (
+                    embeddedScheduleParentCard &&
+                    u.importKind === 'event' &&
+                    (import.meta.env.DEV || import.meta.env.VITE_DEBUG_SCHOOL_IMPORT === 'true')
+                  ) {
+                    console.debug('[tankestrom embedded parent review display]', {
+                      embeddedScheduleParentDisplayTitleNormalized: cardTitle,
+                      embeddedScheduleParentDisplayMetaNormalized: summaryMetaLine,
+                      embeddedScheduleParentSuppressedDayLikeTime: true,
+                      embeddedScheduleParentRenderedAsContainerCard: true,
+                      proposalId: pid,
+                    })
+                  }
 
                   return (
                     <li
@@ -3186,6 +3231,7 @@ export function TankestromImportDialog({
                               proposalId={pid}
                               item={item}
                               segmentsOverride={embeddedScheduleReviewRowsByParentId[pid]?.map((r) => r.segment)}
+                              parentTitleForPreviewLines={cardTitle}
                               expanded={expandedProgramPreviewIds.has(pid)}
                               onToggleExpanded={() => toggleProgramPreviewExpanded(pid)}
                             />
@@ -3198,7 +3244,7 @@ export function TankestromImportDialog({
                               {((): ReactNode => {
                                 const rows = embeddedScheduleReviewRowsByParentId[pid] ?? []
                                 const parentTitleForChild =
-                                  u.importKind === 'event' ? u.event.title : undefined
+                                  u.importKind === 'event' ? cardTitle : undefined
                                 if (import.meta.env.DEV || import.meta.env.VITE_DEBUG_SCHOOL_IMPORT === 'true') {
                                   console.debug('[tankestrom embedded schedule review]', {
                                     embeddedScheduleChildReviewItemsVisible: rows.length,

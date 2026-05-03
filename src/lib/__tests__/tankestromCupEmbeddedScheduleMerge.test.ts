@@ -44,6 +44,15 @@ describe('normalizeEmbeddedScheduleParentDisplayTitle', () => {
     expect(title).not.toMatch(/fredag/i)
     expect(title.toLowerCase()).not.toContain('informasjon for helgen')
   })
+
+  it('fjerner flerdagers datointervall-påsats fra parent-tittel (container)', () => {
+    const { title, wasDayLikeTitle } = normalizeEmbeddedScheduleParentDisplayTitle(
+      'Vårcupen 2026 – fredag 12. juni 2026 – søndag 14. juni 2026'
+    )
+    expect(wasDayLikeTitle).toBe(true)
+    expect(title.trim()).toBe('Vårcupen 2026')
+    expect(title).not.toMatch(/juni|søndag|fredag/i)
+  })
 })
 
 describe('applyCupWeekendEmbeddedScheduleMerge', () => {
