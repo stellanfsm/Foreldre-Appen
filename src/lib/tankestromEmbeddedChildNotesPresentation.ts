@@ -18,6 +18,10 @@ const KL_SUFFIX =
 const SECTION_HEADER_ONLY =
   /^\s*(?:høydepunkt(?:er)?|notater|husk|frister|praktisk|detaljer|dagsprogram|program|informasjon)\s*:?\s*$/i
 
+/** Ledende seksjonsord midt i linje (etter klokkeslett eller i notat). */
+const LEADING_SECTION_PREFIX =
+  /^\s*(?:høydepunkt(?:er)?|notater|status|husk|frister|praktisk|detaljer|dagsprogram|program|informasjon)\s*:\s*/i
+
 const SYNTHETIC_CLOCK = new Set(['00:00', '06:00', '23:59'])
 
 const TIME_TOKEN = /\b([01]?\d|2[0-3]):([0-5]\d)\b/g
@@ -35,6 +39,29 @@ function padHm(h: string, m: string): string {
   const hh = String(parseInt(h, 10)).padStart(2, '0')
   const mm = m.length === 1 ? `0${m}` : m.slice(0, 2)
   return `${hh}:${mm}`
+}
+
+/** Fjern gjentatte seksjonsord fra start av streng (f.eks. «Notater: Notater: …»). */
+export function stripEmbeddedChildSectionPrefixesFromLine(line: string): { text: string; stripped: boolean } {
+  let s = line.trim()
+  let stripped = false
+  for (let i = 0; i < 5 && LEADING_SECTION_PREFIX.test(s); i++) {
+    s = s.replace(LEADING_SECTION_PREFIX, '').trim()
+    stripped = true
+  }
+  return { text: s, stripped }
+}
+
+function cleanHighlightLabel(label: string): string {
+  if (label.trim() === '—') return '—'
+  let { text } = stripEmbeddedChildSectionPrefixesFromLine(label)
+  if (!text) return '—'
+  return text
+}
+
+function cleanNoteLine(line: string): string {
+  const { text } = stripEmbeddedChildSectionPrefixesFromLine(line)
+  return text
 }
 
 export type EmbeddedChildHighlight = {
@@ -104,7 +131,7 @@ function leadingLineHighlight(line: string): InternalHighlight | null {
   }
   const [sh, sm] = [start.slice(0, 2), start.slice(3, 5)]
   const sortMinutes = hmToSortMinutes(sh, sm)
-  const label = rest.length > 0 ? rest : '—'
+  const label = cleanHighlightLabel(rest.length > 0 ? rest : '—')
   const displayTime = timeEnd ? `${start}–${timeEnd}` : start
   return {
     timeStart: start,
@@ -123,7 +150,7 @@ function klSuffixParse(line: string): { highlight: InternalHighlight | null; rem
   const start = padHm(m[2]!, m[3]!)
   if (SYNTHETIC_CLOCK.has(start)) return { highlight: null, remainder: null }
   const rawAfter = (m[4] ?? '').trim().replace(/^[\s.:–—-]+/, '').trim()
-  const label = (before || '—').trim() || '—'
+  const label = cleanHighlightLabel((before || '—').trim() || '—')
   const [sh, sm] = [start.slice(0, 2), start.slice(3, 5)]
   const highlight: InternalHighlight = {
     timeStart: start,
@@ -154,8 +181,9 @@ function inlineTimeHighlights(line: string): { list: InternalHighlight[]; remain
     const start = padHm(mat.h, mat.m)
     const before = trimmed.slice(0, mat.start).replace(/[;,]\s*$|^\s*[•\-\*]\s*/u, '').trim()
     const after = trimmed.slice(mat.end).replace(/^[;,]\s*|\s+og\s+/i, ' ').trim()
-    let label = [before, after].filter(Boolean).join(' ').replace(/\s+/g, ' ').trim()
-    if (!label) label = '—'
+    let label = cleanHighlightLabel(
+      [before, after].filter(Boolean).join(' ').replace(/\s+/g, ' ').trim() || '—'
+    )
     const [sh, sm] = [start.slice(0, 2), start.slice(3, 5)]
     list.push({
       timeStart: start,
@@ -213,8 +241,24 @@ function parseLineForNoteHighlights(line: string): { highlights: InternalHighlig
   return { highlights: list, noteRemainder: rem }
 }
 
-function highlightDedupeKey(h: EmbeddedChildHighlight): string {
-  return normalizeNotesDedupeKey(`${h.timeStart}${h.timeEnd ?? ''}${h.label}`)
+/** Dedupe «18:40 Høydepunkter: Første kamp» med «18:40 Første kamp». */
+function semanticHighlightDedupeKey(h: EmbeddedChildHighlight): string {
+  const lab = cleanHighlightLabel(h.label)
+  const core = semanticTitleCore(lab === '—' ? '' : lab)
+  return `${h.timeStart}|${h.timeEnd ?? ''}|${normalizeNotesDedupeKey(core || lab)}`
+}
+
+function pickRicherHighlightLabel(a: string, b: string): string {
+  const ca = cleanHighlightLabel(a)
+  const cb = cleanHighlightLabel(b)
+  if (ca === '—') return cb
+  if (cb === '—') return ca
+  const na = normalizeNotesDedupeKey(ca)
+  const nb = normalizeNotesDedupeKey(cb)
+  if (na === nb) return ca.length >= cb.length ? ca : cb
+  if (na.includes(nb)) return ca
+  if (nb.includes(na)) return cb
+  return ca.length >= cb.length ? ca : cb
 }
 
 function fullLineDedupeKey(h: EmbeddedChildHighlight): string {
@@ -241,11 +285,14 @@ function logChildNotesDebug(payload: Record<string, unknown>): void {
 
 function noteDuplicatesHighlight(line: string, highlights: EmbeddedChildHighlight[]): boolean {
   const lk = normalizeNotesDedupeKey(line)
+  const lineClean = normalizeNotesDedupeKey(cleanNoteLine(line))
   for (const h of highlights) {
+    const labRaw = cleanHighlightLabel(h.label)
     if (lk === fullLineDedupeKey(h)) return true
-    const lab = normalizeNotesDedupeKey(h.label)
-    if (lab.length >= 4 && lk === lab) return true
-    if (lk.includes(fullLineDedupeKey(h)) && fullLineDedupeKey(h).length >= 10) return true
+    const lab = normalizeNotesDedupeKey(labRaw)
+    const fullClean = normalizeNotesDedupeKey(`${h.displayTime} ${labRaw}`)
+    if (lab.length >= 4 && (lk === lab || lineClean === lab)) return true
+    if (lk.includes(fullClean) && fullClean.length >= 10) return true
   }
   return false
 }
@@ -306,6 +353,7 @@ export function presentEmbeddedChildNotesForReview(args: {
   const lines = text.split(/\n/).map((l) => l.trim())
   const highlightsDraft: InternalHighlight[] = []
   const noteCandidates: string[] = []
+  let sectionPrefixStripped = 0
 
   for (const line of lines) {
     if (!line) continue
@@ -313,12 +361,24 @@ export function presentEmbeddedChildNotesForReview(args: {
 
     const { highlights: fromLine, noteRemainder } = parseLineForNoteHighlights(line)
     if (fromLine.length > 0) {
-      highlightsDraft.push(...fromLine)
+      for (const fh of fromLine) {
+        const beforeLab = fh.label
+        fh.label = cleanHighlightLabel(fh.label)
+        if (beforeLab !== fh.label) sectionPrefixStripped += 1
+        highlightsDraft.push(fh)
+      }
       if (noteRemainder && noteRemainder.length >= 6) {
-        noteCandidates.push(noteRemainder)
+        const nr = cleanNoteLine(noteRemainder)
+        const beforeN = noteRemainder.trim()
+        if (beforeN !== nr) sectionPrefixStripped += 1
+        if (nr.length >= 6) noteCandidates.push(nr)
       }
     } else {
-      noteCandidates.push(line)
+      const cn = cleanNoteLine(line)
+      if (cn.length > 0) {
+        if (line.trim() !== cn) sectionPrefixStripped += 1
+        noteCandidates.push(cn)
+      }
     }
   }
 
@@ -332,7 +392,7 @@ export function presentEmbeddedChildNotesForReview(args: {
       genericSegmentTimeSuppressed = true
       concreteTimesPromoted = true
     } else {
-      const label = (displayTitle.trim() || seg.title.trim() || '—').trim()
+      const label = cleanHighlightLabel((displayTitle.trim() || seg.title.trim() || '—').trim())
       highlightsDraft.push({
         timeStart: segClock.start,
         timeEnd: segClock.end,
@@ -346,10 +406,21 @@ export function presentEmbeddedChildNotesForReview(args: {
 
   const beforeDedupe = highlightsDraft.length
   const byKey = new Map<string, InternalHighlight>()
+  let semanticHighlightDedupes = 0
   for (const h of highlightsDraft) {
-    const k = highlightDedupeKey(h)
+    const k = semanticHighlightDedupeKey(h)
     const prev = byKey.get(k)
-    if (!prev || h.label.length > prev.label.length) byKey.set(k, h)
+    if (prev) semanticHighlightDedupes += 1
+    if (!prev) {
+      byKey.set(k, { ...h })
+    } else {
+      const mergedLabel = pickRicherHighlightLabel(prev.label, h.label)
+      byKey.set(k, {
+        ...prev,
+        label: cleanHighlightLabel(mergedLabel),
+        _source: prev._source === 'note' || h._source === 'note' ? 'note' : prev._source,
+      })
+    }
   }
   let highlights = [...byKey.values()].sort((a, b) => a.sortMinutes - b.sortMinutes)
 
@@ -381,6 +452,8 @@ export function presentEmbeddedChildNotesForReview(args: {
     noteLines = pruned.kept
 
     logChildNotesDebug({
+      embeddedScheduleChildSectionPrefixStripped: sectionPrefixStripped > 0,
+      embeddedScheduleChildHighlightDedupedSemantically: semanticHighlightDedupes > 0,
       embeddedScheduleChildGenericSegmentTimeSuppressed: genericSegmentTimeSuppressed,
       embeddedScheduleChildConcreteTimesPromoted: concreteTimesPromoted,
       embeddedScheduleChildHighlightsRenderedAsList: publicHighlights.length > 0,
@@ -397,11 +470,21 @@ export function presentEmbeddedChildNotesForReview(args: {
     return { mode: 'structured', highlights: publicHighlights, noteLines }
   }
 
-  const plainLines = filterParent(lines.filter(Boolean))
+  const rawForPlain = filterParent(lines.filter(Boolean))
+  let plainSectionStripped = 0
+  const plainLines = rawForPlain
+    .map((l) => {
+      const cn = cleanNoteLine(l)
+      if (l.trim() !== cn) plainSectionStripped += 1
+      return cn
+    })
+    .filter(Boolean)
   const finalPlain = plainLines.join('\n').trim()
   if (!finalPlain) return null
 
   logChildNotesDebug({
+    embeddedScheduleChildSectionPrefixStripped: plainSectionStripped > 0,
+    embeddedScheduleChildHighlightDedupedSemantically: false,
     embeddedScheduleChildGenericSegmentTimeSuppressed: false,
     embeddedScheduleChildConcreteTimesPromoted: false,
     embeddedScheduleChildHighlightsRenderedAsList: false,
@@ -419,4 +502,124 @@ export function presentationHasRenderableContent(p: EmbeddedChildNotesPresentati
   if (!p) return false
   if (p.mode === 'plain') return p.notesText.trim().length > 0
   return p.highlights.length > 0 || p.noteLines.length > 0
+}
+
+function hmStringToMinutes(hm: string): number {
+  return hmToSortMinutes(hm.slice(0, 2), hm.slice(3, 5))
+}
+
+function subtractMinutesFromHm(hm: string, delta: number): string | null {
+  const total = hmStringToMinutes(hm) - delta
+  if (total < 0 || total > 23 * 60 + 59) return null
+  const nh = Math.floor(total / 60)
+  const nm = total % 60
+  return `${String(nh).padStart(2, '0')}:${String(nm).padStart(2, '0')}`
+}
+
+/** Ett entydig minutt-tall før «før»; ellers null (f.eks. flere ulike verdier). */
+function collectSingleOffsetMinutes(text: string): number | null {
+  const found = new Set<number>()
+  const re = /(\d{1,3})\s*min(?:utter|utt)?\s+før/gi
+  let m: RegExpExecArray | null
+  while ((m = re.exec(text)) !== null) {
+    const n = parseInt(m[1]!, 10)
+    if (n >= 5 && n <= 180) found.add(n)
+  }
+  if (/\ben\s*time\s+før\b/i.test(text)) found.add(60)
+  if (/\bhalv\s*time\s+før\b/i.test(text)) found.add(30)
+  if (found.size !== 1) return null
+  return [...found][0]!
+}
+
+function relativeOffsetContextOk(text: string): boolean {
+  return (
+    /\boppmøte\b|\bmøtes?\b|\bmøt\s+opp\b|\bankomst\b|\binnfinn(?:ing|er)\b/i.test(text) ||
+    /\d{1,3}\s*min(?:utter|utt)?\s+før\s+(?:kampstart|første\s+kamp|første\s+aktivitet|aktiviteten)\b/i.test(
+      text
+    ) ||
+    /\b(?:senest|seneste|minimum)\s+\d{1,3}\s*min(?:utter|utt)?\s+før\b/i.test(text)
+  )
+}
+
+function findActivityAnchorHm(notes: string): string | null {
+  const t = notes.replace(/\r\n/g, '\n')
+  const patterns: RegExp[] = [
+    /første\s+(?:kamp|aktivitet)\D{0,120}?\b([01]?\d|2[0-3]):([0-5]\d)\b/i,
+    /første\s+kamp\s+kl\.?\s*([01]?\d|2[0-3]):([0-5]\d)\b/i,
+    /\b(?:kampstart|kamp)\s+kl\.?\s*([01]?\d|2[0-3]):([0-5]\d)\b/i,
+    /\b([01]?\d|2[0-3]):([0-5]\d)\b(?=[^\n]{0,60}\b(?:første\s+)?kamp\b)/i,
+  ]
+  for (const p of patterns) {
+    const m = p.exec(t)
+    if (m) {
+      const hm = padHm(m[1]!, m[2]!)
+      if (!SYNTHETIC_CLOCK.has(hm)) return hm
+    }
+  }
+  return null
+}
+
+/**
+ * Utled visnings-klokkeslett for oppmøte (presentasjon): aktivitetstid minus offset.
+ * Konservativ: krever ett tydelig minutt-tall, forankring til «første kamp»-lignende tid, og svak kontekst.
+ */
+export function tryDeriveOppmoteStartFromSegmentNotes(
+  seg: EmbeddedScheduleSegment,
+  opts?: { childProposalId?: string }
+): { displayClock: string; anchorHm: string; offsetMinutes: number } | null {
+  const dbg = import.meta.env.DEV || import.meta.env.VITE_DEBUG_SCHOOL_IMPORT === 'true'
+  const log = (payload: Record<string, unknown>) => {
+    if (dbg) console.debug('[tankestrom embedded child derived start]', payload)
+  }
+
+  const raw = typeof seg.notes === 'string' ? seg.notes.trim() : ''
+  if (raw.length < 12) {
+    log({ embeddedScheduleChildDerivedStartTimeSkipped: true, reason: 'notes_too_short', ...opts })
+    return null
+  }
+
+  const offset = collectSingleOffsetMinutes(raw)
+  if (offset == null) {
+    log({ embeddedScheduleChildDerivedStartTimeSkipped: true, reason: 'offset_not_unique_or_missing', ...opts })
+    return null
+  }
+
+  if (!relativeOffsetContextOk(raw)) {
+    log({ embeddedScheduleChildDerivedStartTimeSkipped: true, reason: 'relative_context_weak', ...opts })
+    return null
+  }
+
+  const anchor = findActivityAnchorHm(raw)
+  if (!anchor) {
+    log({ embeddedScheduleChildDerivedStartTimeSkipped: true, reason: 'no_activity_anchor', ...opts })
+    return null
+  }
+
+  log({
+    embeddedScheduleChildRelativeTimeSignalMatched: true,
+    anchorHm: anchor,
+    offsetMinutes: offset,
+    ...opts,
+  })
+
+  const derived = subtractMinutesFromHm(anchor, offset)
+  if (!derived) {
+    log({ embeddedScheduleChildDerivedStartTimeSkipped: true, reason: 'subtract_out_of_range', ...opts })
+    return null
+  }
+
+  if (hmStringToMinutes(derived) >= hmStringToMinutes(anchor)) {
+    log({ embeddedScheduleChildDerivedStartTimeSkipped: true, reason: 'derived_not_before_anchor', ...opts })
+    return null
+  }
+
+  log({
+    embeddedScheduleChildDerivedStartTimeApplied: true,
+    displayClock: derived,
+    anchorHm: anchor,
+    offsetMinutes: offset,
+    ...opts,
+  })
+
+  return { displayClock: derived, anchorHm: anchor, offsetMinutes: offset }
 }

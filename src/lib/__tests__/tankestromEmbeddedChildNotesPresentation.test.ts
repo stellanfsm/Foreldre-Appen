@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import type { EmbeddedScheduleSegment } from '../../types'
-import { presentEmbeddedChildNotesForReview } from '../tankestromEmbeddedChildNotesPresentation'
+import {
+  presentEmbeddedChildNotesForReview,
+  tryDeriveOppmoteStartFromSegmentNotes,
+} from '../tankestromEmbeddedChildNotesPresentation'
 
 describe('presentEmbeddedChildNotesForReview', () => {
   it('samler klokkeslett fra notat, sorterer stigende; dropper segment-vindu når notat har tider', () => {
@@ -102,6 +105,52 @@ describe('presentEmbeddedChildNotesForReview', () => {
     if (p?.mode !== 'structured') return
     expect(p.highlights).toHaveLength(1)
     expect(p.noteLines).toEqual(['Husk drikke'])
+  })
+
+  it('dedupliserer semantisk like highlights med og uten Høydepunkter-prefiks', () => {
+    const seg: EmbeddedScheduleSegment = {
+      date: '2026-06-01',
+      title: 'Dag',
+      notes: ['18:40 Høydepunkter: Første kamp', '18:40 Første kamp'].join('\n'),
+    }
+    const p = presentEmbeddedChildNotesForReview({
+      seg,
+      displayTitle: 'Dag',
+      childProposalId: 'test-dedupe-sem',
+    })
+    expect(p?.mode).toBe('structured')
+    if (p?.mode !== 'structured') return
+    expect(p.highlights).toHaveLength(1)
+    expect(p.highlights[0]!.label.toLowerCase()).toContain('første kamp')
+    expect(p.highlights[0]!.label.toLowerCase()).not.toContain('høydepunkt')
+  })
+
+  it('fjerner ledende Notater: fra notatlinjer', () => {
+    const seg: EmbeddedScheduleSegment = {
+      date: '2026-06-01',
+      title: 'Dag',
+      notes: ['15:00 Kamp', '', 'Notater: Det kan bli kaldt.'].join('\n'),
+    }
+    const p = presentEmbeddedChildNotesForReview({
+      seg,
+      displayTitle: 'Dag',
+      childProposalId: 'test-notat-strip',
+    })
+    expect(p?.mode).toBe('structured')
+    if (p?.mode !== 'structured') return
+    expect(p.noteLines.some((l) => l.toLowerCase().includes('notater:'))).toBe(false)
+    expect(p.noteLines.some((l) => l.toLowerCase().includes('kaldt'))).toBe(true)
+  })
+
+  it('utleder oppmøte når teksten har minutter før og forankret første kamp-tid', () => {
+    const seg: EmbeddedScheduleSegment = {
+      date: '2026-06-01',
+      title: 'Dag',
+      notes: 'Oppmøte 55 minutter før kampstart. Første kamp kl. 18:40.',
+    }
+    const d = tryDeriveOppmoteStartFromSegmentNotes(seg, { childProposalId: 'derive-1' })
+    expect(d?.displayClock).toBe('17:45')
+    expect(d?.anchorHm).toBe('18:40')
   })
 
   it('beholder segmenttid som highlight når notatet ikke har egne klokkeslett', () => {

@@ -25,7 +25,16 @@ import { semanticTitleCore } from '../../lib/tankestromImportDedupe'
 import {
   presentEmbeddedChildNotesForReview,
   presentationHasRenderableContent,
+  tryDeriveOppmoteStartFromSegmentNotes,
 } from '../../lib/tankestromEmbeddedChildNotesPresentation'
+import {
+  logTankestromConditionalCopyDebug,
+  tankestromConditionalAccessibleHintNb,
+  tankestromConditionalBadgeLabelNb,
+  tankestromConditionalDetailStatusNb,
+  tankestromConditionalPreviewTitleSuffixNb,
+  tankestromConditionalTitleSuffixAlreadyPresent,
+} from '../../lib/tankestromConditionalCopy'
 import {
   normalizeNotesDedupeKey,
   stripRedundantHighlightsForReviewDisplay,
@@ -256,6 +265,32 @@ const SUBJECT_INVENTORY_KEYWORDS = new Set<string>(
 )
 
 const MAX_OVERLAY_WEEKLY_SUMMARY_LINE_LEN = 130
+
+/** Listevisning: litt mer plass og ev. «overskrift + brødtekst» ved første ": " på lange titler. */
+type ReviewCardTitleDisplay =
+  | { kind: 'single'; text: string }
+  | { kind: 'split'; headline: string; body: string }
+
+const REVIEW_CARD_TITLE_SPLIT_MIN_LEN = 44
+const REVIEW_CARD_TITLE_HEAD_MIN = 3
+const REVIEW_CARD_TITLE_TAIL_MIN = 12
+
+function reviewCardTitleDisplay(title: string): ReviewCardTitleDisplay {
+  const t = title.trim()
+  if (t.length < REVIEW_CARD_TITLE_SPLIT_MIN_LEN) {
+    return { kind: 'single', text: t }
+  }
+  const idx = t.indexOf(': ')
+  if (idx < REVIEW_CARD_TITLE_HEAD_MIN) {
+    return { kind: 'single', text: t }
+  }
+  const headline = t.slice(0, idx).trim()
+  const body = t.slice(idx + 2).trim()
+  if (headline.length < REVIEW_CARD_TITLE_HEAD_MIN || body.length < REVIEW_CARD_TITLE_TAIL_MIN) {
+    return { kind: 'single', text: t }
+  }
+  return { kind: 'split', headline, body }
+}
 
 function foreignLanguageTokensInLine(line: string): Set<string> {
   const out = new Set<string>()
@@ -1890,14 +1925,47 @@ function formatEmbeddedSchedulePreviewLine(seg: EmbeddedScheduleSegment, parentC
     dayAbbr = seg.date.slice(8, 10) + '.'
   }
   let title = displayTitle
-  if (seg.isConditional && !/\(betinget\)/i.test(title)) {
-    title = `${title} (betinget)`
+  if (seg.isConditional && !tankestromConditionalTitleSuffixAlreadyPresent(title)) {
+    if (import.meta.env.DEV || import.meta.env.VITE_DEBUG_SCHOOL_IMPORT === 'true') {
+      logTankestromConditionalCopyDebug({ conditionalCopyRefined: true, context: 'embedded_preview_line' })
+    }
+    title = `${title} (${tankestromConditionalPreviewTitleSuffixNb()})`
   }
   if (title.length > 42) title = `${title.slice(0, 39)}…`
   const parts = [dayAbbr]
   if (clock) parts.push(clock)
   parts.push(title)
   return parts.join(' · ')
+}
+
+function TankestromReviewConditionalBadge({
+  variant,
+  proposalId,
+}: {
+  variant: 'compact' | 'detail'
+  proposalId?: string
+}) {
+  if (import.meta.env.DEV || import.meta.env.VITE_DEBUG_SCHOOL_IMPORT === 'true') {
+    logTankestromConditionalCopyDebug({
+      conditionalLabelRendered: true,
+      conditionalCopyRefined: true,
+      conditionalHintRendered: true,
+      conditionalUiPlacement: variant,
+      proposalId,
+    })
+  }
+  const label =
+    variant === 'compact' ? tankestromConditionalBadgeLabelNb() : tankestromConditionalDetailStatusNb()
+  return (
+    <span
+      title={tankestromConditionalAccessibleHintNb()}
+      className={`inline-flex max-w-[11rem] rounded-md border border-amber-200/90 bg-amber-50/95 px-1.5 py-px text-[8px] font-semibold leading-snug text-amber-950 sm:max-w-none sm:text-[9px] ${
+        variant === 'detail' ? 'font-medium' : ''
+      }`}
+    >
+      {label}
+    </span>
+  )
 }
 
 function TankestromReviewTaskIntentChip({ proposalId, intent }: { proposalId: string; intent: TaskIntent }) {
@@ -3253,6 +3321,22 @@ export function TankestromImportDialog({
                       ? normalizeEmbeddedScheduleParentDisplayTitle(cardTitleRaw).title
                       : cardTitleRaw
 
+                  const reviewTitleDisplay = reviewCardTitleDisplay(cardTitle)
+                  if (import.meta.env.DEV && cardTitle.length > 72) {
+                    const stillTruncatedHeuristic =
+                      reviewTitleDisplay.kind === 'single'
+                        ? reviewTitleDisplay.text.length > 72
+                        : reviewTitleDisplay.body.length > 56
+                    console.debug('[tankestrom review card title]', {
+                      reviewCardTitleExpandedToMultiLine:
+                        reviewTitleDisplay.kind === 'split' || cardTitle.length > 36,
+                      reviewCardTitleStillTruncated: stillTruncatedHeuristic,
+                      reviewCardSubtitleDerived: reviewTitleDisplay.kind === 'split',
+                      reviewCardTitleFullValueAvailable: true,
+                      proposalId: pid,
+                    })
+                  }
+
                   const notesForPreview =
                     u.importKind === 'event' && embeddedScheduleParentCard
                       ? parentEventNotesForReviewPreview(notesRaw, true, cardTitle, pid)
@@ -3311,8 +3395,24 @@ export function TankestromImportDialog({
                         />
                         <div className="min-w-0 flex-1">
                           <div className="flex items-start gap-1.5">
-                            <p className="min-w-0 flex-1 text-[13px] font-semibold leading-tight text-zinc-900 sm:text-[15px] sm:leading-snug">
-                              <span className="line-clamp-2">{cardTitle}</span>
+                            <p
+                              className="min-w-0 flex-1 text-[13px] font-semibold leading-snug text-zinc-900 sm:text-[15px]"
+                              title={cardTitle}
+                            >
+                              {reviewTitleDisplay.kind === 'split' ? (
+                                <>
+                                  <span className="block break-words text-[12px] font-semibold text-zinc-700 sm:text-[13px]">
+                                    {reviewTitleDisplay.headline}:
+                                  </span>
+                                  <span className="mt-0.5 block break-words leading-snug line-clamp-2 sm:leading-snug">
+                                    {reviewTitleDisplay.body}
+                                  </span>
+                                </>
+                              ) : (
+                                <span className="block break-words leading-snug line-clamp-3 sm:leading-snug">
+                                  {reviewTitleDisplay.text}
+                                </span>
+                              )}
                             </p>
                             <div className="flex shrink-0 flex-wrap items-center justify-end gap-1">
                               {detachedFromParentLabel ? (
@@ -3436,16 +3536,26 @@ export function TankestromImportDialog({
                                     parentTitleForChild
                                   )
                                   const timeDisp = embeddedScheduleChildTimeDisplay(row.segment)
-                                  const timeLabel = timeDisp.clock
-                                    ? timeDisp.clock
-                                    : row.segment.isConditional
-                                      ? '–'
-                                      : 'Tid ikke avklart'
-                                  const uncertainTime = !timeDisp.clock && !row.segment.isConditional
+                                  const derivedOppmote = tryDeriveOppmoteStartFromSegmentNotes(row.segment, {
+                                    childProposalId: childId,
+                                  })
+                                  const timeLabel = derivedOppmote?.displayClock
+                                    ? derivedOppmote.displayClock
+                                    : timeDisp.clock
+                                      ? timeDisp.clock
+                                      : row.segment.isConditional
+                                        ? '–'
+                                        : 'Tid ikke avklart'
+                                  const uncertainTime =
+                                    !derivedOppmote && !timeDisp.clock && !row.segment.isConditional
+                                  const hasConcreteTimeDisplay = Boolean(
+                                    derivedOppmote?.displayClock ?? timeDisp.clock
+                                  )
                                   if (import.meta.env.DEV || import.meta.env.VITE_DEBUG_SCHOOL_IMPORT === 'true') {
                                     console.debug('[tankestrom embedded child display]', {
                                       embeddedScheduleChildDisplayTitleNormalized: displayTitle,
                                       embeddedScheduleChildDisplayTimeNormalized:
+                                        derivedOppmote?.displayClock ??
                                         timeDisp.clock ??
                                         (row.segment.isConditional ? '—' : 'Tid ikke avklart'),
                                       embeddedScheduleChildDisplayedWithoutSyntheticTime:
@@ -3508,7 +3618,7 @@ export function TankestromImportDialog({
                                               </span>
                                               <span
                                                 className={`inline-flex min-h-[1.375rem] shrink-0 items-center tabular-nums text-[10px] sm:min-h-0 sm:text-[11px] ${
-                                                  timeDisp.clock
+                                                  hasConcreteTimeDisplay
                                                     ? 'font-semibold text-brandNavy'
                                                     : row.segment.isConditional
                                                       ? 'font-medium text-zinc-500'
@@ -3518,9 +3628,7 @@ export function TankestromImportDialog({
                                                 {timeLabel}
                                               </span>
                                               {row.segment.isConditional ? (
-                                                <span className="inline-flex rounded-md border border-amber-200/90 bg-amber-50/95 px-1.5 py-px text-[8px] font-semibold uppercase tracking-wide text-amber-900 sm:text-[9px]">
-                                                  Betinget
-                                                </span>
+                                                <TankestromReviewConditionalBadge variant="compact" proposalId={childId} />
                                               ) : null}
                                             </div>
                                             <p className="text-[12px] font-semibold leading-snug text-zinc-900 sm:text-[13px]">
@@ -3574,9 +3682,7 @@ export function TankestromImportDialog({
                                               <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
                                                 <dt className="font-semibold text-zinc-500">Status</dt>
                                                 <dd>
-                                                  <span className="inline-flex rounded-md border border-amber-200/90 bg-amber-50/95 px-1.5 py-px text-[8px] font-semibold uppercase tracking-wide text-amber-900 sm:text-[9px]">
-                                                    Betinget
-                                                  </span>
+                                                  <TankestromReviewConditionalBadge variant="detail" proposalId={childId} />
                                                 </dd>
                                               </div>
                                             ) : null}

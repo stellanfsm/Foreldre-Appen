@@ -5,6 +5,10 @@ import { Button } from './ui/Button'
 import { inputBase, sheetPanel, sheetHandle, sheetHandleBar, sheetDetailBody, sheetSubtitle, btnSecondary, btnDanger } from '../lib/ui'
 import type { EmbeddedScheduleSegment, Event } from '../types'
 import { groupEmbeddedScheduleByDate, parseEmbeddedScheduleFromMetadata } from '../lib/embeddedSchedule'
+import {
+  tankestromConditionalAccessibleHintNb,
+  tankestromConditionalBadgeLabelNb,
+} from '../lib/tankestromConditionalCopy'
 import { formatTimeRange, durationMinutes } from '../lib/time'
 import { useFamily } from '../context/FamilyContext'
 import { getParticipantPeople } from '../lib/eventParticipants'
@@ -287,8 +291,11 @@ export function EventDetailSheet({ event, date, onClose, onEdit, onDelete, onDup
                               <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
                                 <span className="text-[14px] font-medium leading-snug text-zinc-900">{seg.title}</span>
                                 {seg.isConditional && (
-                                  <span className="rounded-md bg-amber-100/90 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-900/85">
-                                    Betinget
+                                  <span
+                                    title={tankestromConditionalAccessibleHintNb()}
+                                    className="rounded-md bg-amber-100/90 px-1.5 py-0.5 text-[10px] font-semibold leading-snug text-amber-950/95"
+                                  >
+                                    {tankestromConditionalBadgeLabelNb()}
                                   </span>
                                 )}
                                 {seg.kind ? (
