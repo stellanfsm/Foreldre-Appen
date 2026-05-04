@@ -221,6 +221,7 @@ function buildDetachedEmbeddedChildProposal(
       : {}
   delete baseMeta.embeddedSchedule
   delete baseMeta.endDate
+  delete baseMeta.multiDayAllDay
   baseMeta.isAllDay = false
   baseMeta.detachedFromEmbeddedParentId = parent.proposalId
   baseMeta.detachedEmbeddedOrigIndex = origIndex
@@ -704,6 +705,18 @@ function mergeEventParticipantsIntoMetadata(
   } else {
     delete metadata.participants
   }
+}
+
+/**
+ * Tankestrøm delprogram: aldri arv forelders flerdagers-/container-felt. Ellers kan
+ * `getAllEventsForDate` projisere samme hendelse på flere dager (isAllDay + endDate).
+ */
+function sanitizeEmbeddedChildCalendarExportMetadata(metadata: Record<string, unknown>): void {
+  delete metadata.endDate
+  delete metadata.embeddedSchedule
+  delete metadata.multiDayAllDay
+  delete metadata.__anchorDate
+  metadata.isAllDay = false
 }
 
 function buildEventDraftFromProposal(
@@ -2312,6 +2325,7 @@ export function useTankestromImport({
             else delete metadata.transport
           }
           mergeEventParticipantsIntoMetadata(metadata, draftEv, validPersonIds)
+          sanitizeEmbeddedChildCalendarExportMetadata(metadata)
           const input: Omit<Event, 'id'> = {
             personId: draftEv.personId,
             title: draftEv.title,
@@ -2322,6 +2336,22 @@ export function useTankestromImport({
             reminderMinutes: draftEv.reminderMinutes,
             recurrenceGroupId: undefined,
             metadata,
+          }
+          if (TANKESTROM_IMPORT_PERSIST_DEBUG) {
+            console.debug('[tankestrom embedded child export]', {
+              embeddedScheduleChildExportPayloadBuilt: {
+                proposalId: id,
+                date: draftEv.date,
+                start: draftEv.start,
+                end: draftEv.end,
+                title: draftEv.title,
+              },
+              embeddedScheduleChildExportDateNormalized: draftEv.date,
+              embeddedScheduleChildExportEndDateRemoved: metadata.endDate === undefined,
+              embeddedScheduleChildExportMultiDayFlagsCleared: metadata.multiDayAllDay === undefined,
+              embeddedScheduleChildExportSingleDayConfirmed:
+                metadata.isAllDay === false && !metadata.endDate && metadata.embeddedSchedule === undefined,
+            })
           }
           try {
             await createEvent(draftEv.date, input)
@@ -2673,8 +2703,8 @@ export function useTankestromImport({
               let baseMeta: Record<string, unknown> = { ...templateEvMeta }
               delete baseMeta.embeddedSchedule
               delete baseMeta.endDate
+              delete baseMeta.multiDayAllDay
               baseMeta.isAllDay = false
-              baseMeta.multiDayAllDay = false
               baseMeta.detachedFromEmbeddedParentId = parentProposal.proposalId
               baseMeta.detachedEmbeddedOrigIndex = row.origIndex
 
@@ -2704,6 +2734,7 @@ export function useTankestromImport({
                 else delete metadata.transport
               }
               mergeEventParticipantsIntoMetadata(metadata, draftEv, validPersonIds)
+              sanitizeEmbeddedChildCalendarExportMetadata(metadata)
 
               const input: Omit<Event, 'id'> = {
                 personId: draftEv.personId,
@@ -2715,6 +2746,23 @@ export function useTankestromImport({
                 reminderMinutes: draftEv.reminderMinutes,
                 recurrenceGroupId: undefined,
                 metadata,
+              }
+
+              if (TANKESTROM_IMPORT_PERSIST_DEBUG) {
+                console.debug('[tankestrom embedded child export]', {
+                  embeddedScheduleChildExportPayloadBuilt: {
+                    proposalId: childProposalId,
+                    date: draftEv.date,
+                    start: draftEv.start,
+                    end: draftEv.end,
+                    title: draftEv.title,
+                  },
+                  embeddedScheduleChildExportDateNormalized: draftEv.date,
+                  embeddedScheduleChildExportEndDateRemoved: metadata.endDate === undefined,
+                  embeddedScheduleChildExportMultiDayFlagsCleared: metadata.multiDayAllDay === undefined,
+                  embeddedScheduleChildExportSingleDayConfirmed:
+                    metadata.isAllDay === false && !metadata.endDate && metadata.embeddedSchedule === undefined,
+                })
               }
 
               try {

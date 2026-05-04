@@ -10,7 +10,8 @@ export function filterForegroundEvents(events: Event[]): Event[] {
 
 /** True if this event is marked as all-day (lives in the all-day row, not the hourly grid). */
 export function isAllDayEvent(e: Event): boolean {
-  return !!e.metadata?.isAllDay
+  /** Kun eksplisitt boolean true — unngår at JSON/arv (f.eks. strengen "false") feilaktig blir heldag. */
+  return e.metadata?.isAllDay === true
 }
 
 /**
