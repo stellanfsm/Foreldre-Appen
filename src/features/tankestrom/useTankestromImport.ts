@@ -179,6 +179,32 @@ function proposalImportDateRangeForMatch(
   return { start, end: start }
 }
 
+/**
+ * Bestem om import skal persistere som oppdatering av eksisterende hendelse.
+ * Når konservativ match finnes og brukeren ikke har valgt eksplisitt «ny», brukes match (standard oppdatering).
+ */
+function resolveTankestromExistingEventPersistPlan(
+  match: ExistingEventMatchResult | undefined,
+  explicitLink: 'new' | 'update' | undefined,
+  explicitTarget: { eventId: string; anchorDate: string } | undefined
+):
+  | { mode: 'update'; target: { eventId: string; anchorDate: string } }
+  | { mode: 'new'; reason: string } {
+  if (explicitLink === 'new') {
+    return { mode: 'new', reason: 'explicit_new' }
+  }
+  const cand = match && !match.rejected && match.candidate ? match.candidate : undefined
+  if (explicitLink === 'update') {
+    if (explicitTarget) return { mode: 'update', target: explicitTarget }
+    if (cand) return { mode: 'update', target: { eventId: cand.event.id, anchorDate: cand.anchorDate } }
+    return { mode: 'new', reason: 'explicit_update_missing_target_and_match' }
+  }
+  if (explicitLink === undefined && cand) {
+    return { mode: 'update', target: { eventId: cand.event.id, anchorDate: cand.anchorDate } }
+  }
+  return { mode: 'new', reason: 'no_match_or_rejected' }
+}
+
 function buildEmbeddedChildEventDraft(
   parentDraft: TankestromEventDraft,
   segment: EmbeddedScheduleSegment,
@@ -1322,6 +1348,7 @@ export function useTankestromImport({
     (proposalId: string, choice: 'new' | 'update', updateTarget?: { eventId: string; anchorDate: string }) => {
       if (import.meta.env.DEV || import.meta.env.VITE_DEBUG_SCHOOL_IMPORT === 'true') {
         console.debug('[tankestrom existing event link]', {
+          existingEventLinkChoiceResolved: choice,
           existingEventUpdateModeSelected: choice,
           proposalId,
           updateTarget,
@@ -2517,14 +2544,59 @@ export function useTankestromImport({
           notes: raw.notes.trim(),
         }
 
+        const persistPlan =
+          item.kind === 'event'
+            ? resolveTankestromExistingEventPersistPlan(
+                existingEventMatchesByProposalId[id],
+                existingEventLinkByProposalId[id],
+                existingEventUpdateTarget[id]
+              )
+            : { mode: 'new' as const, reason: 'not_event' }
+
+        if (import.meta.env.DEV || import.meta.env.VITE_DEBUG_SCHOOL_IMPORT === 'true') {
+          if (item.kind === 'event') {
+            const mr = existingEventMatchesByProposalId[id]
+            console.debug('[tankestrom approve existing event chain]', {
+              proposalId: id,
+              existingEventLinkChoiceResolved: existingEventLinkByProposalId[id] ?? 'unset',
+              existingEventMatchSelectedTarget:
+                persistPlan.mode === 'update' ? persistPlan.target : null,
+              persistPlanMode: persistPlan.mode,
+              persistPlanReason: persistPlan.mode === 'new' ? persistPlan.reason : undefined,
+              matchRejected: mr?.rejected,
+              matchScore: mr?.score,
+              matchRejectReason: mr?.rejectReason,
+            })
+          }
+        }
+
+        if (persistPlan.mode === 'update' && (!editEvent || !getAnchoredForegroundEventsForMatching)) {
+          recordFailure(
+            id,
+            'event',
+            'editEventPrecheck',
+            'validation',
+            !editEvent
+              ? 'Oppdatering er ikke tilgjengelig (mangler editEvent).'
+              : 'Oppdatering er ikke tilgjengelig (mangler kalenderdata for match).'
+          )
+          if (import.meta.env.DEV || import.meta.env.VITE_DEBUG_SCHOOL_IMPORT === 'true') {
+            console.debug('[tankestrom approve existing event chain]', {
+              proposalId: id,
+              existingEventUpdateFlowBrokeAt: !editEvent ? 'missing_editEvent' : 'missing_getAnchoredForegroundEventsForMatching',
+              tankestromApproveSelectedCreateEventChosen: false,
+            })
+          }
+          continue
+        }
+
         if (
           item.kind === 'event' &&
           editEvent &&
           getAnchoredForegroundEventsForMatching &&
-          (existingEventLinkByProposalId[id] ?? 'new') === 'update' &&
-          existingEventUpdateTarget[id]
+          persistPlan.mode === 'update'
         ) {
-          const target = existingEventUpdateTarget[id]!
+          const target = persistPlan.target
           const anchorsNow = getAnchoredForegroundEventsForMatching()
           const found = anchorsNow.find((a) => a.event.id === target.eventId)
           if (!found) {
@@ -2571,9 +2643,12 @@ export function useTankestromImport({
           let clusterCleanupProgramDates: string[] = []
           if (isEmbeddedScheduleParentCalendarItem(item)) {
             const rows = embeddedScheduleReviewRowsByParentId[item.proposalId] ?? []
-            const included = rows.filter((r) =>
+            let included = rows.filter((r) =>
               selectedIds.has(makeEmbeddedChildProposalId(item.proposalId, r.origIndex))
             )
+            if (included.length === 0 && rows.length > 0) {
+              included = rows
+            }
             const parentTitleForSegments = normalizeEmbeddedScheduleParentDisplayTitle(draft.title.trim()).title
             baseMeta.embeddedSchedule = included.map((r) => ({
               ...r.segment,
@@ -2615,6 +2690,14 @@ export function useTankestromImport({
           try {
             await editEvent(anchorDate, existingEvent, updates)
             recordSuccess(id, 'event', 'editEvent')
+            if (import.meta.env.DEV || import.meta.env.VITE_DEBUG_SCHOOL_IMPORT === 'true') {
+              console.debug('[tankestrom approve selected]', {
+                tankestromApproveSelectedEditEventChosen: true,
+                proposalId: id,
+                existingEventUpdateTargetResolved: target,
+                existingEventUpdateFlowBrokeAt: null,
+              })
+            }
             if (deleteEvent && clusterCleanupProgramDates.length > 0) {
               await cleanupParallelClusterDayRowsAfterEmbeddedParentUpdate({
                 deleteEvent,
@@ -2641,6 +2724,14 @@ export function useTankestromImport({
           isEmbeddedScheduleParentCalendarItem(item)
 
         if (isEmbeddedParentCreate) {
+          if (import.meta.env.DEV || import.meta.env.VITE_DEBUG_SCHOOL_IMPORT === 'true') {
+            console.debug('[tankestrom approve selected]', {
+              tankestromApproveSelectedCreateEventChosen: true,
+              proposalId: id,
+              existingEventUpdateFlowBrokeAt:
+                persistPlan.mode === 'new' ? persistPlan.reason : 'edit_branch_not_chosen_for_embedded_parent',
+            })
+          }
           const rows = embeddedScheduleReviewRowsByParentId[item.proposalId] ?? []
           if (rows.length > 0) {
             const included = rows.filter((r) =>
@@ -2985,6 +3076,7 @@ export function useTankestromImport({
     deleteEvent,
     existingEventLinkByProposalId,
     existingEventUpdateTarget,
+    existingEventMatchesByProposalId,
   ])
 
   /**

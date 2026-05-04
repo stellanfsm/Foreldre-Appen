@@ -154,6 +154,15 @@ export function findConservativeExistingEventMatch(
 
   let overlapPersonAnchors = 0
   let missedStrongOverlap = false
+  const scoredCandidatesForDebug: Array<{
+    eventId: string
+    anchorDate: string
+    score: number
+    titleDetail: string
+    containerLike: boolean
+    clusterFollowUp: boolean
+    skippedReason?: string
+  }> = []
 
   for (const anchor of anchoredExisting) {
     const { event, anchorDate } = anchor
@@ -170,7 +179,19 @@ export function findConservativeExistingEventMatch(
     overlapPersonAnchors += 1
 
     const { score: ts, detail: titleDetail } = titleScore(importTitle, event.title)
-    if (ts < 32) continue
+    if (ts < 32) {
+      if (dbg)
+        scoredCandidatesForDebug.push({
+          eventId: event.id,
+          anchorDate,
+          score: 0,
+          titleDetail,
+          containerLike,
+          clusterFollowUp,
+          skippedReason: 'title_below_32',
+        })
+      continue
+    }
 
     let score = ts + 30
     const li = normLoc(proposal.event.location)
@@ -194,6 +215,17 @@ export function findConservativeExistingEventMatch(
     }
     if (clusterFollowUp) {
       score += FOLLOWUP_CLUSTER_SCORE_BOOST
+    }
+
+    if (dbg) {
+      scoredCandidatesForDebug.push({
+        eventId: event.id,
+        anchorDate,
+        score,
+        titleDetail,
+        containerLike,
+        clusterFollowUp,
+      })
     }
 
     const cand = { anchor, score, titleDetail, containerLike, clusterFollowUp }
@@ -220,7 +252,9 @@ export function findConservativeExistingEventMatch(
       console.debug('[tankestrom existing event match]', {
         existingEventCandidateRejected: true,
         existingEventCandidateScore: 0,
+        existingEventMatchCandidateRejectedReason: 'no_candidate_passed_filters',
         reason: 'no_candidate_passed_filters',
+        existingEventMatchCandidatesComputed: scoredCandidatesForDebug,
         existingEventMatchMissedDespiteStrongOverlap: overlapPersonAnchors > 0,
         overlapPersonAnchors,
       })
@@ -234,8 +268,11 @@ export function findConservativeExistingEventMatch(
       console.debug('[tankestrom existing event match]', {
         existingEventCandidateRejected: true,
         existingEventCandidateScore: best.score,
+        existingEventMatchCandidateRejectedReason: 'below_threshold',
+        existingEventMatchCandidateScore: best.score,
         reason: 'below_threshold',
         titleDetail: best.titleDetail,
+        existingEventMatchCandidatesComputed: scoredCandidatesForDebug,
         existingEventMatchMissedDespiteStrongOverlap: missedStrongOverlap,
         existingEventMatchTitleCoreNormalized: {
           import: arrangementTitleCoreForMatch(importTitle),
@@ -249,10 +286,17 @@ export function findConservativeExistingEventMatch(
     console.debug('[tankestrom existing event match]', {
       existingEventCandidateMatched: true,
       existingEventCandidateScore: best.score,
+      existingEventMatchCandidateScore: best.score,
+      existingEventMatchCandidateRejectedReason: null,
       existingEventLinkSuggested: true,
+      existingEventMatchCandidatesComputed: scoredCandidatesForDebug,
       titleDetail: best.titleDetail,
       anchorDate: best.anchor.anchorDate,
       eventId: best.anchor.event.id,
+      existingEventMatchSelectedTarget: {
+        eventId: best.anchor.event.id,
+        anchorDate: best.anchor.anchorDate,
+      },
       existingEventMatchTitleCoreNormalized: {
         import: arrangementTitleCoreForMatch(importTitle),
         existing: arrangementTitleCoreForMatch(best.anchor.event.title),

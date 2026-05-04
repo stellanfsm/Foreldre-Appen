@@ -3501,7 +3501,8 @@ export function TankestromImportDialog({
                   const showExistingEventMatchBanner = Boolean(
                     existingMatchCandidate && !existingEventMatchForCard?.rejected
                   )
-                  const existingEventLinkChoice = existingEventLinkByProposalId[pid] ?? 'new'
+                  const existingEventLinkChoice =
+                    existingEventLinkByProposalId[pid] ?? (showExistingEventMatchBanner ? 'update' : 'new')
 
                   const existingMatchUpdateHints: string[] = []
                   if (showExistingEventMatchBanner && existingMatchCandidate) {
