@@ -13,6 +13,7 @@ import {
 } from '../../lib/tankestromCupEmbeddedScheduleMerge'
 import { dedupeNearDuplicateCalendarProposals } from '../../lib/tankestromImportDedupe'
 import { redistributeEnrichSubjectUpdatesForDay } from '../../lib/schoolWeekOverlayEnrichRouting'
+import { resolveEmbeddedScheduleSegmentTimesForCalendarExport } from '../../lib/tankestromEmbeddedChildNotesPresentation'
 import type {
   PortalEventProposal,
   PortalImportProposalBundle,
@@ -176,16 +177,12 @@ function proposalImportDateRangeForMatch(
 
 function buildEmbeddedChildEventDraft(
   parentDraft: TankestromEventDraft,
-  segment: EmbeddedScheduleSegment
+  segment: EmbeddedScheduleSegment,
+  timeOpts?: { childProposalId?: string }
 ): TankestromEventDraft {
-  const start =
-    segment.start && isHm24(normalizeTimeInput(segment.start))
-      ? normalizeTimeInput(segment.start)
-      : '09:00'
-  const end =
-    segment.end && isHm24(normalizeTimeInput(segment.end))
-      ? normalizeTimeInput(segment.end)
-      : hmPlusMinutes(start, 60)
+  const exportTimes = resolveEmbeddedScheduleSegmentTimesForCalendarExport(segment, timeOpts)
+  const start = normalizeTimeInput(exportTimes.start)
+  const end = normalizeTimeInput(exportTimes.end)
   const calendarTitle = embeddedScheduleChildCalendarExportTitle(segment, parentDraft.title)
   if (import.meta.env.DEV && calendarTitle.trim() !== segment.title.trim()) {
     console.debug('[tankestrom calendar export title]', {
@@ -210,14 +207,11 @@ function buildDetachedEmbeddedChildProposal(
   origIndex: number
 ): PortalEventProposal {
   const proposalId = makeEmbeddedChildProposalId(parent.proposalId, origIndex)
-  const start =
-    segment.start && isHm24(normalizeTimeInput(segment.start))
-      ? normalizeTimeInput(segment.start)
-      : '09:00'
-  const end =
-    segment.end && isHm24(normalizeTimeInput(segment.end))
-      ? normalizeTimeInput(segment.end)
-      : hmPlusMinutes(start, 60)
+  const exportTimes = resolveEmbeddedScheduleSegmentTimesForCalendarExport(segment, {
+    childProposalId: proposalId,
+  })
+  const start = normalizeTimeInput(exportTimes.start)
+  const end = normalizeTimeInput(exportTimes.end)
   const baseMeta =
     parent.event.metadata && typeof parent.event.metadata === 'object' && !Array.isArray(parent.event.metadata)
       ? { ...(parent.event.metadata as Record<string, unknown>) }
@@ -2531,6 +2525,168 @@ export function useTankestromImport({
             recordFailure(id, 'event', 'editEvent', kind, message)
           }
           continue
+        }
+
+        const isEmbeddedParentCreate =
+          item.kind === 'event' &&
+          unified.importKind === 'event' &&
+          isEmbeddedScheduleParentCalendarItem(item)
+
+        if (isEmbeddedParentCreate) {
+          const rows = embeddedScheduleReviewRowsByParentId[item.proposalId] ?? []
+          if (rows.length > 0) {
+            const included = rows.filter((r) =>
+              selectedIds.has(makeEmbeddedChildProposalId(item.proposalId, r.origIndex))
+            )
+            const baseSegments = included.length > 0 ? included : rows
+            const segmentsToExport = baseSegments.filter(
+              (r) => !detachedEmbeddedChildIds.has(makeEmbeddedChildProposalId(item.proposalId, r.origIndex))
+            )
+            const embeddedScheduleExportPolicyUsed =
+              included.length > 0 ? 'selected_child_rows' : 'fallback_all_rows_no_child_selection'
+
+            if (TANKESTROM_IMPORT_PERSIST_DEBUG) {
+              console.debug('[tankestrom embedded schedule export]', {
+                embeddedScheduleExportPolicyUsed,
+                embeddedScheduleParentExportIntercepted: true,
+                embeddedScheduleChildExportCount: segmentsToExport.length,
+                embeddedScheduleParentExportSuppressedAsSingleAllDay: segmentsToExport.length > 0,
+                parentProposalId: item.proposalId,
+              })
+            }
+
+            if (segmentsToExport.length === 0) {
+              if (TANKESTROM_IMPORT_PERSIST_DEBUG) {
+                console.debug('[tankestrom embedded schedule export]', {
+                  embeddedScheduleExportPolicyUsed,
+                  embeddedScheduleChildEventsBuiltForExport: [],
+                  embeddedScheduleParentExportSuppressedAsSingleAllDay: true,
+                  embeddedScheduleParentExportIntercepted: true,
+                  reason: 'all_segments_detached_or_filtered',
+                })
+              }
+              recordSuccess(id, 'event', 'createEvent')
+              if (item.originalSourceType === MANUAL_REVIEW_SOURCE_TYPE) {
+                logEvent('manualReviewItemImported', { proposalId: id, kind: 'event' })
+              }
+              continue
+            }
+
+            const parentProposal = item
+            let templateEvMeta: Record<string, unknown> = {}
+            if (parentProposal.kind === 'event') {
+              const ev = parentProposal.event
+              templateEvMeta =
+                ev.metadata && typeof ev.metadata === 'object' && !Array.isArray(ev.metadata)
+                  ? { ...ev.metadata }
+                  : {}
+            }
+
+            const parentIntegration = {
+              proposalId: parentProposal.proposalId,
+              importRunId: bundle.provenance.importRunId,
+              confidence: parentProposal.confidence,
+              originalSourceType: parentProposal.originalSourceType,
+              externalRef: parentProposal.externalRef,
+              sourceSystem: bundle.provenance.sourceSystem,
+            }
+
+            const childEventsBuiltForExport: Array<{ proposalId: string; date: string; title: string }> = []
+            let allSegmentCreatesOk = true
+
+            for (const row of segmentsToExport) {
+              const childProposalId = makeEmbeddedChildProposalId(parentProposal.proposalId, row.origIndex)
+              const slice = buildEmbeddedChildEventDraft(draft, row.segment, {
+                childProposalId,
+              })
+              const draftEv: TankestromEventDraft = {
+                ...slice,
+                title: slice.title.trim(),
+                date: slice.date.trim(),
+                start: normalizeTimeInput(slice.start),
+                end: normalizeTimeInput(slice.end),
+                personId: slice.personId,
+                location: slice.location.trim(),
+                notes: slice.notes.trim(),
+              }
+
+              let baseMeta: Record<string, unknown> = { ...templateEvMeta }
+              delete baseMeta.embeddedSchedule
+              delete baseMeta.endDate
+              baseMeta.isAllDay = false
+              baseMeta.multiDayAllDay = false
+              baseMeta.detachedFromEmbeddedParentId = parentProposal.proposalId
+              baseMeta.detachedEmbeddedOrigIndex = row.origIndex
+
+              const metadata: Record<string, unknown> = {
+                ...baseMeta,
+                sourceId: parentProposal.sourceId,
+                integration: {
+                  ...parentIntegration,
+                  proposalId: childProposalId,
+                },
+              }
+              const transportMeta: Record<string, unknown> = {}
+              if (draftEv.dropoffBy.trim()) transportMeta.dropoffBy = draftEv.dropoffBy.trim()
+              if (draftEv.pickupBy.trim()) transportMeta.pickupBy = draftEv.pickupBy.trim()
+              if (Object.keys(transportMeta).length > 0) {
+                metadata.transport = {
+                  ...(baseMeta.transport && typeof baseMeta.transport === 'object' && !Array.isArray(baseMeta.transport)
+                    ? (baseMeta.transport as Record<string, unknown>)
+                    : {}),
+                  ...transportMeta,
+                }
+              } else if (baseMeta.transport && typeof baseMeta.transport === 'object') {
+                const prevT = { ...(baseMeta.transport as Record<string, unknown>) }
+                delete prevT.dropoffBy
+                delete prevT.pickupBy
+                if (Object.keys(prevT).length > 0) metadata.transport = prevT
+                else delete metadata.transport
+              }
+              mergeEventParticipantsIntoMetadata(metadata, draftEv, validPersonIds)
+
+              const input: Omit<Event, 'id'> = {
+                personId: draftEv.personId,
+                title: draftEv.title,
+                start: draftEv.start,
+                end: draftEv.end,
+                notes: draftEv.notes.length > 0 ? draftEv.notes : undefined,
+                location: draftEv.location.length > 0 ? draftEv.location : undefined,
+                reminderMinutes: draftEv.reminderMinutes,
+                recurrenceGroupId: undefined,
+                metadata,
+              }
+
+              try {
+                await createEvent(draftEv.date, input)
+                recordSuccess(childProposalId, 'event', 'createEvent')
+                childEventsBuiltForExport.push({
+                  proposalId: childProposalId,
+                  date: draftEv.date,
+                  title: draftEv.title,
+                })
+              } catch (e) {
+                allSegmentCreatesOk = false
+                const { kind, message } = classifyTankestromPersistThrownError(e, 'createEvent')
+                recordFailure(childProposalId, 'event', 'createEvent', kind, message)
+              }
+            }
+
+            if (TANKESTROM_IMPORT_PERSIST_DEBUG) {
+              console.debug('[tankestrom embedded schedule export]', {
+                embeddedScheduleChildEventsBuiltForExport: childEventsBuiltForExport,
+                embeddedScheduleExportPolicyUsed,
+              })
+            }
+
+            if (allSegmentCreatesOk) {
+              recordSuccess(id, 'event', 'createEvent')
+              if (item.originalSourceType === MANUAL_REVIEW_SOURCE_TYPE) {
+                logEvent('manualReviewItemImported', { proposalId: id, kind: 'event' })
+              }
+            }
+            continue
+          }
         }
 
         const integration = {

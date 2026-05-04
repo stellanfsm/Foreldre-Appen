@@ -3,6 +3,7 @@ import type { EmbeddedScheduleSegment } from '../../types'
 import {
   embeddedScheduleChildReviewListTimeClock,
   presentEmbeddedChildNotesForReview,
+  resolveEmbeddedScheduleSegmentTimesForCalendarExport,
   tryDeriveOppmoteStartFromSegmentNotes,
 } from '../tankestromEmbeddedChildNotesPresentation'
 
@@ -291,6 +292,66 @@ describe('presentEmbeddedChildNotesForReview', () => {
     if (p?.mode !== 'structured') return
     expect(p.highlights).toHaveLength(1)
     expect(p.highlights[0]!.displayTime).toContain('16:00')
+  })
+})
+
+describe('resolveEmbeddedScheduleSegmentTimesForCalendarExport', () => {
+  it('prioriterer avledet oppmøte og bruker konservativ slutt (60 min)', () => {
+    const seg: EmbeddedScheduleSegment = {
+      date: '2026-06-01',
+      title: 'Dag',
+      start: '17:45',
+      end: '18:40',
+      notes: 'Oppmøte 55 minutter før kampstart. Første kamp kl. 18:40.',
+    }
+    const t = resolveEmbeddedScheduleSegmentTimesForCalendarExport(seg, { childProposalId: 'exp-1' })
+    expect(t.start).toBe('17:45')
+    expect(t.end).toBe('18:45')
+    expect(t.embeddedScheduleChildExportTimePolicyUsed).toBe('derived_meeting_conservative_end')
+    expect(t.embeddedScheduleChildExportDerivedMeetingTimeApplied).toBe(true)
+  })
+
+  it('undertrykker for bredt segment-vindu og bruker start + 60 min', () => {
+    const seg: EmbeddedScheduleSegment = {
+      date: '2026-06-07',
+      title: 'Cup-dag',
+      start: '08:00',
+      end: '22:00',
+      notes: 'Praktisk info uten konkrete klokkeslett som overstyrer.',
+    }
+    const t = resolveEmbeddedScheduleSegmentTimesForCalendarExport(seg)
+    expect(t.start).toBe('08:00')
+    expect(t.end).toBe('09:00')
+    expect(t.embeddedScheduleChildExportTimePolicyUsed).toBe('broad_window_rejected_conservative_end')
+  })
+
+  it('bevarer kort segment-vindu når det er plausibelt', () => {
+    const seg: EmbeddedScheduleSegment = {
+      date: '2026-06-01',
+      title: 'Trening',
+      start: '16:00',
+      end: '17:00',
+      notes: 'Ta med ball.',
+    }
+    const t = resolveEmbeddedScheduleSegmentTimesForCalendarExport(seg)
+    expect(t.start).toBe('16:00')
+    expect(t.end).toBe('17:00')
+    expect(t.embeddedScheduleChildExportTimePolicyUsed).toBe('segment_pair_sanitized')
+  })
+
+  it('faller tilbake til standard-slot når segment-start er syntetisk', () => {
+    const seg: EmbeddedScheduleSegment = {
+      date: '2026-06-01',
+      title: 'Dag',
+      start: '06:00',
+      end: '22:00',
+      notes: 'Kort.',
+    }
+    const t = resolveEmbeddedScheduleSegmentTimesForCalendarExport(seg)
+    expect(t.start).toBe('09:00')
+    expect(t.end).toBe('10:00')
+    expect(t.embeddedScheduleChildExportSyntheticTimeSkipped).toBe(true)
+    expect(t.embeddedScheduleChildExportTimePolicyUsed).toBe('no_safe_segment_clock_default_slot')
   })
 })
 

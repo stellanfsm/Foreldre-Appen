@@ -124,6 +124,147 @@ function applyChildReviewClockPolicy(
 }
 
 /** Klokkeslett for liste/detalj i import-review (samme syntetikk-filter som segmentClockParts + review-policy). */
+const CONSERVATIVE_CALENDAR_SLOT_MINUTES = 60
+/** Maks plausibel varighet for ett delprogram-segment i kalender (undertrykk «hele dagen»-vinduer). */
+const MAX_REASONABLE_EMBEDDED_SEGMENT_SPAN_MINUTES = 12 * 60
+
+function addMinutesToHmClamp(hm: string, addMinutes: number): string {
+  const total = hmStringToMinutes(hm.slice(0, 5)) + addMinutes
+  const clamped = Math.min(Math.max(0, total), 23 * 60 + 59)
+  const nh = Math.floor(clamped / 60)
+  const nm = clamped % 60
+  return `${String(nh).padStart(2, '0')}:${String(nm).padStart(2, '0')}`
+}
+
+function normalizeHmFive(hm: string): string {
+  const t = hm.trim().slice(0, 5)
+  if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(t)) return t
+  return `${t.slice(0, 2)}:${t.slice(3, 5)}`
+}
+
+export type EmbeddedScheduleChildExportTimePolicy =
+  | 'derived_meeting_conservative_end'
+  | 'segment_pair_sanitized'
+  | 'segment_start_conservative_end'
+  | 'duration_suppressed_conservative_end'
+  | 'broad_window_rejected_conservative_end'
+  | 'no_safe_segment_clock_default_slot'
+
+/**
+ * Klokkeslett for kalender-persistens: samme signaler som import-review (avledet oppmøte,
+ * undertrykt misvisende varighet, syntetiske starttider, for brede segment-vinduer).
+ */
+export function resolveEmbeddedScheduleSegmentTimesForCalendarExport(
+  seg: EmbeddedScheduleSegment,
+  opts?: { childProposalId?: string }
+): {
+  start: string
+  end: string
+  embeddedScheduleChildExportTimePolicyUsed: EmbeddedScheduleChildExportTimePolicy
+  embeddedScheduleChildExportDerivedMeetingTimeApplied: boolean
+  embeddedScheduleChildExportDurationSuppressed: boolean
+  embeddedScheduleChildExportSyntheticTimeSkipped: boolean
+  embeddedScheduleChildExportTimeNormalized: boolean
+} {
+  const dbg = import.meta.env.DEV || import.meta.env.VITE_DEBUG_SCHOOL_IMPORT === 'true'
+  const log = (payload: Record<string, unknown>) => {
+    if (dbg) console.debug('[tankestrom embedded schedule child export time]', payload)
+  }
+
+  const derived = tryDeriveOppmoteStartFromSegmentNotes(seg, opts)
+  if (derived) {
+    const start = normalizeHmFive(derived.displayClock)
+    const end = addMinutesToHmClamp(start, CONSERVATIVE_CALENDAR_SLOT_MINUTES)
+    const out = {
+      start,
+      end,
+      embeddedScheduleChildExportTimePolicyUsed: 'derived_meeting_conservative_end' as const,
+      embeddedScheduleChildExportDerivedMeetingTimeApplied: true,
+      embeddedScheduleChildExportDurationSuppressed: true,
+      embeddedScheduleChildExportSyntheticTimeSkipped: false,
+      embeddedScheduleChildExportTimeNormalized: true,
+    }
+    log({
+      ...out,
+      embeddedScheduleChildExportTimeNormalized: out.embeddedScheduleChildExportTimeNormalized,
+      ...opts,
+    })
+    return out
+  }
+
+  const parts = segmentClockParts(seg)
+  if (!parts) {
+    const start = '09:00'
+    const end = addMinutesToHmClamp(start, CONSERVATIVE_CALENDAR_SLOT_MINUTES)
+    const out = {
+      start,
+      end,
+      embeddedScheduleChildExportTimePolicyUsed: 'no_safe_segment_clock_default_slot' as const,
+      embeddedScheduleChildExportDerivedMeetingTimeApplied: false,
+      embeddedScheduleChildExportDurationSuppressed: false,
+      embeddedScheduleChildExportSyntheticTimeSkipped: true,
+      embeddedScheduleChildExportTimeNormalized: true,
+    }
+    log({ ...out, ...opts })
+    return out
+  }
+
+  const { clock: adjusted, durationSuppressed } = applyChildReviewClockPolicy(seg, parts)
+  let endHm = adjusted.end
+  let broadWindowRejected = false
+
+  if (endHm) {
+    if (SYNTHETIC_CLOCK.has(endHm)) {
+      endHm = undefined
+    } else if (hmStringToMinutes(endHm) <= hmStringToMinutes(adjusted.start)) {
+      endHm = undefined
+    } else if (
+      hmStringToMinutes(endHm) - hmStringToMinutes(adjusted.start) >
+      MAX_REASONABLE_EMBEDDED_SEGMENT_SPAN_MINUTES
+    ) {
+      endHm = undefined
+      broadWindowRejected = true
+    }
+  }
+
+  const start = normalizeHmFive(adjusted.start)
+  if (!endHm) {
+    const end = addMinutesToHmClamp(start, CONSERVATIVE_CALENDAR_SLOT_MINUTES)
+    const policy: EmbeddedScheduleChildExportTimePolicy = durationSuppressed
+      ? 'duration_suppressed_conservative_end'
+      : broadWindowRejected
+        ? 'broad_window_rejected_conservative_end'
+        : 'segment_start_conservative_end'
+    const out = {
+      start,
+      end,
+      embeddedScheduleChildExportTimePolicyUsed: policy,
+      embeddedScheduleChildExportDerivedMeetingTimeApplied: false,
+      embeddedScheduleChildExportDurationSuppressed: durationSuppressed,
+      embeddedScheduleChildExportSyntheticTimeSkipped: false,
+      embeddedScheduleChildExportTimeNormalized:
+        durationSuppressed || broadWindowRejected || !parts.end || Boolean(adjusted.end && !endHm),
+    }
+    log({ ...out, segmentRawEnd: seg.end ?? null, ...opts })
+    return out
+  }
+
+  const end = normalizeHmFive(endHm)
+  const out = {
+    start,
+    end,
+    embeddedScheduleChildExportTimePolicyUsed: 'segment_pair_sanitized' as const,
+    embeddedScheduleChildExportDerivedMeetingTimeApplied: false,
+    embeddedScheduleChildExportDurationSuppressed: false,
+    embeddedScheduleChildExportSyntheticTimeSkipped: false,
+    embeddedScheduleChildExportTimeNormalized:
+      normalizeHmFive(parts.start) !== start ||
+      (parts.end != null && normalizeHmFive(parts.end) !== end),
+  }
+  log({ ...out, ...opts })
+  return out
+}
+
 export function embeddedScheduleChildReviewListTimeClock(seg: EmbeddedScheduleSegment): {
   clock: string | null
   omittedSynthetic: boolean
