@@ -3487,6 +3487,68 @@ export function TankestromImportDialog({
                     })
                   }
 
+                  const existingEventMatchForCard =
+                    !detachedFromParentLabel &&
+                    u.importKind === 'event' &&
+                    item.kind === 'event' &&
+                    getAnchoredForegroundEventsForMatching
+                      ? existingEventMatchesByProposalId[pid]
+                      : undefined
+                  const existingMatchCandidate = existingEventMatchForCard?.candidate
+                  const showExistingEventMatchBanner = Boolean(
+                    existingMatchCandidate && !existingEventMatchForCard?.rejected
+                  )
+                  const existingEventLinkChoice = existingEventLinkByProposalId[pid] ?? 'new'
+
+                  const existingMatchUpdateHints: string[] = []
+                  if (showExistingEventMatchBanner && existingMatchCandidate) {
+                    const c = existingMatchCandidate.event
+                    const importNotesLen =
+                      u.importKind === 'event' ? (u.event.notes ?? '').trim().length : 0
+                    const existNotesLen = (c.notes ?? '').trim().length
+                    const existMeta = c.metadata
+                    const existSchedLen =
+                      existMeta &&
+                      typeof existMeta === 'object' &&
+                      !Array.isArray(existMeta) &&
+                      Array.isArray((existMeta as { embeddedSchedule?: unknown }).embeddedSchedule)
+                        ? (existMeta as { embeddedSchedule: unknown[] }).embeddedSchedule.length
+                        : 0
+                    const rowCount =
+                      embeddedScheduleReviewRowsByParentId[pid]?.length ?? embeddedScheduleLen
+                    if (rowCount > existSchedLen) existingMatchUpdateHints.push('mer detaljert delprogram')
+                    if (importNotesLen > existNotesLen + 15) existingMatchUpdateHints.push('utvidede notater')
+                    const il =
+                      u.importKind === 'event' ? (u.event.location ?? '').trim().toLowerCase() : ''
+                    const el = (c.location ?? '').trim().toLowerCase()
+                    if (il.length > 2 && el.length > 2 && il !== el)
+                      existingMatchUpdateHints.push('oppdatert sted')
+                    if (
+                      u.importKind === 'event' &&
+                      !embeddedScheduleParentCard &&
+                      (u.event.start ?? '').trim() &&
+                      (c.start ?? '').trim() &&
+                      (u.event.start ?? '').trim() !== (c.start ?? '').trim()
+                    ) {
+                      existingMatchUpdateHints.push('justerte tider')
+                    }
+                  }
+
+                  if (
+                    showExistingEventMatchBanner &&
+                    existingMatchCandidate &&
+                    (import.meta.env.DEV || import.meta.env.VITE_DEBUG_SCHOOL_IMPORT === 'true')
+                  ) {
+                    console.debug('[tankestrom review existing match]', {
+                      existingEventMatchBannerRendered: true,
+                      existingEventMatchUpdateModeVisible: existingEventLinkChoice === 'update',
+                      existingEventMatchTargetTitleShown: existingMatchCandidate.event.title,
+                      existingEventMatchReviewCopyRefined: true,
+                      existingEventMatchLikelyDetailUpdate: existingMatchUpdateHints.length > 0,
+                      proposalId: pid,
+                    })
+                  }
+
                   return (
                     <li
                       key={pid}
@@ -3564,64 +3626,81 @@ export function TankestromImportDialog({
                               {embeddedParentReviewSummary.text}
                             </p>
                           ) : null}
-                          {(() => {
-                            const existingMatch =
-                              !detachedFromParentLabel &&
-                              u.importKind === 'event' &&
-                              item.kind === 'event' &&
-                              getAnchoredForegroundEventsForMatching
-                                ? existingEventMatchesByProposalId[pid]
-                                : undefined
-                            const cand = existingMatch?.candidate
-                            const showBanner = Boolean(cand && !existingMatch?.rejected)
-                            if (!showBanner || !cand) return null
-                            const linkChoice = existingEventLinkByProposalId[pid] ?? 'new'
-                            return (
-                              <div className="mt-2 rounded-lg border border-amber-200/90 bg-amber-50/95 px-2.5 py-2 sm:px-3">
-                                <p className="text-[11px] font-semibold leading-snug text-amber-950">
-                                  Mulig eksisterende arrangement funnet
+                          {showExistingEventMatchBanner && existingMatchCandidate ? (
+                            <div
+                              className={`mx-3 mt-2 rounded-xl border px-2.5 py-2 sm:px-3 ${
+                                existingEventLinkChoice === 'update'
+                                  ? 'border-teal-300/90 bg-teal-50/95 text-teal-950'
+                                  : 'border-amber-200/90 bg-amber-50/95 text-amber-950'
+                              }`}
+                            >
+                              <p className="text-[11px] font-semibold leading-snug">
+                                Fant samsvar med eksisterende arrangement
+                              </p>
+                              <p className="mt-1 text-[10px] leading-snug sm:text-[11px]">
+                                Kalenderen har allerede «{existingMatchCandidate.event.title.trim()}». Velg om
+                                denne importen skal{' '}
+                                <span className="font-medium">oppdatere den hendelsen</span> eller legges inn
+                                som <span className="font-medium">ny rad</span>.
+                              </p>
+                              {existingEventLinkChoice === 'update' ? (
+                                <>
+                                  <p className="mt-1.5 text-[10px] font-semibold text-teal-900 sm:text-[11px]">
+                                    Oppdaterer: «{existingMatchCandidate.event.title.trim()}»
+                                  </p>
+                                  <p className="mt-0.5 text-[10px] leading-snug text-teal-900/95 sm:text-[11px]">
+                                    Ved godkjenning lagres dette på eksisterende hendelse — det opprettes ikke et
+                                    nytt arrangement.
+                                  </p>
+                                </>
+                              ) : (
+                                <p className="mt-1.5 text-[10px] leading-snug text-amber-900/95 sm:text-[11px]">
+                                  Standard er ny rad. Trykk «Oppdater eksisterende» hvis dette er mer informasjon
+                                  om arrangementet over.
                                 </p>
-                                <p className="mt-0.5 line-clamp-2 text-[10px] leading-snug text-amber-900/90">
-                                  «{cand.event.title}»
+                              )}
+                              {existingMatchUpdateHints.length > 0 && existingEventLinkChoice === 'update' ? (
+                                <p className="mt-1 text-[10px] text-teal-900/90 sm:text-[11px]">
+                                  Ser ut som: {existingMatchUpdateHints.join(' · ')}.
                                 </p>
-                                <div className="mt-2 flex flex-col gap-1.5 sm:flex-row sm:flex-wrap">
-                                  <button
-                                    type="button"
-                                    disabled={!editEvent}
-                                    title={
-                                      !editEvent
-                                        ? 'Oppdatering er ikke tilgjengelig i denne økten'
-                                        : undefined
-                                    }
-                                    onClick={() =>
-                                      setExistingEventImportLink(pid, 'update', {
-                                        eventId: cand.event.id,
-                                        anchorDate: cand.anchorDate,
-                                      })
-                                    }
-                                    className={`touch-manipulation rounded-lg border px-2.5 py-1.5 text-[11px] font-semibold transition ${
-                                      linkChoice === 'update'
-                                        ? 'border-brandTeal bg-brandTeal/15 text-brandNavy ring-1 ring-brandTeal/25'
-                                        : 'border-amber-300/90 bg-white text-amber-950 hover:bg-amber-100/80 disabled:cursor-not-allowed disabled:opacity-45'
-                                    }`}
-                                  >
-                                    Oppdater eksisterende
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={() => setExistingEventImportLink(pid, 'new')}
-                                    className={`touch-manipulation rounded-lg border px-2.5 py-1.5 text-[11px] font-semibold transition ${
-                                      linkChoice === 'new'
-                                        ? 'border-zinc-400 bg-zinc-100 text-zinc-900 ring-1 ring-zinc-300/60'
-                                        : 'border-amber-200/90 bg-white text-amber-950 hover:bg-amber-100/60'
-                                    }`}
-                                  >
-                                    Behold som nytt
-                                  </button>
-                                </div>
+                              ) : null}
+                              <div className="mt-2 flex flex-col gap-1.5 sm:flex-row sm:flex-wrap">
+                                <button
+                                  type="button"
+                                  disabled={!editEvent}
+                                  title={
+                                    !editEvent
+                                      ? 'Oppdatering er ikke tilgjengelig i denne økten'
+                                      : undefined
+                                  }
+                                  onClick={() =>
+                                    setExistingEventImportLink(pid, 'update', {
+                                      eventId: existingMatchCandidate.event.id,
+                                      anchorDate: existingMatchCandidate.anchorDate,
+                                    })
+                                  }
+                                  className={`touch-manipulation rounded-lg border px-2.5 py-1.5 text-[11px] font-semibold transition ${
+                                    existingEventLinkChoice === 'update'
+                                      ? 'border-brandTeal bg-brandTeal/15 text-brandNavy ring-1 ring-brandTeal/25'
+                                      : 'border-amber-300/90 bg-white text-amber-950 hover:bg-amber-100/80 disabled:cursor-not-allowed disabled:opacity-45'
+                                  }`}
+                                >
+                                  Oppdater eksisterende
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setExistingEventImportLink(pid, 'new')}
+                                  className={`touch-manipulation rounded-lg border px-2.5 py-1.5 text-[11px] font-semibold transition ${
+                                    existingEventLinkChoice === 'new'
+                                      ? 'border-zinc-400 bg-zinc-100 text-zinc-900 ring-1 ring-zinc-300/60'
+                                      : 'border-amber-200/90 bg-white text-amber-950 hover:bg-amber-100/60'
+                                  }`}
+                                >
+                                  Behold som nytt
+                                </button>
                               </div>
-                            )
-                          })()}
+                            </div>
+                          ) : null}
                           {embeddedScheduleParentCard && item.kind === 'event' ? (
                             <TankestromEmbeddedSchedulePreview
                               proposalId={pid}
@@ -3631,6 +3710,14 @@ export function TankestromImportDialog({
                               expanded={expandedProgramPreviewIds.has(pid)}
                               onToggleExpanded={() => toggleProgramPreviewExpanded(pid)}
                             />
+                          ) : null}
+                          {embeddedScheduleParentCard && showExistingEventMatchBanner ? (
+                            <p className="mx-3 mt-1.5 text-[10px] leading-snug text-zinc-600 sm:text-[11px]">
+                              Dagene under er tilleggsdetaljer til samme arrangement
+                              {existingEventLinkChoice === 'update'
+                                ? ' og blir med når du oppdaterer eksisterende hendelse.'
+                                : ' — velg «Oppdater eksisterende» over hvis det ikke skal bli et ekstra arrangement.'}
+                            </p>
                           ) : null}
                           {embeddedScheduleParentCard && item.kind === 'event' ? (
                             <div className="mt-2 space-y-2.5 border-l-2 border-brandTeal/40 pl-2.5 sm:space-y-3 sm:pl-3">
