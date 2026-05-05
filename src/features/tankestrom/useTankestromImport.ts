@@ -59,7 +59,9 @@ import {
   buildMergedSecondaryImportCandidates,
   buildTaskProposalFromSecondaryCandidate,
   filterVisibleSecondaryCandidates,
+  buildImportClassificationContext,
   proposalItemQualifiesSecondaryZone,
+  type ImportClassificationContext,
 } from '../../lib/tankestromSecondaryCandidates'
 
 const TANKESTROM_IMPORT_PERSIST_DEBUG =
@@ -497,7 +499,8 @@ function initialSelectedIdsForGeneralImport(
   items: PortalProposalItem[],
   drafts: Record<string, TankestromImportDraft>,
   people: Person[],
-  schoolProfileChildId: string
+  schoolProfileChildId: string,
+  classificationCtx?: ImportClassificationContext
 ): Set<string> {
   const child = people.find((p) => p.id === schoolProfileChildId && p.memberKind === 'child')
   const languageDiag = resolveLanguageTrackDiagnostics(child?.school)
@@ -519,12 +522,12 @@ function initialSelectedIdsForGeneralImport(
   for (const item of items) {
     if (item.kind === 'school_profile') continue
     if (item.kind === 'event') {
-      if (proposalItemQualifiesSecondaryZone(item)) continue
+      if (proposalItemQualifiesSecondaryZone(item, classificationCtx)) continue
       out.add(item.proposalId)
       continue
     }
     if (item.kind === 'task') {
-      if (proposalItemQualifiesSecondaryZone(item)) continue
+      if (proposalItemQualifiesSecondaryZone(item, classificationCtx)) continue
       const d = drafts[item.proposalId]
       if (!d || d.importKind !== 'task') continue
       const body = scanNotesBodyForLanguage(d.task.notes)
@@ -1175,6 +1178,8 @@ export function useTankestromImport({
   const [pendingFiles, setPendingFiles] = useState<TankestromPendingFile[]>([])
   const [textInput, setTextInput] = useState('')
   const [bundle, setBundle] = useState<PortalImportProposalBundle | null>(null)
+  /** Tekstlengde eller summerte filstørrelser (bytes) ved siste vellykkede analyse — for lang-dokument-klassifisering. */
+  const [analyzedSourceLength, setAnalyzedSourceLength] = useState(0)
   const [schoolReview, setSchoolReview] = useState<SchoolProfileReviewState | null>(null)
   const [schoolProfileChildId, setSchoolProfileChildId] = useState('')
 
@@ -1184,6 +1189,25 @@ export function useTankestromImport({
     (): PortalProposalItem[] => proposalItems.filter((i) => i.kind !== 'school_profile'),
     [proposalItems]
   )
+
+  const importClassificationContext = useMemo((): ImportClassificationContext | undefined => {
+    if (!bundle) return undefined
+    const calendarItemCount = bundle.items.filter((i) => i.kind !== 'school_profile').length
+    const secondaryCandidateCount = bundle.secondaryCandidates?.length ?? 0
+    const sourceLen =
+      analyzedSourceLength > 0
+        ? analyzedSourceLength
+        : inputMode === 'text'
+          ? textInput.length
+          : 0
+    return buildImportClassificationContext({
+      inputMode,
+      provenanceSourceType: bundle.provenance.sourceType,
+      sourceLength: sourceLen,
+      calendarItemCount,
+      secondaryCandidateCount,
+    })
+  }, [bundle, inputMode, analyzedSourceLength, textInput])
 
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   /** Kandidater i «Kanskje også relevant» som brukeren har skjult. */
@@ -1200,14 +1224,14 @@ export function useTankestromImport({
     return calendarProposalItems.filter((it) => {
       if (it.kind !== 'event' && it.kind !== 'task') return true
       if (secondaryPromotedProposalIds.has(it.proposalId)) return true
-      if (proposalItemQualifiesSecondaryZone(it)) return false
+      if (proposalItemQualifiesSecondaryZone(it, importClassificationContext)) return false
       return true
     })
-  }, [calendarProposalItems, secondaryPromotedProposalIds])
+  }, [calendarProposalItems, secondaryPromotedProposalIds, importClassificationContext])
 
   const mergedSecondaryImportCandidates = useMemo(
-    () => buildMergedSecondaryImportCandidates(bundle, calendarProposalItems),
-    [bundle, calendarProposalItems]
+    () => buildMergedSecondaryImportCandidates(bundle, calendarProposalItems, importClassificationContext),
+    [bundle, calendarProposalItems, importClassificationContext]
   )
 
   const visibleSecondaryImportCandidates = useMemo(() => {
@@ -1220,7 +1244,7 @@ export function useTankestromImport({
       if (!c.sourceProposalId) return true
       const it = calendarProposalItems.find((i) => i.proposalId === c.sourceProposalId)
       if (!it || (it.kind !== 'event' && it.kind !== 'task')) return true
-      if (!proposalItemQualifiesSecondaryZone(it)) return false
+      if (!proposalItemQualifiesSecondaryZone(it, importClassificationContext)) return false
       return true
     })
   }, [
@@ -1228,6 +1252,7 @@ export function useTankestromImport({
     secondaryDismissedCandidateIds,
     secondaryPromotedProposalIds,
     calendarProposalItems,
+    importClassificationContext,
   ])
 
   useEffect(() => {
@@ -1418,6 +1443,7 @@ export function useTankestromImport({
     setPendingFiles([])
     setTextInput('')
     setBundle(null)
+    setAnalyzedSourceLength(0)
     setSchoolReview(null)
     setSchoolProfileChildId('')
     setSelectedIds(new Set())
@@ -1934,10 +1960,20 @@ export function useTankestromImport({
         const items = applyCupWeekendEmbeddedScheduleMerge(dedupeNearDuplicateCalendarProposals(b.items), {
           sourceText: textInput,
         })
+        setAnalyzedSourceLength(textInput.length)
+        const classificationCtx = buildImportClassificationContext({
+          inputMode: 'text',
+          provenanceSourceType: b.provenance.sourceType,
+          sourceLength: textInput.length,
+          calendarItemCount: items.filter((i) => i.kind !== 'school_profile').length,
+          secondaryCandidateCount: b.secondaryCandidates?.length ?? 0,
+        })
         setBundle({ ...b, items })
         const drafts = buildDraftsFromItems(items, validPersonIds, defaultPersonId, people, sourceHint)
         setDraftByProposalId(drafts)
-        setSelectedIds(initialSelectedIdsForGeneralImport(items, drafts, people, importChildId))
+        setSelectedIds(
+          initialSelectedIdsForGeneralImport(items, drafts, people, importChildId, classificationCtx)
+        )
         prevSchoolChildForLangAdjustRef.current = null
         setStep('review')
         return true
@@ -1946,6 +1982,7 @@ export function useTankestromImport({
       const queue = [...pendingFiles]
       const bundles: PortalImportProposalBundle[] = []
       const failureLines: string[] = []
+      let analyzedBytesTotal = 0
 
       for (const pf of queue) {
         patchPendingFile(pf.id, { status: 'analyzing', statusDetail: undefined })
@@ -1968,6 +2005,7 @@ export function useTankestromImport({
             })
           }
           bundles.push(b)
+          analyzedBytesTotal += pf.file.size
           patchPendingFile(pf.id, { status: 'done', statusDetail: undefined })
         } catch (e) {
           const msg = e instanceof Error ? e.message : 'Analyse feilet'
@@ -2054,10 +2092,20 @@ export function useTankestromImport({
       const items = applyCupWeekendEmbeddedScheduleMerge(dedupeNearDuplicateCalendarProposals(merged.items), {
         sourceText: undefined,
       })
+      setAnalyzedSourceLength(analyzedBytesTotal)
+      const classificationCtx = buildImportClassificationContext({
+        inputMode: 'file',
+        provenanceSourceType: merged.provenance.sourceType,
+        sourceLength: analyzedBytesTotal,
+        calendarItemCount: items.filter((i) => i.kind !== 'school_profile').length,
+        secondaryCandidateCount: merged.secondaryCandidates?.length ?? 0,
+      })
       setBundle({ ...merged, items })
       const drafts = buildDraftsFromItems(items, validPersonIds, defaultPersonId, people, sourceHint)
       setDraftByProposalId(drafts)
-      setSelectedIds(initialSelectedIdsForGeneralImport(items, drafts, people, importChildId))
+      setSelectedIds(
+        initialSelectedIdsForGeneralImport(items, drafts, people, importChildId, classificationCtx)
+      )
       prevSchoolChildForLangAdjustRef.current = null
       setStep('review')
 
@@ -2078,6 +2126,7 @@ export function useTankestromImport({
   /** Tømmer review-tilstand uten å gå til «Velg innhold» eller endre tekst/filer. */
   const clearReviewStateForReanalyze = useCallback(() => {
     setBundle(null)
+    setAnalyzedSourceLength(0)
     setSchoolReview(null)
     setSchoolProfileChildId('')
     setSelectedIds(new Set())

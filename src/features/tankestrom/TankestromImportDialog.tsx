@@ -4861,7 +4861,8 @@ export function TankestromImportDialog({
                     Kanskje også relevant
                   </p>
                   <p className="mt-1 text-[10px] leading-snug text-zinc-500">
-                    Noen treff er holdt utenfor hovedlisten. Du kan fortsatt ta dem med som gjøremål eller hendelse.
+                    Mulige ekstra funn med lavere sikkerhet. Tydelige hendelser og gjøremål vises i hovedlisten. Du
+                    kan fortsatt ta disse med som gjøremål eller hendelse.
                   </p>
                   <ul className="mt-3 space-y-2.5" aria-label="Usikre kandidater">
                     {visibleSecondaryImportCandidates.map((c) => {
