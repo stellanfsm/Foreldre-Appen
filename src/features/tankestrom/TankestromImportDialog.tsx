@@ -2131,7 +2131,7 @@ function pendingFileStatusLabel(p: TankestromPendingFile): string {
     case 'done':
       return 'Ferdig'
     case 'error':
-      return p.statusDetail ? `Feilet: ${p.statusDetail}` : 'Feilet'
+      return p.statusDetail?.trim() ? p.statusDetail : 'Kunne ikke analysere filen.'
     default:
       return ''
   }
@@ -2829,7 +2829,9 @@ export function TankestromImportDialog({
                             <p className="truncate font-medium" title={p.file.name}>
                               {p.file.name}
                             </p>
-                            <p className="mt-0.5 text-[11px] opacity-90">{pendingFileStatusLabel(p)}</p>
+                            <p className="mt-0.5 whitespace-pre-wrap break-words text-[11px] opacity-90">
+                              {pendingFileStatusLabel(p)}
+                            </p>
                           </div>
                           <button
                             type="button"

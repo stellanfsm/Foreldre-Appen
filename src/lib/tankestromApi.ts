@@ -831,7 +831,66 @@ type AnalyzePayload =
   | { kind: 'file'; file: File }
   | { kind: 'text'; text: string }
 
-async function analyzeWithTankestrom(payload: AnalyzePayload): Promise<PortalImportProposalBundle> {
+/**
+ * Bygger brukervennlig feilmelding fra Tankestrøm-analyse (HTTP-feil eller payload.ok === false).
+ * Leser strukturert `fileErrors` når API returnerer JSON selv ved 4xx/5xx.
+ */
+export function getTankestromAnalyzeErrorMessage(httpStatus: number, responseText: string, payload: unknown): string {
+  const fileErrors =
+    isRecord(payload) && Array.isArray(payload.fileErrors)
+      ? payload.fileErrors.filter((x): x is Record<string, unknown> => isRecord(x))
+      : []
+  const fileError = fileErrors[0]
+
+  const message =
+    (fileError && typeof fileError.message === 'string' && fileError.message.trim()) ||
+    (isRecord(payload) && typeof payload.message === 'string' && payload.message.trim()) ||
+    (isRecord(payload) && typeof payload.error === 'string' && payload.error.trim()) ||
+    `Serverfeil (${httpStatus})`
+
+  let debugMessage =
+    (fileError && typeof fileError.debugMessage === 'string' && fileError.debugMessage.trim()) ||
+    (isRecord(payload) && typeof payload.debugMessage === 'string' && payload.debugMessage.trim()) ||
+    ''
+
+  const stage = fileError && typeof fileError.stage === 'string' ? fileError.stage.trim() : ''
+  if (!debugMessage && stage) {
+    debugMessage = `Fase: ${stage}`
+  }
+
+  if (fileErrors.length > 1) {
+    const extra = fileErrors
+      .slice(1)
+      .map((fe, i) => {
+        const fn = typeof fe.fileName === 'string' ? fe.fileName.trim() : `fil ${i + 2}`
+        const m = typeof fe.message === 'string' ? fe.message.trim() : ''
+        return m ? `${fn}: ${m}` : fn
+      })
+      .filter(Boolean)
+      .join(' · ')
+    if (extra) {
+      debugMessage = debugMessage ? `${debugMessage} · ${extra}` : extra
+    }
+  }
+
+  if (!debugMessage) {
+    const raw = responseText.trim()
+    debugMessage = raw ? raw.slice(0, 500) : 'Tomt svar fra server'
+  }
+
+  return `${message}\n\nDetalj: ${debugMessage}`
+}
+
+function throwTankestromAnalyzeFailure(httpStatus: number, responseText: string, payload: unknown): never {
+  console.error('[Tankestrom analyze failed]', {
+    status: httpStatus,
+    responseText,
+    payload,
+  })
+  throw new Error(getTankestromAnalyzeErrorMessage(httpStatus, responseText, payload))
+}
+
+async function analyzeWithTankestrom(analyzePayload: AnalyzePayload): Promise<PortalImportProposalBundle> {
   const urlRaw = import.meta.env.VITE_TANKESTROM_ANALYZE_URL
   const url = typeof urlRaw === 'string' ? urlRaw.trim() : ''
   if (!url) {
@@ -848,13 +907,13 @@ async function analyzeWithTankestrom(payload: AnalyzePayload): Promise<PortalImp
 
   let body: BodyInit
   const headers: Record<string, string> = { Authorization: `Bearer ${token}` }
-  if (payload.kind === 'file') {
+  if (analyzePayload.kind === 'file') {
     const form = new FormData()
-    form.append('file', payload.file)
+    form.append('file', analyzePayload.file)
     body = form
   } else {
     headers['Content-Type'] = 'application/json'
-    body = JSON.stringify({ text: payload.text })
+    body = JSON.stringify({ text: analyzePayload.text })
   }
 
   let res: Response
@@ -878,26 +937,39 @@ async function analyzeWithTankestrom(payload: AnalyzePayload): Promise<PortalImp
     throw err instanceof Error ? err : new Error('Kunne ikke kontakte Tankestrøm-analyse.')
   }
 
-  const text = await res.text()
-  let json: unknown
+  const responseText = await res.text()
+  let responseJson: unknown = null
   try {
-    json = text ? JSON.parse(text) : null
+    responseJson = responseText ? JSON.parse(responseText) : null
   } catch {
-    throw new Error(res.ok ? 'Ugyldig JSON fra server' : `Serverfeil (${res.status}): kunne ikke lese svar`)
+    responseJson = null
   }
 
-  if (!res.ok) {
-    const detail =
-      isRecord(json) && typeof json.error === 'string'
-        ? json.error
-        : isRecord(json) && typeof json.message === 'string'
-          ? json.message
-          : text.slice(0, 200)
-    throw new Error(`Analyse feilet (${res.status}): ${detail}`)
+  console.info('[Tankestrom raw response]', {
+    status: res.status,
+    responseText,
+    payload: responseJson,
+  })
+
+  const failedPayload = isRecord(responseJson) && responseJson.ok === false
+
+  if (!res.ok || failedPayload) {
+    if (failedPayload) {
+      console.error('[Tankestrom analyze] ok:false payload', responseJson)
+    }
+    throwTankestromAnalyzeFailure(res.status, responseText, responseJson)
   }
+
+  if (!responseJson) {
+    throw new Error(
+      `Kunne ikke lese svar fra Tankestrøm. Rå respons: ${responseText.trim().slice(0, 500)}`
+    )
+  }
+
+  const json = responseJson
 
   const dbgText =
-    payload.kind === 'text' &&
+    analyzePayload.kind === 'text' &&
     (import.meta.env.DEV || import.meta.env.VITE_DEBUG_SCHOOL_IMPORT === 'true')
 
   const normalized = normalizeTankestromAnalyzeHttpJson(json)
@@ -906,7 +978,7 @@ async function analyzeWithTankestrom(payload: AnalyzePayload): Promise<PortalImp
     console.debug('[tankestrom text analyze]', {
       tankestrom_text_request_shape: { method: 'POST', contentType: 'application/json', bodyFields: ['text'] },
       tankestrom_text_response_shape: summarizeTankestromJsonShape(json),
-      tankestrom_text_response_raw_snippet: text.trim().slice(0, 800).replace(/\s+/g, ' '),
+      tankestrom_text_response_raw_snippet: responseText.trim().slice(0, 800).replace(/\s+/g, ' '),
       tankestrom_text_schema_version_received: isRecord(json) ? json.schemaVersion : undefined,
       tankestrom_text_normalized_schema_version: isRecord(normalized) ? normalized.schemaVersion : undefined,
       tankestrom_text_normalized_shape: summarizeTankestromJsonShape(normalized),
@@ -917,7 +989,7 @@ async function analyzeWithTankestrom(payload: AnalyzePayload): Promise<PortalImp
     return parsePortalImportProposalBundle(normalized)
   } catch (e) {
     const failMsg = e instanceof Error ? e.message : String(e)
-    if (payload.kind === 'text') {
+    if (analyzePayload.kind === 'text') {
       console.warn('[tankestrom text analyze] bundle parse failed', {
         tankestrom_text_bundle_parse_failed_reason: failMsg,
         tankestrom_text_response_top_keys: isRecord(json) ? Object.keys(json).sort() : null,
@@ -926,7 +998,7 @@ async function analyzeWithTankestrom(payload: AnalyzePayload): Promise<PortalImp
           isRecord(normalized) && looksLikeImportBundlePayload(normalized),
         tankestrom_text_response_shape: summarizeTankestromJsonShape(json),
         tankestrom_text_normalized_shape: summarizeTankestromJsonShape(normalized),
-        tankestrom_text_response_raw_snippet: text.trim().slice(0, 800).replace(/\s+/g, ' '),
+        tankestrom_text_response_raw_snippet: responseText.trim().slice(0, 800).replace(/\s+/g, ' '),
       })
     }
     if (dbgText) {
