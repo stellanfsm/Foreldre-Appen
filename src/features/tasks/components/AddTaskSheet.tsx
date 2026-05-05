@@ -111,7 +111,7 @@ export function AddTaskSheet({ date, initialTask, onSave, onClose }: AddTaskShee
             type="button"
             onClick={guardedClose}
             aria-label="Lukk"
-            className="absolute right-3 top-1 flex h-7 w-7 items-center justify-center rounded-full text-zinc-400 transition hover:bg-zinc-100 hover:text-zinc-600 touch-manipulation"
+            className="absolute right-3 top-1 flex h-7 w-7 items-center justify-center rounded-full text-neutral-400 transition hover:bg-neutral-200 hover:text-neutral-600 touch-manipulation"
           >
             <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" />
@@ -149,7 +149,7 @@ export function AddTaskSheet({ date, initialTask, onSave, onClose }: AddTaskShee
 
           <div className="space-y-1">
             <span className={inputLabel}>Type</span>
-            <div className="flex rounded-xl border border-zinc-200 bg-zinc-50/90 p-0.5">
+            <div className="flex rounded-lg border border-neutral-200 bg-neutral-50 p-0.5">
               {(['must_do', 'can_help'] as const).map((intent) => (
                 <button
                   key={intent}
@@ -158,9 +158,9 @@ export function AddTaskSheet({ date, initialTask, onSave, onClose }: AddTaskShee
                   className={`flex-1 rounded-lg px-2 py-2 text-[12px] font-semibold transition touch-manipulation ${
                     taskIntent === intent
                       ? intent === 'must_do'
-                        ? 'bg-white text-zinc-900 shadow-sm ring-1 ring-zinc-200/80'
-                        : 'bg-white text-teal-900 shadow-sm ring-1 ring-teal-200/90'
-                      : 'text-zinc-500'
+                        ? 'bg-neutral-100 text-neutral-600 shadow-sm ring-1 ring-neutral-200'
+                        : 'bg-primary-50 text-primary-700 shadow-sm ring-1 ring-primary-100'
+                      : 'text-neutral-400'
                   }`}
                 >
                   {taskIntentLabelNb(intent)}
@@ -255,8 +255,8 @@ export function AddTaskSheet({ date, initialTask, onSave, onClose }: AddTaskShee
                   role="switch"
                   aria-checked={showInMonthView}
                   onClick={() => setShowInMonthView((v) => !v)}
-                  className={`relative h-6 w-11 shrink-0 rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-brandTeal/50 ${
-                    showInMonthView ? 'bg-brandTeal' : 'bg-zinc-300'
+                  className={`relative h-6 w-11 shrink-0 rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-primary-600/50 ${
+                    showInMonthView ? 'bg-primary-600' : 'bg-neutral-300'
                   }`}
                 >
                   <span
@@ -270,8 +270,8 @@ export function AddTaskSheet({ date, initialTask, onSave, onClose }: AddTaskShee
           )}
 
           {confirming && (
-            <div className="rounded-2xl border border-amber-200 bg-amber-50 p-3.5 space-y-3">
-              <p className="text-body-sm font-medium text-amber-900">Du har ulagrede endringer. Forkaste?</p>
+            <div className="rounded-lg border border-accent-sun-tint bg-accent-sun-tint p-3.5 space-y-3">
+              <p className="text-body-sm font-medium text-neutral-600">Du har ulagrede endringer. Forkaste?</p>
               <div className="flex gap-2">
                 <button type="button" onClick={cancelConfirm} className={`flex-1 ${btnSecondary}`}>Bli her</button>
                 <button type="button" onClick={confirmClose} className={`flex-1 ${btnDanger}`}>Forkast</button>

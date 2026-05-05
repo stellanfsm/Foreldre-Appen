@@ -25,9 +25,9 @@ export function WeekDayCard({ day, isSelected, onSelect, variants, openTaskCount
       variants={variants}
       className={`relative flex min-h-[44px] min-w-0 flex-1 basis-0 flex-col items-center justify-center rounded-card border-2 py-2 touch-manipulation transition-shadow ${
         isSelected
-          ? 'border-brandNavy bg-brandSky shadow-planner'
+          ? 'border-neutral-600 bg-primary-50 shadow-card'
           : isToday
-            ? 'border-brandTeal/30 bg-brandTeal/8'
+            ? 'border-primary-600/30 bg-primary-50'
             : 'border-transparent bg-transparent'
       }`}
       whileTap={{ scale: 0.98, transition: springSnappy }}
@@ -36,21 +36,21 @@ export function WeekDayCard({ day, isSelected, onSelect, variants, openTaskCount
     >
       <span
         className={`text-caption font-medium uppercase tracking-wide ${
-          isSelected ? 'text-zinc-600' : isToday ? 'text-brandTeal' : 'text-zinc-400'
+          isSelected ? 'text-neutral-500' : isToday ? 'text-primary-600' : 'text-neutral-400'
         }`}
       >
         {day.dayAbbr}
       </span>
       <span
         className={`font-display mt-0.5 text-heading font-semibold ${
-          isSelected ? 'text-brandNavy' : isToday ? 'text-brandTeal' : 'text-zinc-500'
+          isSelected ? 'text-neutral-600' : isToday ? 'text-primary-600' : 'text-neutral-400'
         }`}
       >
         {dateNum}
       </span>
       {norwegianDay && (
         <span
-          className="pointer-events-none absolute right-1 top-1 h-1.5 w-1.5 rounded-full bg-amber-500/90"
+          className="pointer-events-none absolute right-1 top-1 h-1.5 w-1.5 rounded-full bg-accent-sun-main/90"
           title="Helligdag eller skoleferie"
           aria-hidden
         />
@@ -66,7 +66,7 @@ export function WeekDayCard({ day, isSelected, onSelect, variants, openTaskCount
         ))}
         {openTaskCount > 0 && (
           <span
-            className="h-1.5 w-1.5 rounded-sm bg-amber-400"
+            className="h-1.5 w-1.5 rounded-sm bg-accent-sun-main"
             title="Gjøremål"
             aria-hidden
           />

@@ -3,10 +3,10 @@ import type { ReactNode } from 'react'
 type Variant = 'error' | 'success' | 'warning' | 'info'
 
 const styles: Record<Variant, string> = {
-  error: 'border-red-200 bg-red-50 text-red-900',
-  success: 'border-emerald-200 bg-emerald-50 text-emerald-900',
-  warning: 'border-amber-200 bg-amber-50 text-amber-950',
-  info: 'border-zinc-200 bg-zinc-50 text-zinc-800',
+  error:   'border-semantic-red-100 bg-semantic-red-50 text-semantic-red-700',
+  success: 'border-accent-mint-tint bg-accent-mint-tint text-primary-700',
+  warning: 'border-accent-sun-tint bg-accent-sun-tint text-neutral-600',
+  info:    'border-neutral-200 bg-neutral-50 text-neutral-600',
 }
 
 export function AppNotice({
@@ -23,7 +23,7 @@ export function AppNotice({
   return (
     <div
       role={variant === 'error' ? 'alert' : 'status'}
-      className={`flex items-start gap-2 rounded-2xl border px-3 py-2.5 text-[13px] leading-snug ${styles[variant]} ${className}`}
+      className={`flex items-start gap-2 rounded-lg border px-3 py-2.5 text-[13px] leading-snug ${styles[variant]} ${className}`}
     >
       <div className="min-w-0 flex-1 break-words">{children}</div>
       {onDismiss && (

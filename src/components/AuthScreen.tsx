@@ -1,6 +1,6 @@
 import { useState, useCallback } from 'react'
 import { useAuth } from '../context/AuthContext'
-import logo from '../assets/logo.svg'
+import { SynkaLogoIcon, SynkaWordmark } from './ui/SynkaLogo'
 
 const MIN_PASSWORD_LENGTH = 6
 const INVITE_MEMBER_KIND_KEY = 'invite-member-kind'
@@ -97,44 +97,38 @@ export function AuthScreen() {
   return (
     <div className="flex h-full min-h-0 w-full min-w-0 max-w-full flex-col overflow-x-hidden">
       {inviteParam && (
-        <div className="mx-3 mt-2 rounded-xl border border-zinc-200 bg-zinc-50 px-4 py-2 text-[12px] text-zinc-800" role="status">
+        <div className="mx-3 mt-2 rounded-lg border border-neutral-200 bg-neutral-50 px-4 py-2 text-[12px] text-neutral-600" role="status">
           Du har blitt invitert til en familie. Logg inn eller opprett konto for å akseptere invitasjonen.
         </div>
       )}
-      <header className="flex flex-col px-4 pt-3 pb-4 bg-white rounded-b-[32px] border-b border-zinc-200">
+      <header className="flex flex-col px-4 pt-3 pb-4 bg-neutral-100 rounded-b-[32px] border-b border-neutral-200">
         <div className="flex items-center justify-between gap-3">
           <div>
-            <h1 className="font-display text-[22px] font-bold text-brandNavy drop-shadow-[0_3px_0_rgba(255,255,255,0.9)]">
-              ForeldrePortalen
-            </h1>
-            <p className="mt-1 text-[12px] text-zinc-700">
+            <SynkaWordmark variant="green" width={100} />
+            <p className="mt-1 text-[12px] text-neutral-400">
               {mode === 'signin'
                 ? 'Logg inn for å se familiens ukeplan.'
                 : 'Opprett konto for å dele kalender med andre foreldre.'}
             </p>
           </div>
-          <div className="relative h-14 w-14 overflow-hidden rounded-[24px] bg-white border border-zinc-200 shadow-card">
-            <img
-              src={logo}
-              alt="ForeldrePortalen logo"
-              className="h-full w-full object-cover"
-            />
+          <div className="relative h-14 w-14 overflow-hidden rounded-[24px] bg-neutral-100 border border-neutral-300 shadow-card flex items-center justify-center">
+            <SynkaLogoIcon size="lg" />
           </div>
         </div>
       </header>
 
       <div className="mt-3 flex min-h-0 w-full min-w-0 flex-1 flex-col overflow-x-hidden px-3 pb-4">
-        <div className="flex min-h-0 w-full min-w-0 flex-1 flex-col overflow-x-hidden rounded-[32px] border-2 border-brandNavy/15 bg-white px-6 pb-4 pt-6 shadow-planner">
+        <div className="flex min-h-0 w-full min-w-0 flex-1 flex-col overflow-x-hidden rounded-2xl border-2 border-primary-700/15 bg-neutral-100 px-6 pb-4 pt-6 shadow-card">
           <form className="space-y-4" onSubmit={handleSubmit} noValidate>
             {inviteParam && (
               <fieldset className="space-y-2">
-                <legend className="text-[12px] font-medium text-zinc-700">Når du blir med i familien, er du:</legend>
+                <legend className="text-[12px] font-medium text-neutral-500">Når du blir med i familien, er du:</legend>
                 <div className="grid grid-cols-2 gap-2">
                   <label
                     className={`flex cursor-pointer items-center justify-center rounded-full border px-3 py-2 text-[13px] font-medium transition ${
                       effectiveInviteMemberKind === 'parent'
-                        ? 'border-brandTeal bg-brandTeal/10 text-brandNavy'
-                        : 'border-zinc-200 text-zinc-700'
+                        ? 'border-primary-600 bg-primary-50 text-primary-700'
+                        : 'border-neutral-200 text-neutral-600'
                     }`}
                   >
                     <input
@@ -153,8 +147,8 @@ export function AuthScreen() {
                   <label
                     className={`flex cursor-pointer items-center justify-center rounded-full border px-3 py-2 text-[13px] font-medium transition ${
                       effectiveInviteMemberKind === 'child'
-                        ? 'border-brandTeal bg-brandTeal/10 text-brandNavy'
-                        : 'border-zinc-200 text-zinc-700'
+                        ? 'border-primary-600 bg-primary-50 text-primary-700'
+                        : 'border-neutral-200 text-neutral-600'
                     }`}
                   >
                     <input
@@ -171,7 +165,7 @@ export function AuthScreen() {
                     Barn
                   </label>
                 </div>
-                <p className="text-[11px] text-zinc-500">
+                <p className="text-[11px] text-neutral-400">
                   Dette styrer hvilken type profil som opprettes i den delte familien.
                 </p>
               </fieldset>
@@ -179,7 +173,7 @@ export function AuthScreen() {
             {mode === 'signup' && (
               <>
                 <div className="space-y-1">
-                  <label className="text-[12px] font-medium text-zinc-700" htmlFor="auth-name">
+                  <label className="text-[12px] font-medium text-neutral-500" htmlFor="auth-name">
                     Ditt navn
                   </label>
                   <input
@@ -188,20 +182,20 @@ export function AuthScreen() {
                     autoComplete="name"
                     required
                     placeholder="F.eks. Anne eller Ola"
-                    className="w-full rounded-full border border-zinc-200 px-3 py-2.5 text-[14px] text-zinc-900 outline-none focus:border-zinc-800 focus:ring-2 focus:ring-zinc-500/60"
+                    className="w-full rounded-lg border border-neutral-200 bg-neutral-50 px-3 py-2.5 text-[14px] text-neutral-600 outline-none focus:border-primary-600 focus:ring-2 focus:ring-primary-500/20"
                     value={name}
                     onChange={(e) => {
                       setName(e.target.value)
                       clearMessages()
                     }}
                   />
-                  <p className="text-[11px] text-zinc-500">
+                  <p className="text-[11px] text-neutral-400">
                     Hvem du er i familien – vises i appen
                   </p>
                 </div>
                 {!inviteParam && (
                   <div className="space-y-1">
-                    <label className="text-[12px] font-medium text-zinc-700" htmlFor="auth-family-name">
+                    <label className="text-[12px] font-medium text-neutral-500" htmlFor="auth-family-name">
                       Familienavn
                     </label>
                     <input
@@ -210,14 +204,14 @@ export function AuthScreen() {
                       autoComplete="off"
                       required
                       placeholder="F.eks. Olsen eller Hansen"
-                      className="w-full rounded-full border border-zinc-200 px-3 py-2.5 text-[14px] text-zinc-900 outline-none focus:border-zinc-800 focus:ring-2 focus:ring-zinc-500/60"
+                      className="w-full rounded-lg border border-neutral-200 bg-neutral-50 px-3 py-2.5 text-[14px] text-neutral-600 outline-none focus:border-primary-600 focus:ring-2 focus:ring-primary-500/20"
                       value={familyName}
                       onChange={(e) => {
                         setFamilyName(e.target.value)
                         clearMessages()
                       }}
                     />
-                    <p className="text-[11px] text-zinc-500">
+                    <p className="text-[11px] text-neutral-400">
                       Navnet på familien – vises øverst i appen
                     </p>
                   </div>
@@ -225,7 +219,7 @@ export function AuthScreen() {
               </>
             )}
             <div className="space-y-1">
-              <label className="text-[12px] font-medium text-zinc-700" htmlFor="auth-email">
+              <label className="text-[12px] font-medium text-neutral-500" htmlFor="auth-email">
                 E-post
               </label>
               <input
@@ -233,7 +227,7 @@ export function AuthScreen() {
                 type="email"
                 autoComplete="email"
                 required
-                className="w-full rounded-full border border-zinc-200 px-3 py-2.5 text-[14px] text-zinc-900 outline-none focus:border-zinc-800 focus:ring-2 focus:ring-zinc-500/60 aria-[invalid]:border-red-400"
+                className="w-full rounded-lg border border-neutral-200 bg-neutral-50 px-3 py-2.5 text-[14px] text-neutral-600 outline-none focus:border-primary-600 focus:ring-2 focus:ring-primary-500/20 aria-[invalid]:border-semantic-red-500"
                 value={email}
                 onChange={(e) => {
                   setEmail(e.target.value)
@@ -244,7 +238,7 @@ export function AuthScreen() {
               />
             </div>
             <div className="space-y-1">
-              <label className="text-[12px] font-medium text-zinc-700" htmlFor="auth-password">
+              <label className="text-[12px] font-medium text-neutral-500" htmlFor="auth-password">
                 Passord
               </label>
               <input
@@ -253,7 +247,7 @@ export function AuthScreen() {
                 autoComplete={mode === 'signin' ? 'current-password' : 'new-password'}
                 required
                 minLength={mode === 'signup' ? MIN_PASSWORD_LENGTH : undefined}
-                className="w-full rounded-full border border-zinc-200 px-3 py-2.5 text-[14px] text-zinc-900 outline-none focus:border-zinc-800 focus:ring-2 focus:ring-zinc-500/60 aria-[invalid]:border-red-400"
+                className="w-full rounded-lg border border-neutral-200 bg-neutral-50 px-3 py-2.5 text-[14px] text-neutral-600 outline-none focus:border-primary-600 focus:ring-2 focus:ring-primary-500/20 aria-[invalid]:border-semantic-red-500"
                 value={password}
                 onChange={(e) => {
                   setPassword(e.target.value)
@@ -262,14 +256,14 @@ export function AuthScreen() {
                 aria-invalid={!!error}
               />
               {mode === 'signup' && (
-                <p className="text-[11px] text-zinc-500">
+                <p className="text-[11px] text-neutral-400">
                   Minst {MIN_PASSWORD_LENGTH} tegn
                 </p>
               )}
             </div>
             {mode === 'signup' && (
               <div className="space-y-1">
-                <label className="text-[12px] font-medium text-zinc-700" htmlFor="auth-confirm-password">
+                <label className="text-[12px] font-medium text-neutral-500" htmlFor="auth-confirm-password">
                   Gjenta passord
                 </label>
                 <input
@@ -277,7 +271,7 @@ export function AuthScreen() {
                   type="password"
                   autoComplete="new-password"
                   required
-                  className="w-full rounded-full border border-zinc-200 px-3 py-2.5 text-[14px] text-zinc-900 outline-none focus:border-zinc-800 focus:ring-2 focus:ring-zinc-500/60 aria-[invalid]:border-red-400"
+                  className="w-full rounded-lg border border-neutral-200 bg-neutral-50 px-3 py-2.5 text-[14px] text-neutral-600 outline-none focus:border-primary-600 focus:ring-2 focus:ring-primary-500/20 aria-[invalid]:border-semantic-red-500"
                   value={confirmPassword}
                   onChange={(e) => {
                     setConfirmPassword(e.target.value)
@@ -289,12 +283,12 @@ export function AuthScreen() {
             )}
 
             {error && (
-              <p id="auth-error" className="text-[12px] text-red-600" role="alert">
+              <p id="auth-error" className="text-[12px] text-semantic-red-600" role="alert">
                 {error}
               </p>
             )}
             {success && (
-              <p className="text-[12px] text-zinc-700" role="status">
+              <p className="text-[12px] text-neutral-600" role="status">
                 {success}
               </p>
             )}
@@ -302,7 +296,7 @@ export function AuthScreen() {
             <button
               type="submit"
               disabled={loading}
-              className="mt-2 w-full rounded-full bg-brandTeal py-2.5 text-[15px] font-semibold text-white shadow-planner transition hover:brightness-95 disabled:opacity-70 focus:outline-none focus:ring-2 focus:ring-brandTeal focus:ring-offset-2 active:translate-y-px active:shadow-planner-press"
+              className="mt-2 w-full rounded-md bg-primary-600 py-2.5 text-[15px] font-semibold text-neutral-100 shadow-card transition hover:bg-primary-700 disabled:bg-[#b9cdc1] disabled:text-neutral-100 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2 active:bg-primary-800 active:shadow-press"
             >
               {loading ? 'Vennligst vent…' : mode === 'signin' ? 'Logg inn' : 'Opprett konto'}
             </button>
@@ -310,11 +304,11 @@ export function AuthScreen() {
 
         </div>
 
-        <div className="mt-4 border border-zinc-200 bg-zinc-50 rounded-[24px] px-4 py-3 text-center text-[12px] text-zinc-800">
+        <div className="mt-4 border border-neutral-200 bg-neutral-50 rounded-xl px-4 py-3 text-center text-[12px] text-neutral-600">
           {mode === 'signin' ? (
             <button
               type="button"
-              className="font-semibold underline-offset-2 hover:underline focus:outline-none focus:ring-2 focus:ring-zinc-300 rounded"
+              className="font-semibold underline-offset-2 hover:underline focus:outline-none focus:ring-2 focus:ring-neutral-300 rounded"
               onClick={() => switchMode('signup')}
             >
               Ny bruker? Opprett konto
@@ -322,7 +316,7 @@ export function AuthScreen() {
           ) : (
             <button
               type="button"
-              className="font-semibold underline-offset-2 hover:underline focus:outline-none focus:ring-2 focus:ring-zinc-300 rounded"
+              className="font-semibold underline-offset-2 hover:underline focus:outline-none focus:ring-2 focus:ring-neutral-300 rounded"
               onClick={() => switchMode('signin')}
             >
               Har du allerede en konto? Logg inn

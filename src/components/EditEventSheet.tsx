@@ -34,7 +34,7 @@ function ReminderDropdown({ open, onClose, children }: { open: boolean; onClose:
     <div
       ref={ref}
       role="listbox"
-      className="absolute left-0 right-0 top-full z-50 mt-1 rounded-xl border border-zinc-200 bg-white shadow-card overflow-hidden"
+      className="absolute left-0 right-0 top-full z-50 mt-1 rounded-xl border border-neutral-200 bg-neutral-100 shadow-card overflow-hidden"
     >
       {children}
     </div>
@@ -48,10 +48,10 @@ function DropdownItem({ label, active, onClick }: { label: string; active: boole
       role="option"
       aria-selected={active}
       onClick={onClick}
-      className={`flex w-full items-center gap-2 px-4 py-2.5 text-left text-[13px] hover:bg-zinc-50 ${active ? 'font-semibold text-zinc-900' : 'text-zinc-700'}`}
+      className={`flex w-full items-center gap-2 px-4 py-2.5 text-left text-[13px] hover:bg-neutral-50 ${active ? 'font-semibold text-neutral-600' : 'text-neutral-500'}`}
     >
       {active && (
-        <svg className="h-3.5 w-3.5 shrink-0 text-zinc-900" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor">
+        <svg className="h-3.5 w-3.5 shrink-0 text-neutral-600" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor">
           <path strokeLinecap="round" strokeLinejoin="round" d="m4.5 12.75 6 6 9-13.5" />
         </svg>
       )}
@@ -76,10 +76,10 @@ function ReminderDropdownField({ reminderMinutes, setReminderMinutes }: { remind
           aria-expanded={open}
           className={dropdownTrigger}
         >
-          <span className={reminderMinutes == null ? 'text-zinc-400' : 'text-zinc-900'}>
+          <span className={reminderMinutes == null ? 'text-neutral-400' : 'text-neutral-600'}>
             {reminderLabel(reminderMinutes)}
           </span>
-          <svg className={`h-4 w-4 text-zinc-400 transition-transform ${open ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+          <svg className={`h-4 w-4 text-neutral-400 transition-transform ${open ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" />
           </svg>
         </button>
@@ -107,20 +107,20 @@ function ReminderDropdownField({ reminderMinutes, setReminderMinutes }: { remind
             onClick={() => setShowCustom(true)}
           />
           {showCustom && (
-            <div className="flex items-center gap-2 border-t border-zinc-100 px-4 py-3">
+            <div className="flex items-center gap-2 border-t border-neutral-200 px-4 py-3">
               <input
                 type="number"
                 min={1}
                 max={10080}
                 value={customMinutes}
                 onChange={(e) => setCustomMinutes(Math.max(1, parseInt(e.target.value) || 1))}
-                className="w-16 rounded-lg border border-zinc-200 px-2 py-1 text-center text-[13px] outline-none focus:border-zinc-400"
+                className="w-16 rounded-lg border border-neutral-200 px-2 py-1 text-center text-[13px] outline-none focus:border-primary-600"
               />
-              <span className="text-[13px] text-zinc-600">min før</span>
+              <span className="text-[13px] text-neutral-500">min før</span>
               <button
                 type="button"
                 onClick={() => { setReminderMinutes(customMinutes); setShowCustom(false); setOpen(false) }}
-                className="ml-auto rounded-full bg-brandTeal px-3 py-1 text-[12px] font-medium text-white shadow-planner-sm"
+                className="ml-auto rounded-full bg-primary-600 px-3 py-1 text-[12px] font-medium text-neutral-100 shadow-card"
               >
                 Ferdig
               </button>
@@ -352,7 +352,7 @@ export function EditEventSheet({ event, date, onSave, onClose }: EditEventSheetP
             type="button"
             onClick={guardedClose}
             aria-label="Lukk"
-            className="absolute right-3 top-1 flex h-7 w-7 items-center justify-center rounded-full text-zinc-400 transition hover:bg-zinc-100 hover:text-zinc-600 touch-manipulation"
+            className="absolute right-3 top-1 flex h-7 w-7 items-center justify-center rounded-full text-neutral-400 transition hover:bg-neutral-200 hover:text-neutral-600 touch-manipulation"
           >
             <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" />
@@ -363,8 +363,8 @@ export function EditEventSheet({ event, date, onSave, onClose }: EditEventSheetP
           <h2 className={sheetTitle}>Rediger hendelse</h2>
 
           {confirming && (
-            <div className="rounded-2xl border border-amber-200 bg-amber-50 p-3.5 space-y-3">
-              <p className="text-body-sm font-medium text-amber-900">Du har ulagrede endringer. Forkaste?</p>
+            <div className="rounded-lg border border-accent-sun-tint bg-accent-sun-tint p-3.5 space-y-3">
+              <p className="text-body-sm font-medium text-neutral-600">Du har ulagrede endringer. Forkaste?</p>
               <div className="flex gap-2">
                 <button type="button" onClick={cancelConfirm} className={`flex-1 ${btnSecondary}`}>Bli her</button>
                 <button type="button" onClick={confirmClose} className={`flex-1 ${btnDanger}`}>Forkast</button>
@@ -427,14 +427,14 @@ export function EditEventSheet({ event, date, onSave, onClose }: EditEventSheetP
             onClick={() => { setIsAllDay((v) => !v); setError(null) }}
             className={`flex w-full items-center justify-between rounded-xl border px-3 py-2.5 text-left text-[13px] font-medium transition-colors ${
               isAllDay
-                ? 'border-brandTeal/40 bg-brandTeal/8 text-brandNavy'
-                : 'border-zinc-200 bg-zinc-50 text-zinc-600 hover:border-zinc-300 hover:bg-zinc-100'
+                ? 'border-primary-600/40 bg-primary-50 text-primary-700'
+                : 'border-neutral-200 bg-neutral-50 text-neutral-600 hover:border-neutral-300 hover:bg-neutral-100'
             }`}
           >
             <span>Heldagshendelse</span>
             <span
               className={`inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors ${
-                isAllDay ? 'bg-brandTeal' : 'bg-zinc-300'
+                isAllDay ? 'bg-primary-600' : 'bg-neutral-300'
               }`}
             >
               <span
@@ -453,7 +453,7 @@ export function EditEventSheet({ event, date, onSave, onClose }: EditEventSheetP
               min={eventDate}
               onChange={(e) => setAllDayEndDate(e.target.value)}
             />
-            <p className="text-[11px] text-zinc-500 mt-1">Velg sluttdato for flerdagers hendelser</p>
+            <p className="text-[11px] text-neutral-400 mt-1">Velg sluttdato for flerdagers hendelser</p>
           </div>
 
           {!isAllDay && (
@@ -482,7 +482,7 @@ export function EditEventSheet({ event, date, onSave, onClose }: EditEventSheetP
           )}
 
           {!isAllDay && end < start && (
-            <p className="rounded-lg bg-amber-50 px-3 py-2 text-[12px] text-amber-700">
+            <p className="rounded-lg bg-accent-sun-tint px-3 py-2 text-[12px] text-neutral-600">
               Slutter neste dag kl. {end}
             </p>
           )}
@@ -586,7 +586,7 @@ export function EditEventSheet({ event, date, onSave, onClose }: EditEventSheetP
             </>
           )}
 
-          {error && <p className="text-caption text-rose-600">{error}</p>}
+          {error && <p className="text-caption text-semantic-red-600">{error}</p>}
 
           <div className="flex gap-2 pt-2">
             <button type="button" onClick={guardedClose} className={`flex-1 ${btnSecondary}`}>

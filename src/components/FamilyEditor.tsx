@@ -95,37 +95,37 @@ function PersonForm({
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
-      <h3 className="text-[16px] font-semibold text-zinc-900">{title}</h3>
+      <h3 className="text-[16px] font-semibold text-neutral-600">{title}</h3>
 
       {mode === 'add' && (
         <div>
-          <p className="text-[12px] font-medium text-zinc-600">Type</p>
+          <p className="text-[12px] font-medium text-neutral-500">Type</p>
           <div className="mt-2 flex gap-2">
             <button
               type="button"
               onClick={() => setMemberKind('parent')}
-              className={`flex-1 rounded-xl border-2 px-3 py-2.5 text-left text-[13px] font-medium transition ${
+              className={`flex-1 rounded-lg border-2 px-3 py-2.5 text-left text-[13px] font-medium transition ${
                 memberKind === 'parent'
-                  ? 'border-brandNavy bg-brandSky/40 text-brandNavy'
-                  : 'border-zinc-200 bg-white text-zinc-700'
+                  ? 'border-primary-700 bg-primary-50 text-primary-700'
+                  : 'border-neutral-200 bg-neutral-100 text-neutral-600'
               }`}
             >
               Forelder
-              <span className="mt-0.5 block text-[11px] font-normal text-zinc-500">
+              <span className="mt-0.5 block text-[11px] font-normal text-neutral-400">
                 Kan invitere annen forelder med lenke etter lagring
               </span>
             </button>
             <button
               type="button"
               onClick={() => setMemberKind('child')}
-              className={`flex-1 rounded-xl border-2 px-3 py-2.5 text-left text-[13px] font-medium transition ${
+              className={`flex-1 rounded-lg border-2 px-3 py-2.5 text-left text-[13px] font-medium transition ${
                 memberKind === 'child'
-                  ? 'border-brandNavy bg-brandSky/40 text-brandNavy'
-                  : 'border-zinc-200 bg-white text-zinc-700'
+                  ? 'border-primary-700 bg-primary-50 text-primary-700'
+                  : 'border-neutral-200 bg-neutral-100 text-neutral-600'
               }`}
             >
               Barn
-              <span className="mt-0.5 block text-[11px] font-normal text-zinc-500">
+              <span className="mt-0.5 block text-[11px] font-normal text-neutral-400">
                 Skolerute som bakgrunn i kalenderen
               </span>
             </button>
@@ -134,13 +134,13 @@ function PersonForm({
       )}
 
       {mode === 'edit' && initial && (
-        <p className="rounded-lg bg-zinc-100 px-3 py-2 text-[12px] text-zinc-700">
+        <p className="rounded-lg bg-neutral-200 px-3 py-2 text-[12px] text-neutral-600">
           Type: <span className="font-semibold">{initial.memberKind === 'parent' ? 'Forelder' : 'Barn'}</span>
         </p>
       )}
 
       <div>
-        <label className="text-[12px] font-medium text-zinc-600">Navn</label>
+        <label className="text-[12px] font-medium text-neutral-500">Navn</label>
         <input
           type="text"
           value={name}
@@ -151,7 +151,7 @@ function PersonForm({
         />
       </div>
       <div>
-        <label className="text-[12px] font-medium text-zinc-600">Farge</label>
+        <label className="text-[12px] font-medium text-neutral-500">Farge</label>
         <div className="mt-2 flex flex-wrap gap-2">
           {COLOR_PRESETS.map(({ tint, accent }) => (
             <button
@@ -185,7 +185,7 @@ function PersonForm({
         <WorkProfileFields value={work} onChange={setWork} />
       )}
 
-      {error && <p className="text-[12px] text-red-500">{error}</p>}
+      {error && <p className="text-[12px] text-semantic-red-600">{error}</p>}
       <div className="flex gap-2 pt-2">
         <button
           type="button"
@@ -249,17 +249,17 @@ export function FamilyEditor({ onPersonRemoved }: FamilyEditorProps) {
     <div className="space-y-4">
       {isInvitedParent && (
         <div className={`${cardInset} p-3.5 text-[13px] leading-relaxed`}>
-          <p className="font-medium text-zinc-800">Invitert forelder</p>
-          <p className="mt-1 text-zinc-600">
+          <p className="font-medium text-neutral-600">Invitert forelder</p>
+          <p className="mt-1 text-neutral-500">
             Du kan legge til og endre hendelser i kalenderen. Familiemedlemmer administreres av{' '}
-            <span className="font-medium text-zinc-700">eieren av kalenderen</span>. Du kan redigere navn og farge på{' '}
-            <span className="font-medium text-zinc-700">deg selv</span> med «Rediger» på din rad.
+            <span className="font-medium text-neutral-600">eieren av kalenderen</span>. Du kan redigere navn og farge på{' '}
+            <span className="font-medium text-neutral-600">deg selv</span> med «Rediger» på din rad.
           </p>
         </div>
       )}
 
       <div className="flex items-center justify-between">
-        <h2 className="text-[17px] font-semibold text-zinc-900">Familie</h2>
+        <h2 className="text-[17px] font-semibold text-neutral-600">Familie</h2>
         {canManageFamilyMembers && !adding && !editingId && (
           <button
             type="button"
@@ -323,7 +323,7 @@ export function FamilyEditor({ onPersonRemoved }: FamilyEditorProps) {
         {people.map((p) => (
           <li
             key={p.id}
-            className="rounded-xl border border-zinc-200 bg-white shadow-soft"
+            className="rounded-lg border border-neutral-200 bg-neutral-100 shadow-card"
           >
           <div className="flex items-center justify-between px-4 py-3">
             <div className="flex min-w-0 items-center gap-3">
@@ -333,14 +333,14 @@ export function FamilyEditor({ onPersonRemoved }: FamilyEditorProps) {
                 aria-hidden
               />
               <div className="min-w-0">
-                <span className="block text-[15px] font-medium text-zinc-900">{p.name}</span>
-                <span className="text-[11px] font-medium text-zinc-500">
+                <span className="block text-[15px] font-medium text-neutral-600">{p.name}</span>
+                <span className="text-[11px] font-medium text-neutral-400">
                   {p.memberKind === 'parent' ? 'Forelder' : 'Barn'}
                   {p.memberKind === 'parent' &&
                     !p.linkedAuthUserId &&
                     canManageFamilyMembers &&
                     (!mePersonId || p.id !== mePersonId) && (
-                      <span className="mt-0.5 block text-[11px] font-normal text-zinc-500">
+                      <span className="mt-0.5 block text-[11px] font-normal text-neutral-400">
                         Ingen konto koblet ennå
                       </span>
                     )}
@@ -356,7 +356,7 @@ export function FamilyEditor({ onPersonRemoved }: FamilyEditorProps) {
                     type="button"
                     onClick={() => void showInviteForParent(p.id)}
                     disabled={!!adding || !!editingId || inviteLoadingForId === p.id}
-                    className="rounded-xl border border-emerald-200 bg-white px-2.5 py-1 text-caption font-medium text-emerald-700 hover:bg-emerald-50 disabled:opacity-50 focus:outline-none"
+                    className="rounded-md border border-primary-100 bg-neutral-100 px-2.5 py-1 text-caption font-medium text-primary-700 hover:bg-primary-50 disabled:opacity-50 focus:outline-none"
                   >
                     {inviteLoadingForId === p.id ? 'Henter…' : expandedInviteForId === p.id ? 'Skjul lenke' : 'Vis invitasjonslenke'}
                   </button>
@@ -373,7 +373,7 @@ export function FamilyEditor({ onPersonRemoved }: FamilyEditorProps) {
               )}
               {canManageFamilyMembers && confirmRemoveId === p.id ? (
                 <div className="flex items-center gap-1.5">
-                  <span className="text-caption text-zinc-500">Fjerne?</span>
+                  <span className="text-caption text-neutral-400">Fjerne?</span>
                   <button
                     type="button"
                     onClick={() => setConfirmRemoveId(null)}
@@ -386,7 +386,7 @@ export function FamilyEditor({ onPersonRemoved }: FamilyEditorProps) {
                       await removePerson(p.id)
                       onPersonRemoved?.(p.id)
                     }}
-                    className="rounded-xl border border-rose-200 bg-white px-2.5 py-1 text-caption font-medium text-rose-600 hover:bg-rose-50 focus:outline-none"
+                    className="rounded-md border border-semantic-red-100 bg-neutral-100 px-2.5 py-1 text-caption font-medium text-semantic-red-600 hover:bg-semantic-red-50 focus:outline-none"
                   >Fjern</button>
                 </div>
               ) : canManageFamilyMembers ? (
@@ -394,7 +394,7 @@ export function FamilyEditor({ onPersonRemoved }: FamilyEditorProps) {
                   type="button"
                   onClick={() => setConfirmRemoveId(p.id)}
                   disabled={!!adding || !!editingId || (mePersonId != null && p.id === mePersonId)}
-                  className="rounded-xl border border-rose-200 bg-white px-2.5 py-1 text-caption font-medium text-rose-500 hover:bg-rose-50 disabled:opacity-50 focus:outline-none"
+                  className="rounded-md border border-semantic-red-100 bg-neutral-100 px-2.5 py-1 text-caption font-medium text-semantic-red-500 hover:bg-semantic-red-50 disabled:opacity-50 focus:outline-none"
                 >
                   Fjern
                 </button>
@@ -402,12 +402,12 @@ export function FamilyEditor({ onPersonRemoved }: FamilyEditorProps) {
             </div>
           </div>
           {expandedInviteForId === p.id && inviteUrlByPersonId[p.id] && (
-            <div className="border-t border-emerald-100 bg-emerald-50/60 px-4 py-3 text-[13px]">
-              <p className="font-medium text-emerald-900 mb-1.5">Invitasjonslenke</p>
+            <div className="border-t border-primary-100 bg-primary-50 px-4 py-3 text-[13px]">
+              <p className="font-medium text-primary-700 mb-1.5">Invitasjonslenke</p>
               <input
                 readOnly
                 value={inviteUrlByPersonId[p.id]}
-                className="w-full break-all rounded-lg border border-emerald-100 bg-white px-3 py-1.5 text-[12px] text-zinc-700"
+                className="w-full break-all rounded-md border border-primary-100 bg-neutral-100 px-3 py-1.5 text-[12px] text-neutral-600"
                 aria-label="Invitasjonslenke"
               />
               <div className="mt-2 flex flex-wrap items-center gap-2">
@@ -416,14 +416,14 @@ export function FamilyEditor({ onPersonRemoved }: FamilyEditorProps) {
                   onClick={async () => {
                     try { await navigator.clipboard.writeText(inviteUrlByPersonId[p.id]!) } catch {}
                   }}
-                  className="rounded-pill bg-emerald-700 px-3 py-1 text-[12px] font-medium text-white hover:bg-emerald-800 transition"
+                  className="rounded-full bg-primary-600 px-3 py-1 text-[12px] font-medium text-neutral-100 hover:bg-primary-700 transition"
                 >
                   Kopier lenke
                 </button>
                 <button
                   type="button"
                   onClick={() => setExpandedInviteForId(null)}
-                  className="text-[12px] font-medium text-emerald-800 underline underline-offset-2"
+                  className="text-[12px] font-medium text-primary-700 underline underline-offset-2"
                 >
                   Skjul
                 </button>
@@ -435,7 +435,7 @@ export function FamilyEditor({ onPersonRemoved }: FamilyEditorProps) {
       </ul>
 
       {people.length === 0 && !adding && (
-        <p className="text-[13px] text-zinc-500">Ingen familiemedlemmer enda. Legg til en over.</p>
+        <p className="text-[13px] text-neutral-400">Ingen familiemedlemmer enda. Legg til en over.</p>
       )}
     </div>
   )

@@ -22,10 +22,10 @@ export function DayHeader({ date, summary }: DayHeaderProps) {
 
   return (
     <header className="px-5 pb-3 pt-1">
-      <h1 className="text-[28px] font-bold tracking-tight text-zinc-900">
+      <h1 className="text-[28px] font-bold tracking-tight text-neutral-600">
         {formatHeaderDate(date)}
       </h1>
-      <p className="mt-1 text-[13px] text-zinc-500">
+      <p className="mt-1 text-[13px] text-neutral-400">
         {summary.activityCount} {summary.activityCount === 1 ? 'hendelse' : 'hendelser'} · {freeStr} fri tid
       </p>
     </header>

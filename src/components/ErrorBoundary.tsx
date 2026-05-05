@@ -30,9 +30,9 @@ export class ErrorBoundary extends Component<Props, State> {
 
       return (
         <div className="flex flex-col items-center justify-center gap-4 p-8 text-center">
-          <div className="rounded-full bg-red-50 p-3">
+          <div className="rounded-full bg-semantic-red-50 p-3">
             <svg
-              className="h-6 w-6 text-red-500"
+              className="h-6 w-6 text-semantic-red-600"
               fill="none"
               viewBox="0 0 24 24"
               strokeWidth={1.5}
@@ -46,17 +46,17 @@ export class ErrorBoundary extends Component<Props, State> {
             </svg>
           </div>
           <div>
-            <h2 className="text-[16px] font-semibold text-zinc-900">
+            <h2 className="text-[16px] font-semibold text-neutral-600">
               Noe gikk galt
             </h2>
-            <p className="mt-1 text-[13px] text-zinc-500">
+            <p className="mt-1 text-[13px] text-neutral-400">
               {this.state.error?.message || 'En uventet feil oppstod.'}
             </p>
           </div>
           <button
             type="button"
             onClick={() => this.setState({ hasError: false, error: null })}
-            className="rounded-full bg-brandTeal px-5 py-2 text-[14px] font-medium text-white shadow-planner hover:brightness-95 focus:outline-none focus:ring-2 focus:ring-brandTeal focus:ring-offset-2"
+            className="rounded-full bg-primary-600 px-5 py-2 text-[14px] font-medium text-neutral-100 shadow-card hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2"
           >
             Prøv igjen
           </button>

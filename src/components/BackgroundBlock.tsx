@@ -10,8 +10,8 @@ interface BackgroundBlockProps {
 export function BackgroundBlock({ block, onSelect }: BackgroundBlockProps) {
   const { people } = useFamily()
   const person = people.find((p) => p.id === block.personId)
-  const tint = person?.colorTint ?? '#e4e4e7'
-  const accent = person?.colorAccent ?? '#a1a1aa'
+  const tint = person?.colorTint ?? '#e3ded2'
+  const accent = person?.colorAccent ?? '#7a7d77'
   const kind = block.metadata?.backgroundKind
   const subkind = block.metadata?.backgroundSubkind as string | undefined
   const isLesson = subkind === 'school_lesson'
@@ -50,11 +50,11 @@ export function BackgroundBlock({ block, onSelect }: BackgroundBlockProps) {
       )}
       {isDayBlock ? (
         <div className="flex min-h-0 min-w-0 flex-1 flex-col justify-center px-2 py-0.5">
-          <span className="truncate text-[10px] font-medium leading-tight text-zinc-700">
+          <span className="truncate text-[10px] font-medium leading-tight text-neutral-500">
             {block.title}
           </span>
           {kind && (
-            <span className="text-[9px] font-medium uppercase tracking-wide text-zinc-500">
+            <span className="text-[9px] font-medium uppercase tracking-wide text-neutral-400">
               {kind === 'school' ? 'Skole' : 'Jobb'}
             </span>
           )}
@@ -62,12 +62,12 @@ export function BackgroundBlock({ block, onSelect }: BackgroundBlockProps) {
       ) : isSchoolOverlay ? (
         <div className="relative min-h-0 min-w-0 flex-1">
           <div
-            className="absolute left-2 right-2 top-0 border-t border-zinc-500/45"
+            className="absolute left-2 right-2 top-0 border-t border-neutral-400/45"
           />
           <div className="absolute inset-x-2 top-1 min-w-0">
             <span
               className={`inline-block max-w-full truncate rounded px-1.5 py-[1px] text-[9px] leading-tight ${
-                isBreak ? 'bg-zinc-50/85 text-zinc-600' : 'bg-white/80 text-zinc-700'
+                isBreak ? 'bg-neutral-50/85 text-neutral-500' : 'bg-neutral-100/80 text-neutral-500'
               }`}
             >
               {block.title}

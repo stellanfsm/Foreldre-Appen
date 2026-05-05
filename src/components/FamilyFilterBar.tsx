@@ -1,6 +1,6 @@
-import { LayoutGroup, motion } from 'framer-motion'
 import type { PersonId } from '../types'
 import { useFamily } from '../context/FamilyContext'
+import { FamilyFilterBar as NewFamilyFilterBar } from './ui/FamilyChip'
 
 interface FamilyFilterBarProps {
   selectedPersonIds: PersonId[]
@@ -9,80 +9,37 @@ interface FamilyFilterBarProps {
   mePersonId?: PersonId | null
 }
 
-const ALL_ID = 'all' as const
-
 export function FamilyFilterBar({ selectedPersonIds, onFilterChange, mePersonId }: FamilyFilterBarProps) {
   const { people } = useFamily()
-  const isAll = selectedPersonIds.length === 0 || selectedPersonIds.length === people.length
 
   if (people.length === 0) {
     return (
       <div className="px-4 pb-2 pt-2 text-center">
-        <p className="text-[13px] text-zinc-600">
-          Ingen familiemedlemmer ennå. Gå til <span className="font-medium text-zinc-800">Innstillinger</span> for å
+        <p className="text-[13px] text-neutral-400">
+          Ingen familiemedlemmer ennå. Gå til <span className="font-medium text-neutral-600">Innstillinger</span> for å
           legge til foreldre og barn.
         </p>
       </div>
     )
   }
 
-  const handleTap = (id: PersonId | typeof ALL_ID) => {
-    if (id === ALL_ID) {
-      onFilterChange([])
-      return
+  // Map people to the new FamilyChip format with color variants
+  const familyMembers = people.map((person, index) => {
+    // Assign color variants based on index to ensure consistency
+    const variants: Array<'mamma' | 'pappa' | 'ella' | 'bestemor' | 'default'> = ['mamma', 'pappa', 'ella', 'bestemor', 'default']
+    return {
+      id: person.id,
+      name: person.name,
+      variant: variants[index % variants.length],
     }
-    const set = new Set(selectedPersonIds)
-    if (set.has(id)) set.delete(id)
-    else set.add(id)
-    onFilterChange(Array.from(set))
-  }
+  })
 
   return (
-    <LayoutGroup id="family-filter">
-    <div className="flex max-w-full min-w-0 gap-2 overflow-x-auto pb-1 pt-2 scrollbar-none">
-      <div className="flex shrink-0 px-1" />
-      <motion.button
-        type="button"
-        layout
-        onClick={() => handleTap(ALL_ID)}
-        className="flex shrink-0 items-center rounded-full px-3.5 py-1.5 text-body-sm font-medium transition-colors touch-manipulation"
-        style={{
-          backgroundColor: isAll ? 'rgb(228 228 231)' : 'rgb(241 245 249)',
-          color: isAll ? 'rgb(39 39 42)' : 'rgb(113 113 122)',
-        }}
-        whileTap={{ scale: 0.97 }}
-        aria-pressed={isAll}
-        aria-label="Vis alle familiemedlemmer"
-      >
-        Alle
-      </motion.button>
-      {people.map((person) => {
-        const active = selectedPersonIds.length === 0 || selectedPersonIds.includes(person.id)
-        const isMe = mePersonId != null && person.id === mePersonId
-        return (
-          <motion.button
-            key={person.id}
-            type="button"
-            layout
-            onClick={() => handleTap(person.id)}
-            className={`flex shrink-0 items-center gap-1.5 rounded-full px-3.5 py-1.5 text-body-sm font-medium transition-colors touch-manipulation ${isMe ? 'ring-2 ring-offset-1 ring-brandNavy/30' : ''}`}
-            style={{
-              backgroundColor: active ? person.colorTint : 'rgb(241 245 249)',
-              color: active ? person.colorAccent : 'rgb(113 113 122)',
-              borderWidth: active ? 1.5 : 0,
-              borderColor: active ? person.colorAccent : 'transparent',
-            }}
-            whileTap={{ scale: 0.97 }}
-            aria-pressed={active}
-            aria-label={isMe ? `${person.name} (deg)` : `Filtrer på ${person.name}`}
-          >
-            <span>{person.name}</span>
-            {isMe && <span className="text-[10px] font-normal opacity-80">deg</span>}
-          </motion.button>
-        )
-      })}
-      <div className="h-1 w-2 shrink-0" />
-    </div>
-    </LayoutGroup>
+    <NewFamilyFilterBar
+      familyMembers={familyMembers}
+      selectedIds={selectedPersonIds}
+      onSelectionChange={onFilterChange}
+      meId={mePersonId || undefined}
+    />
   )
 }

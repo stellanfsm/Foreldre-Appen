@@ -8,12 +8,33 @@
   --safe-bottom: env(safe-area-inset-bottom, 0px);
   --safe-left: env(safe-area-inset-left, 0px);
   --safe-right: env(safe-area-inset-right, 0px);
-  --color-surface-rgb: 249 249 248;
+  --color-surface-rgb: 244 241 234; /* Updated to match neutral-50 from design assets */
   --z-sticky: 10;
   --z-bottom-nav: 20;
   --z-sheet-overlay: 30;
   --z-sheet: 40;
   --z-undo: 50;
+}
+
+/* Synka Design System Animations */
+@keyframes bounce {
+  0%, 80%, 100% {
+    transform: translateY(0);
+    opacity: 0.35;
+  }
+  40% {
+    transform: translateY(-2px);
+    opacity: 1;
+  }
+}
+
+.duration-120 {
+  transition-duration: 120ms;
+}
+
+/* Animation utilities for loading dots */
+.animate-bounce {
+  animation: bounce 1s infinite ease-in-out;
 }
 
 html[data-surface='evening'] {

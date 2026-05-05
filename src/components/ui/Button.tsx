@@ -13,25 +13,25 @@ export interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElemen
 }
 
 const base =
-  'inline-flex items-center justify-center font-medium transition active:translate-y-px disabled:opacity-60 focus:outline-none focus:ring-2 focus:ring-offset-1 touch-manipulation select-none'
+  'font-semibold text-[14px] leading-none transition-all duration-120 focus:outline-none focus:ring-2 focus:ring-offset-2 touch-manipulation select-none'
 
 const variants: Record<ButtonVariant, string> = {
   primary:
-    'bg-brandTeal text-white shadow-planner-sm hover:brightness-95 active:shadow-planner-press focus:ring-brandTeal/40',
+    'bg-primary-600 text-neutral-100 border border-transparent hover:bg-primary-700 active:bg-primary-800 active:shadow-press focus:ring-primary-500 disabled:bg-[#b9cdc1] disabled:text-neutral-100',
   secondary:
-    'border border-zinc-300 bg-white text-zinc-800 hover:bg-zinc-50 active:bg-zinc-100 focus:ring-zinc-300/60',
+    'bg-transparent text-primary-700 border border-primary-700 hover:bg-primary-50 active:bg-primary-100 active:shadow-press focus:ring-primary-500 disabled:text-[#b9cdc1] disabled:border-[#d2dcd5] disabled:bg-transparent',
   danger:
-    'bg-rose-600 text-white hover:bg-rose-700 active:bg-rose-800 focus:ring-rose-500/40',
+    'bg-semantic-red-500 text-neutral-100 border border-transparent hover:bg-semantic-red-600 active:bg-semantic-red-700 active:shadow-press focus:ring-semantic-red-500 disabled:bg-[#f3c4c2] disabled:text-neutral-100',
   neutral:
-    'bg-zinc-100 text-zinc-700 hover:bg-zinc-200 active:bg-zinc-300 focus:ring-zinc-200',
+    'bg-neutral-200 text-neutral-600 hover:bg-neutral-300 active:bg-neutral-400 focus:ring-neutral-300',
   ghost:
-    'text-zinc-600 hover:bg-zinc-100 active:bg-zinc-200 focus:ring-zinc-200',
+    'bg-transparent text-primary-700 border border-transparent hover:bg-primary-50 active:bg-primary-100 focus:ring-primary-500 disabled:text-[#b9cdc1] disabled:bg-transparent',
 }
 
 const sizes: Record<ButtonSize, string> = {
-  sm: 'rounded-xl px-3.5 py-2 text-body-sm',
-  md: 'rounded-2xl px-5 py-3 text-body',
-  lg: 'rounded-2xl px-5 py-3.5 text-subheading',
+  sm: 'h-9 px-4 text-[13px] rounded-md',
+  md: 'h-10 px-[18px] py-[11px] text-[14px] rounded-md', // Exact padding from design assets
+  lg: 'h-12 px-6 text-[15px] rounded-md',
 }
 
 const defaultWidth: Record<ButtonSize, boolean> = {
@@ -64,26 +64,11 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
         {...props}
       >
         {loading ? (
-          <svg
-            className="h-4 w-4 animate-spin"
-            fill="none"
-            viewBox="0 0 24 24"
-            aria-hidden
-          >
-            <circle
-              className="opacity-25"
-              cx="12"
-              cy="12"
-              r="10"
-              stroke="currentColor"
-              strokeWidth="4"
-            />
-            <path
-              className="opacity-75"
-              fill="currentColor"
-              d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
-            />
-          </svg>
+          <span className="inline-flex gap-1 items-center">
+            <span className="w-1 h-1 rounded-full bg-current opacity-40 animate-bounce" style={{ animationDelay: '0ms' }}></span>
+            <span className="w-1 h-1 rounded-full bg-current opacity-40 animate-bounce" style={{ animationDelay: '120ms' }}></span>
+            <span className="w-1 h-1 rounded-full bg-current opacity-40 animate-bounce" style={{ animationDelay: '240ms' }}></span>
+          </span>
         ) : (
           children
         )}

@@ -88,13 +88,13 @@ export function SearchBar({ open, onOpenChange, weekLayoutData, onJumpToDate, on
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Søk i hendelser denne uken…"
-            className="flex-1 min-w-0 rounded-full border border-zinc-200 bg-zinc-50 px-3 py-1.5 text-[13px] outline-none focus:border-zinc-400"
+            className="flex-1 min-w-0 rounded-full border border-neutral-200 bg-neutral-50 px-3 py-1.5 text-[13px] outline-none focus:border-primary-600 text-neutral-600"
           />
         )}
         <button
           type="button"
           onClick={() => onOpenChange(!open)}
-          className="shrink-0 rounded-lg p-1.5 text-zinc-500 hover:bg-zinc-100 hover:text-zinc-700"
+          className="shrink-0 rounded-lg p-1.5 text-neutral-400 hover:bg-neutral-200 hover:text-neutral-600"
           aria-label={open ? 'Lukk søk' : 'Søk i hendelser'}
         >
           {open ? (
@@ -111,11 +111,11 @@ export function SearchBar({ open, onOpenChange, weekLayoutData, onJumpToDate, on
 
       {open && query.trim() && dropPos && (
         <div
-          className="fixed z-50 max-h-56 overflow-y-auto overflow-x-hidden rounded-xl border border-zinc-200 bg-white shadow-card"
+          className="fixed z-50 max-h-56 overflow-y-auto overflow-x-hidden rounded-xl border border-neutral-200 bg-neutral-100 shadow-card"
           style={{ top: dropPos.top, left: dropPos.left, width: dropPos.width }}
         >
           {results.length === 0 ? (
-            <p className="px-4 py-3 text-[13px] text-zinc-500">Ingen treff denne uken</p>
+            <p className="px-4 py-3 text-[13px] text-neutral-400">Ingen treff denne uken</p>
           ) : (
             results.map((r) => {
               const plist = getParticipantPeople(r.event, people)
@@ -123,7 +123,7 @@ export function SearchBar({ open, onOpenChange, weekLayoutData, onJumpToDate, on
                 <button
                   key={`${r.date}-${r.event.id}`}
                   type="button"
-                  className="flex w-full items-center gap-3 px-4 py-2.5 text-left hover:bg-zinc-50"
+                  className="flex w-full items-center gap-3 px-4 py-2.5 text-left hover:bg-neutral-50"
                   onClick={() => {
                     logEvent('search_result_clicked', { title: r.event.title, date: r.date })
                     onJumpToDate(r.date)
@@ -141,12 +141,12 @@ export function SearchBar({ open, onOpenChange, weekLayoutData, onJumpToDate, on
                       />
                     ))}
                     {plist.length === 0 && (
-                      <span className="h-2 w-2 rounded-full bg-zinc-400" aria-hidden />
+                      <span className="h-2 w-2 rounded-full bg-neutral-400" aria-hidden />
                     )}
                   </div>
                   <div className="min-w-0 flex-1">
-                    <p className="truncate text-[13px] font-medium text-zinc-900">{r.event.title}</p>
-                    <p className="text-[11px] text-zinc-500">
+                    <p className="truncate text-[13px] font-medium text-neutral-600">{r.event.title}</p>
+                    <p className="text-[11px] text-neutral-400">
                       {r.dayLabel} &middot; {formatTime(r.event.start)}
                       {plist.length > 0 ? ` · ${formatParticipantNamesLine(r.event, people)}` : ''}
                     </p>

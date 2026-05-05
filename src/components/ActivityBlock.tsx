@@ -193,7 +193,7 @@ export function ActivityBlock({
     <motion.div
       initial={false}
       animate={controls}
-      className={`absolute z-[2] flex min-w-0 overflow-hidden rounded-block text-left shadow-planner-sm touch-manipulation transition-shadow focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brandTeal/50 focus-visible:ring-offset-2 ${
+      className={`absolute z-[2] flex min-w-0 overflow-hidden rounded-block text-left shadow-card touch-manipulation transition-shadow focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500/50 focus-visible:ring-offset-2 ${
         showBlank
           ? 'p-0'
           : showTitleOnly
@@ -290,7 +290,7 @@ export function ActivityBlock({
               />
             ))}
             {participants.length > 4 && (
-              <span className="rounded-full bg-white/70 px-1 text-[10px] font-semibold text-zinc-700">
+              <span className="rounded-full bg-white/70 px-1 text-[10px] font-semibold text-neutral-500">
                 +{participants.length - 4}
               </span>
             )}
@@ -303,7 +303,7 @@ export function ActivityBlock({
               style={{ backgroundColor: primaryPerson.colorAccent }}
               aria-hidden
             />
-            <span className="min-w-0 flex-1 truncate text-caption font-semibold leading-tight tracking-tight text-zinc-900">
+            <span className="min-w-0 flex-1 truncate text-caption font-semibold leading-tight tracking-tight text-neutral-600">
               {block.title}
             </span>
           </span>
@@ -314,20 +314,20 @@ export function ActivityBlock({
               style={{ backgroundColor: primaryPerson.colorAccent }}
               aria-hidden
             />
-            <span className="min-w-0 flex-1 truncate text-caption font-semibold leading-normal tracking-tight text-zinc-900">
+            <span className="min-w-0 flex-1 truncate text-caption font-semibold leading-normal tracking-tight text-neutral-600">
               {block.title}
             </span>
-            <span className="shrink-0 text-right text-[10px] font-medium tabular-nums leading-none text-zinc-600">
+            <span className="shrink-0 text-right text-[10px] font-medium tabular-nums leading-none text-neutral-500">
               {formatTimeRange(block.start, block.end)}
               {participants.length > 1 ? ` ·${participants.length}` : ''}
             </span>
           </span>
         ) : isMedium ? (
           <>
-            <span className="min-w-0 max-w-full truncate text-body-sm font-semibold leading-tight text-zinc-900">
+            <span className="min-w-0 max-w-full truncate text-body-sm font-semibold leading-tight text-neutral-600">
               {block.title}
             </span>
-            <span className="mt-0.5 min-w-0 max-w-full truncate whitespace-nowrap text-caption tabular-nums text-zinc-500">
+            <span className="mt-0.5 min-w-0 max-w-full truncate whitespace-nowrap text-caption tabular-nums text-neutral-400">
               {formatTimeRange(block.start, block.end)}
             </span>
           </>
@@ -339,10 +339,10 @@ export function ActivityBlock({
             >
               {primaryPerson.name}
             </span>
-            <span className="mt-0.5 min-w-0 max-w-full truncate text-subheading font-semibold leading-snug text-zinc-900">
+            <span className="mt-0.5 min-w-0 max-w-full truncate text-subheading font-semibold leading-snug text-neutral-600">
               {block.title}
             </span>
-            <span className="mt-0.5 min-w-0 max-w-full truncate whitespace-nowrap text-caption tabular-nums text-zinc-500">
+            <span className="mt-0.5 min-w-0 max-w-full truncate whitespace-nowrap text-caption tabular-nums text-neutral-400">
               {formatTimeRange(block.start, block.end)}
             </span>
           </>
@@ -353,7 +353,7 @@ export function ActivityBlock({
           type="button"
           aria-label="Flytt hendelse"
           title="Flytt hendelse"
-          className={`absolute inline-flex items-center justify-center rounded-full border border-white/40 bg-white/45 text-zinc-600 backdrop-blur-sm transition hover:bg-white/75 ${
+          className={`absolute inline-flex items-center justify-center rounded-full border border-white/40 bg-white/45 text-neutral-500 backdrop-blur-sm transition hover:bg-white/75 ${
             useShortRow || showTitleOnly ? 'right-1 top-1/2 h-5 w-5 -translate-y-1/2' : 'bottom-1.5 right-1.5 h-6 w-6'
           }`}
           style={{

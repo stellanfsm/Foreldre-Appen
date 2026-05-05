@@ -175,7 +175,7 @@ export function EventDetailSheet({ event, date, onClose, onEdit, onDelete, onDup
             type="button"
             onClick={onClose}
             aria-label="Lukk"
-            className="absolute right-3 top-1 flex h-7 w-7 items-center justify-center rounded-full text-zinc-400 transition hover:bg-zinc-100 hover:text-zinc-600 touch-manipulation"
+            className="absolute right-3 top-1 flex h-7 w-7 items-center justify-center rounded-full text-neutral-400 transition hover:bg-neutral-200 hover:text-neutral-600 touch-manipulation"
           >
             <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" />
@@ -196,20 +196,20 @@ export function EventDetailSheet({ event, date, onClose, onEdit, onDelete, onDup
               ))}
             </div>
           )}
-          <h2 className="mt-1 text-[22px] font-bold text-zinc-900 leading-tight">{event.title}</h2>
+          <h2 className="mt-1 text-[22px] font-bold text-neutral-600 leading-tight">{event.title}</h2>
           {isAllDay ? (
-            <p className="mt-2 text-body font-medium text-brandNavy">
+            <p className="mt-2 text-body font-medium text-neutral-600">
               Heldags{eventEndDate && eventEndDate !== date ? ` · t.o.m. ${eventEndDate}` : ''}
             </p>
           ) : (
             <>
-              <p className="mt-2 text-body text-zinc-700">{formatTimeRange(event.start, event.end)}</p>
+              <p className="mt-2 text-body text-neutral-500">{formatTimeRange(event.start, event.end)}</p>
               <p className={sheetSubtitle}>Varighet: {durationStr}</p>
             </>
           )}
           {showTransportSection && (
             <div className="mt-3">
-              <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-zinc-400">Transport</p>
+              <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-neutral-400">Transport</p>
               <div className="space-y-1.5">
                 {(['dropoff', 'pickup'] as const).map((role) => {
                   const person = role === 'dropoff' ? dropoffPerson : pickupPerson
@@ -219,27 +219,27 @@ export function EventDetailSheet({ event, date, onClose, onEdit, onDelete, onDup
                   const canAssign = onQuickAssignTransport != null && mePersonId != null
                   return (
                     <div key={role} className="flex items-center gap-2">
-                      <span className="w-14 shrink-0 text-[11px] font-medium uppercase tracking-wide text-zinc-400">{labelNb}</span>
+                      <span className="w-14 shrink-0 text-[11px] font-medium uppercase tracking-wide text-neutral-400">{labelNb}</span>
                       {!person && canAssign ? (
                         <button
                           type="button"
                           onClick={() => void onQuickAssignTransport(role, mePersonId!)}
-                          className="rounded-full bg-brandTeal/10 px-2.5 py-0.5 text-[12px] font-semibold text-brandTeal transition hover:bg-brandTeal/20 touch-manipulation"
+                          className="rounded-full bg-primary-50 px-2.5 py-0.5 text-[12px] font-semibold text-primary-600 transition hover:bg-primary-100 touch-manipulation"
                         >
                           Jeg {verbNb}
                         </button>
                       ) : !person ? (
-                        <span className="text-[12px] italic text-zinc-400">Ikke satt</span>
+                        <span className="text-[12px] italic text-neutral-400">Ikke satt</span>
                       ) : isMe ? (
-                        <span className="text-[13px] font-medium text-zinc-700">Du {verbNb}</span>
+                        <span className="text-[13px] font-medium text-neutral-600">Du {verbNb}</span>
                       ) : (
-                        <span className="flex items-center gap-2 text-[13px] text-zinc-700">
+                        <span className="flex items-center gap-2 text-[13px] text-neutral-600">
                           <span>{person.name} {verbNb}</span>
                           {canAssign && (
                             <button
                               type="button"
                               onClick={() => void onQuickAssignTransport(role, mePersonId!)}
-                              className="rounded-full border border-zinc-200 px-2 py-0.5 text-[11px] font-medium text-zinc-500 transition hover:bg-zinc-100 touch-manipulation"
+                              className="rounded-full border border-neutral-200 px-2 py-0.5 text-[11px] font-medium text-neutral-500 transition hover:bg-neutral-200 touch-manipulation"
                             >
                               Overta
                             </button>
@@ -253,26 +253,26 @@ export function EventDetailSheet({ event, date, onClose, onEdit, onDelete, onDup
             </div>
           )}
           {isRecurring && (
-            <p className="mt-1 text-caption font-semibold text-indigo-500">Gjentakende hendelse</p>
+            <p className="mt-1 text-caption font-semibold text-primary-600">Gjentakende hendelse</p>
           )}
           {event.location && (
-            <p className="mt-3 text-body-sm text-zinc-600">
+            <p className="mt-3 text-body-sm text-neutral-500">
               <span className="font-medium">Sted:</span> {event.location}
             </p>
           )}
           {event.notes && (
-            <p className="mt-2 text-body-sm text-zinc-600">
+            <p className="mt-2 text-body-sm text-neutral-500">
               <span className="font-medium">Notater:</span> {event.notes}
             </p>
           )}
 
           {scheduleGroups.length > 0 && (
             <div className="mt-4">
-              <p className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-zinc-400">Program</p>
+              <p className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-neutral-400">Program</p>
               <div className="space-y-4">
                 {scheduleGroups.map(({ date: dayKey, items }) => (
                   <div key={dayKey}>
-                    <p className="mb-2 text-[13px] font-semibold capitalize text-zinc-800">
+                    <p className="mb-2 text-[13px] font-semibold capitalize text-neutral-600">
                       {formatScheduleDayHeading(dayKey)}
                     </p>
                     <ul className="space-y-3">
@@ -282,28 +282,28 @@ export function EventDetailSheet({ event, date, onClose, onEdit, onDelete, onDup
                           <li key={`${dayKey}-${idx}-${seg.title}`} className="flex gap-3">
                             <div className="w-[4.25rem] shrink-0 pt-0.5 text-right">
                               {timeStr ? (
-                                <span className="text-[12px] font-semibold tabular-nums text-zinc-600">{timeStr}</span>
+                                <span className="text-[12px] font-semibold tabular-nums text-neutral-500">{timeStr}</span>
                               ) : (
-                                <span className="text-[11px] text-zinc-400">—</span>
+                                <span className="text-[11px] text-neutral-400">—</span>
                               )}
                             </div>
-                            <div className="min-w-0 flex-1 border-l border-zinc-200 pl-3">
+                            <div className="min-w-0 flex-1 border-l border-neutral-200 pl-3">
                               <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
-                                <span className="text-[14px] font-medium leading-snug text-zinc-900">{seg.title}</span>
+                                <span className="text-[14px] font-medium leading-snug text-neutral-600">{seg.title}</span>
                                 {seg.isConditional && (
                                   <span
                                     title={tankestromConditionalAccessibleHintNb()}
-                                    className="rounded-md bg-amber-100/90 px-1.5 py-0.5 text-[10px] font-semibold leading-snug text-amber-950/95"
+                                    className="rounded-md bg-accent-sun-tint px-1.5 py-0.5 text-[10px] font-semibold leading-snug text-neutral-600"
                                   >
                                     {tankestromConditionalBadgeLabelNb()}
                                   </span>
                                 )}
                                 {seg.kind ? (
-                                  <span className="text-[10px] font-medium uppercase tracking-wide text-zinc-400">{seg.kind}</span>
+                                  <span className="text-[10px] font-medium uppercase tracking-wide text-neutral-400">{seg.kind}</span>
                                 ) : null}
                               </div>
                               {seg.notes ? (
-                                <p className="mt-1 text-[12px] leading-relaxed text-zinc-500">{seg.notes}</p>
+                                <p className="mt-1 text-[12px] leading-relaxed text-neutral-400">{seg.notes}</p>
                               ) : null}
                             </div>
                           </li>
@@ -317,8 +317,8 @@ export function EventDetailSheet({ event, date, onClose, onEdit, onDelete, onDup
           )}
 
           {showDeleteConfirm && (
-            <div className="mt-4 rounded-2xl border border-rose-200 bg-rose-50 p-3.5 space-y-3">
-              <p className="text-body-sm font-medium text-rose-900">Slette denne hendelsen?</p>
+            <div className="mt-4 rounded-lg border border-semantic-red-100 bg-semantic-red-50 p-3.5 space-y-3">
+              <p className="text-body-sm font-medium text-semantic-red-700">Slette denne hendelsen?</p>
               <div className="flex gap-2">
                 <button type="button" onClick={() => setShowDeleteConfirm(false)} className={`flex-1 ${btnSecondary}`}>Avbryt</button>
                 <button type="button" disabled={deleting} onClick={() => { setShowDeleteConfirm(false); void doDelete('this') }} className={`flex-1 ${btnDanger}`}>{deleting ? 'Sletter…' : 'Slett'}</button>
@@ -328,7 +328,7 @@ export function EventDetailSheet({ event, date, onClose, onEdit, onDelete, onDup
 
           {!showDeleteConfirm && showSeriesChoice ? (
             <div className="mt-6 space-y-2">
-              <p className="text-body-sm font-medium text-zinc-700">
+              <p className="text-body-sm font-medium text-neutral-600">
                 {showSeriesChoice === 'edit' ? 'Hvilke hendelser vil du redigere?' : 'Hvilke hendelser vil du slette?'}
               </p>
               <Button
@@ -371,16 +371,16 @@ export function EventDetailSheet({ event, date, onClose, onEdit, onDelete, onDup
                     setMoveDate(date)
                     setShowMove(true)
                   }}
-                  className="mt-3 w-full rounded-2xl border border-dashed border-zinc-300 py-2.5 text-body-sm font-medium text-zinc-500 transition hover:border-zinc-400 hover:text-zinc-700 touch-manipulation"
+                  className="mt-3 w-full rounded-lg border border-dashed border-neutral-300 py-2.5 text-body-sm font-medium text-neutral-500 transition hover:border-neutral-400 hover:text-neutral-600 touch-manipulation"
                 >
                   Flytt til en annen dag…
                 </button>
               )}
               {onMove && showMove && (
-                <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50/80 p-4 space-y-3">
-                  <p className="text-body-sm font-medium text-zinc-800">Flytt til dato</p>
+                <div className="mt-4 rounded-lg border border-neutral-200 bg-neutral-50 p-4 space-y-3">
+                  <p className="text-body-sm font-medium text-neutral-600">Flytt til dato</p>
                   <div className="space-y-1">
-                    <label className="block text-caption font-medium text-zinc-500 mb-1">Dato</label>
+                    <label className="block text-caption font-medium text-neutral-400 mb-1">Dato</label>
                     <input
                       type="date"
                       value={moveDate}
@@ -422,16 +422,16 @@ export function EventDetailSheet({ event, date, onClose, onEdit, onDelete, onDup
                     setDupEnd(event.end)
                     setShowDuplicate(true)
                   }}
-                  className="mt-3 w-full rounded-2xl border border-dashed border-zinc-300 py-2.5 text-body-sm font-medium text-zinc-500 transition hover:border-zinc-400 hover:text-zinc-700 touch-manipulation"
+                  className="mt-3 w-full rounded-lg border border-dashed border-neutral-300 py-2.5 text-body-sm font-medium text-neutral-500 transition hover:border-neutral-400 hover:text-neutral-600 touch-manipulation"
                 >
                   Dupliser til en annen dag…
                 </button>
               )}
               {onDuplicate && showDuplicate && (
-                <div className="mt-4 rounded-2xl border border-zinc-200 bg-zinc-50/80 p-4 space-y-3">
-                  <p className="text-body-sm font-medium text-zinc-800">Kopier til dato og tid</p>
+                <div className="mt-4 rounded-lg border border-neutral-200 bg-neutral-50 p-4 space-y-3">
+                  <p className="text-body-sm font-medium text-neutral-600">Kopier til dato og tid</p>
                   <div className="space-y-1">
-                    <label className="block text-caption font-medium text-zinc-500 mb-1">Dato</label>
+                    <label className="block text-caption font-medium text-neutral-400 mb-1">Dato</label>
                     <input
                       type="date"
                       value={dupDate}
@@ -441,7 +441,7 @@ export function EventDetailSheet({ event, date, onClose, onEdit, onDelete, onDup
                   </div>
                   <div className="flex gap-3">
                     <div className="flex-1 space-y-1">
-                      <label className="block text-caption font-medium text-zinc-500">Start</label>
+                      <label className="block text-caption font-medium text-neutral-400">Start</label>
                       <input
                         type="time"
                         value={dupStart}
@@ -450,7 +450,7 @@ export function EventDetailSheet({ event, date, onClose, onEdit, onDelete, onDup
                       />
                     </div>
                     <div className="flex-1 space-y-1">
-                      <label className="block text-caption font-medium text-zinc-500">Slutt</label>
+                      <label className="block text-caption font-medium text-neutral-400">Slutt</label>
                       <input
                         type="time"
                         value={dupEnd}
@@ -460,7 +460,7 @@ export function EventDetailSheet({ event, date, onClose, onEdit, onDelete, onDup
                     </div>
                   </div>
                   {dupStart >= dupEnd && (
-                    <p className="text-caption text-amber-600">Starttid må være før sluttid.</p>
+                    <p className="text-caption text-semantic-red-600">Starttid må være før sluttid.</p>
                   )}
                   <div className="flex gap-2">
                     <Button variant="secondary" fullWidth={false} className="flex-1" size="sm" onClick={() => setShowDuplicate(false)}>

@@ -72,9 +72,9 @@ export function FamilySetupScreen({ onSkip }: FamilySetupScreenProps) {
       <div className="flex flex-1 flex-col px-5 pb-12 pt-14">
 
         <div className="mb-8">
-          <p className="text-[12px] font-semibold uppercase tracking-wide text-brandTeal">Kom i gang</p>
-          <h1 className="mt-1 text-[22px] font-bold text-zinc-900">Legg til første barn</h1>
-          <p className="mt-2 text-[14px] leading-relaxed text-zinc-600">
+          <p className="text-[12px] font-semibold uppercase tracking-wide text-primary-600">Kom i gang</p>
+          <h1 className="mt-1 text-[22px] font-bold text-neutral-600">Legg til første barn</h1>
+          <p className="mt-2 text-[14px] leading-relaxed text-neutral-500">
             ForeldrePortalen er bygd rundt barna. Legg til minst ett barn for å få skolerute i
             bakgrunnen, filtrering per person og familiekoordinering.
           </p>
@@ -82,7 +82,7 @@ export function FamilySetupScreen({ onSkip }: FamilySetupScreenProps) {
 
         <form onSubmit={handleSubmit} className="space-y-5">
           <div>
-            <label className="text-[13px] font-medium text-zinc-700">Navn</label>
+            <label className="text-[13px] font-medium text-neutral-500">Navn</label>
             <input
               type="text"
               value={name}
@@ -94,7 +94,7 @@ export function FamilySetupScreen({ onSkip }: FamilySetupScreenProps) {
           </div>
 
           <div>
-            <label className="text-[13px] font-medium text-zinc-700">Farge i kalenderen</label>
+            <label className="text-[13px] font-medium text-neutral-500">Farge i kalenderen</label>
             <div className="mt-2.5 flex flex-wrap gap-3">
               {COLOR_PRESETS.map(({ tint, accent }) => (
                 <button
@@ -113,13 +113,13 @@ export function FamilySetupScreen({ onSkip }: FamilySetupScreenProps) {
             </div>
           </div>
 
-          <p className="rounded-xl bg-zinc-50 px-3.5 py-2.5 text-[12px] leading-relaxed text-zinc-500">
+          <p className="rounded-lg bg-neutral-50 px-3.5 py-2.5 text-[12px] leading-relaxed text-neutral-400">
             Skolerute og timeplan settes opp fra{' '}
-            <span className="font-medium text-zinc-600">Innstillinger → Familie</span> etterpå — du
+            <span className="font-medium text-neutral-500">Innstillinger → Familie</span> etterpå — du
             kan hoppe over det nå.
           </p>
 
-          {error && <p className="text-[13px] text-red-500">{error}</p>}
+          {error && <p className="text-[13px] text-semantic-red-600">{error}</p>}
 
           <button type="submit" disabled={saving} className={btnPrimary}>
             {saving ? 'Lagrer…' : 'Legg til barn og fortsett →'}
@@ -130,11 +130,11 @@ export function FamilySetupScreen({ onSkip }: FamilySetupScreenProps) {
           <button
             type="button"
             onClick={handleSkip}
-            className="text-[13px] text-zinc-400 transition hover:text-zinc-600"
+            className="text-[13px] text-neutral-400 transition hover:text-neutral-600"
           >
             Hopp over for nå
           </button>
-          <p className="text-[11px] text-zinc-400">
+          <p className="text-[11px] text-neutral-400">
             Du kan legge til barn fra Innstillinger når som helst.
           </p>
         </div>

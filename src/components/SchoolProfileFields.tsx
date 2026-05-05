@@ -437,7 +437,7 @@ export function SchoolProfileFields({ value, onChange }: SchoolProfileFieldsProp
 
   return (
     <div
-      className="space-y-3 rounded-xl border border-zinc-200 bg-white/80 px-3 py-3 md:px-4 md:py-4"
+      className="space-y-3 rounded-xl border border-neutral-200 bg-neutral-100/80 px-3 py-3 md:px-4 md:py-4"
       data-render-component="SchoolProfileFields"
     >
       {import.meta.env.DEV ? (
@@ -448,18 +448,18 @@ export function SchoolProfileFields({ value, onChange }: SchoolProfileFieldsProp
           VERIFY: SchoolProfileFields (lesson-rader under er fra denne komponenten)
         </p>
       ) : null}
-      <p className="text-[12px] font-medium text-zinc-800">Skolerute (bakgrunn)</p>
-      <p className="text-[11px] leading-relaxed text-zinc-600">
+      <p className="text-[12px] font-medium text-neutral-600">Skolerute (bakgrunn)</p>
+      <p className="text-[11px] leading-relaxed text-neutral-500">
         Basert på typiske tider i norsk grunnskole (LK20) — tilpass lokalt. Vises svakt; avtaler og hendelser
         legges oppå.
       </p>
 
       <div>
-        <label className="text-[11px] font-medium text-zinc-600">Trinn / nivå</label>
+        <label className="text-[11px] font-medium text-neutral-500">Trinn / nivå</label>
         <select
           value={band}
           onChange={(e) => setBand(e.target.value as NorwegianGradeBand)}
-          className="mt-1 w-full rounded-lg border border-zinc-200 px-3 py-2 text-[13px] outline-none focus:border-zinc-400"
+          className="mt-1 w-full rounded-lg border border-neutral-200 px-3 py-2 text-[13px] outline-none focus:border-primary-600"
         >
           {(Object.keys(GRADE_BAND_LABELS) as NorwegianGradeBand[]).map((k) => (
             <option key={k} value={k}>
@@ -469,7 +469,7 @@ export function SchoolProfileFields({ value, onChange }: SchoolProfileFieldsProp
         </select>
       </div>
 
-      <p className="text-[11px] text-zinc-500">
+      <p className="text-[11px] text-neutral-400">
         Standard skoledag når ingenting annet er satt: <span className="font-medium">{gates.start}–{gates.end}</span>{' '}
         (man–fre).
       </p>
@@ -479,15 +479,15 @@ export function SchoolProfileFields({ value, onChange }: SchoolProfileFieldsProp
           const plan = value.weekdays[wd]
           const mode = plan?.useSimpleDay !== false || !plan?.lessons?.length ? 'simple' : 'lessons'
           return (
-            <div key={wd} className="rounded-lg border border-zinc-100 bg-zinc-50/80 px-2.5 py-2.5 md:px-3 md:py-3">
+            <div key={wd} className="rounded-lg border border-neutral-200 bg-neutral-50 px-2.5 py-2.5 md:px-3 md:py-3">
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <span className="text-[12px] font-semibold text-zinc-800 md:text-[13px]">{WD_LABELS[wd]}</span>
+                <span className="text-[12px] font-semibold text-neutral-600 md:text-[13px]">{WD_LABELS[wd]}</span>
                 <div className="flex gap-1">
                   <button
                     type="button"
                     onClick={() => setDaySimple(wd, true)}
                     className={`min-h-9 rounded-full px-3 py-1 text-[12px] font-medium ${
-                      mode === 'simple' ? 'bg-brandNavy text-white' : 'bg-white text-zinc-600'
+                      mode === 'simple' ? 'bg-neutral-600 text-neutral-100' : 'bg-neutral-100 text-neutral-500'
                     }`}
                   >
                     En dag
@@ -496,7 +496,7 @@ export function SchoolProfileFields({ value, onChange }: SchoolProfileFieldsProp
                     type="button"
                     onClick={() => setDaySimple(wd, false)}
                     className={`min-h-9 rounded-full px-3 py-1 text-[12px] font-medium ${
-                      mode === 'lessons' ? 'bg-brandNavy text-white' : 'bg-white text-zinc-600'
+                      mode === 'lessons' ? 'bg-neutral-600 text-neutral-100' : 'bg-neutral-100 text-neutral-500'
                     }`}
                   >
                     Timer
@@ -505,7 +505,7 @@ export function SchoolProfileFields({ value, onChange }: SchoolProfileFieldsProp
               </div>
               {mode === 'simple' && (
                 <div className="mt-2 flex flex-wrap items-center gap-2">
-                  <label className="text-[12px] text-zinc-600">Fra</label>
+                  <label className="text-[12px] text-neutral-500">Fra</label>
                   <input
                     type="time"
                     value={plan?.schoolStart ?? gates.start}
@@ -523,9 +523,9 @@ export function SchoolProfileFields({ value, onChange }: SchoolProfileFieldsProp
                         },
                       })
                     }
-                    className="h-10 w-[108px] rounded border border-zinc-200 px-2 py-1 text-[12px] md:w-[120px]"
+                    className="h-10 w-[108px] rounded border border-neutral-200 px-2 py-1 text-[12px] md:w-[120px]"
                   />
-                  <label className="text-[12px] text-zinc-600">Til</label>
+                  <label className="text-[12px] text-neutral-500">Til</label>
                   <input
                     type="time"
                     value={plan?.schoolEnd ?? gates.end}
@@ -543,13 +543,13 @@ export function SchoolProfileFields({ value, onChange }: SchoolProfileFieldsProp
                         },
                       })
                     }
-                    className="h-10 w-[108px] rounded border border-zinc-200 px-2 py-1 text-[12px] md:w-[120px]"
+                    className="h-10 w-[108px] rounded border border-neutral-200 px-2 py-1 text-[12px] md:w-[120px]"
                   />
                 </div>
               )}
               {mode === 'lessons' && (
                 <div className="mt-2 space-y-1.5">
-                  <p className="text-[11px] leading-relaxed text-zinc-500">
+                  <p className="text-[11px] leading-relaxed text-neutral-400">
                     Neste time foreslås fra forrige sluttid. Standard varighet: {defaultLessonMinutes} min.
                   </p>
                   {(plan?.lessons ?? []).map((L, i) => (
@@ -577,7 +577,7 @@ export function SchoolProfileFields({ value, onChange }: SchoolProfileFieldsProp
                               })
                             }
                           }}
-                          className="min-h-10 w-full min-w-0 rounded border border-zinc-200 px-2 py-1 text-[12px] md:flex-[1.8]"
+                          className="min-h-10 w-full min-w-0 rounded border border-neutral-200 px-2 py-1 text-[12px] md:flex-[1.8]"
                         >
                           {!isKnownSubjectKeyForBand(band, L.subjectKey) ? (
                             <option value={L.subjectKey}>
@@ -601,7 +601,7 @@ export function SchoolProfileFields({ value, onChange }: SchoolProfileFieldsProp
                             ref={(el) => {
                               lessonStartRefs.current[`${wd}-${i}-start`] = el
                             }}
-                            className="h-8 w-[3.9rem] max-md:px-0.5 shrink-0 rounded border border-zinc-200 px-1 py-0.5 text-[10px] tabular-nums md:h-9 md:w-[88px] md:text-[11px]"
+                            className="h-8 w-[3.9rem] max-md:px-0.5 shrink-0 rounded border border-neutral-200 px-1 py-0.5 text-[10px] tabular-nums md:h-9 md:w-[88px] md:text-[11px]"
                           />
                           <input
                             type="time"
@@ -614,22 +614,22 @@ export function SchoolProfileFields({ value, onChange }: SchoolProfileFieldsProp
                                 lessonStartRefs.current[nextKey]?.focus()
                               })
                             }}
-                            className="h-8 w-[3.9rem] max-md:px-0.5 shrink-0 rounded border border-zinc-200 px-1 py-0.5 text-[10px] tabular-nums md:h-9 md:w-[88px] md:text-[11px]"
+                            className="h-8 w-[3.9rem] max-md:px-0.5 shrink-0 rounded border border-neutral-200 px-1 py-0.5 text-[10px] tabular-nums md:h-9 md:w-[88px] md:text-[11px]"
                           />
                           <button
                             type="button"
                             onClick={() => removeLesson(wd, i)}
-                            className="ml-auto inline-flex h-8 min-w-7 max-md:min-w-7 shrink-0 items-center justify-center rounded-full border border-red-200 px-1 text-[12px] font-semibold text-red-600 md:ml-0 md:min-w-8"
+                            className="ml-auto inline-flex h-8 min-w-7 max-md:min-w-7 shrink-0 items-center justify-center rounded-full border border-semantic-red-100 px-1 text-[12px] font-semibold text-semantic-red-600 md:ml-0 md:min-w-8"
                           >
                             ×
                           </button>
                         </div>
                       </div>
                       {lessonUsesStructuredSubcategory(L.subjectKey) ? (
-                        <div className="mt-1.5 rounded-md border border-zinc-200/90 bg-zinc-50/80 px-2 py-1.5">
+                        <div className="mt-1.5 rounded-md border border-neutral-200 bg-neutral-50 px-2 py-1.5">
                           {L.subjectKey === 'fremmedspråk' || L.subjectKey === 'valgfag' ? (
                             <>
-                              <label className="block text-[11px] font-medium text-zinc-600">
+                              <label className="block text-[11px] font-medium text-neutral-500">
                                 Velg underkategori
                               </label>
                               {(() => {
@@ -663,7 +663,7 @@ export function SchoolProfileFields({ value, onChange }: SchoolProfileFieldsProp
                                 return (
                                   <>
                                     <select
-                                      className="mt-0.5 w-full rounded border border-zinc-200 bg-white px-2 py-1.5 text-[12px] outline-none focus:border-zinc-400"
+                                      className="mt-0.5 w-full rounded border border-neutral-200 bg-neutral-100 px-2 py-1.5 text-[12px] outline-none focus:border-primary-600"
                                       value={
                                         subSelectValue === LESSON_SUBCATEGORY_CUSTOM_SENTINEL
                                           ? LESSON_SUBCATEGORY_CUSTOM_SENTINEL
@@ -704,14 +704,14 @@ export function SchoolProfileFields({ value, onChange }: SchoolProfileFieldsProp
                                         }}
                                         placeholder="Skriv underkategori"
                                         aria-label="Underkategori (annet)"
-                                        className="mt-1 w-full rounded border border-zinc-200 bg-white px-2 py-1.5 text-[12px] outline-none focus:border-zinc-400"
+                                        className="mt-1 w-full rounded border border-neutral-200 bg-neutral-100 px-2 py-1.5 text-[12px] outline-none focus:border-primary-600"
                                       />
                                     ) : null}
                                     {hasMultiSameSubject && applyAllValue ? (
                                       <button
                                         type="button"
                                         onClick={() => applySubcategoryToSubject(L.subjectKey, applyAllValue)}
-                                        className="mt-1 text-[10px] font-medium text-brandTeal underline underline-offset-2"
+                                        className="mt-1 text-[10px] font-medium text-primary-600 underline underline-offset-2"
                                       >
                                         Bruk samme for alle {L.subjectKey === 'fremmedspråk' ? 'språk' : 'valgfag'}-timer
                                       </button>
@@ -722,7 +722,7 @@ export function SchoolProfileFields({ value, onChange }: SchoolProfileFieldsProp
                             </>
                           ) : (
                             <>
-                              <label className="block text-[11px] font-medium text-zinc-600">
+                              <label className="block text-[11px] font-medium text-neutral-500">
                                 Underkategori / spor
                               </label>
                               <input
@@ -735,7 +735,7 @@ export function SchoolProfileFields({ value, onChange }: SchoolProfileFieldsProp
                                 }
                                 placeholder="Valgfritt — f.eks. programfagnavn"
                                 aria-label="Underkategori for generisk fagblokk"
-                                className="mt-0.5 w-full rounded border border-zinc-200 bg-white px-2 py-1.5 text-[12px] outline-none focus:border-zinc-400"
+                                className="mt-0.5 w-full rounded border border-neutral-200 bg-neutral-100 px-2 py-1.5 text-[12px] outline-none focus:border-primary-600"
                               />
                             </>
                           )}
@@ -748,23 +748,23 @@ export function SchoolProfileFields({ value, onChange }: SchoolProfileFieldsProp
                           onChange={(e) => updateLesson(wd, i, { customLabel: e.target.value })}
                           placeholder="Skriv inn fagnavn"
                           aria-label="Fagnavn for annet fag"
-                          className="w-full rounded-lg border border-zinc-200 px-3 py-2 text-[13px] outline-none focus:border-zinc-400"
+                          className="w-full rounded-lg border border-neutral-200 px-3 py-2 text-[13px] outline-none focus:border-primary-600"
                         />
                       ) : null}
                       {i < (plan?.lessons?.length ?? 0) - 1 && (
                         <div className="flex items-center gap-1">
-                          <span className="text-[11px] text-zinc-500">Pause:</span>
+                          <span className="text-[11px] text-neutral-400">Pause:</span>
                           <button
                             type="button"
                             onClick={() => addBreakAfterLesson(wd, i, 10)}
-                            className="rounded-full border border-zinc-300 bg-white px-2 py-0.5 text-[10px] text-zinc-700"
+                            className="rounded-full border border-neutral-200 bg-neutral-100 px-2 py-0.5 text-[10px] text-neutral-500"
                           >
                             +10 min
                           </button>
                           <button
                             type="button"
                             onClick={() => addBreakAfterLesson(wd, i, 15)}
-                            className="rounded-full border border-zinc-300 bg-white px-2 py-0.5 text-[10px] text-zinc-700"
+                            className="rounded-full border border-neutral-200 bg-neutral-100 px-2 py-0.5 text-[10px] text-neutral-500"
                           >
                             +15 min
                           </button>
@@ -776,7 +776,7 @@ export function SchoolProfileFields({ value, onChange }: SchoolProfileFieldsProp
                     <button
                       type="button"
                       onClick={() => resetDay(wd)}
-                      className="rounded-full border border-zinc-300 bg-white px-2.5 py-1 text-[11px] text-zinc-700"
+                      className="rounded-full border border-neutral-200 bg-neutral-100 px-2.5 py-1 text-[11px] text-neutral-500"
                     >
                       Nullstill dag
                     </button>
@@ -784,7 +784,7 @@ export function SchoolProfileFields({ value, onChange }: SchoolProfileFieldsProp
                   <button
                     type="button"
                     onClick={() => addLesson(wd)}
-                    className="min-h-9 rounded-full border border-brandTeal/30 px-3 py-1.5 text-[12px] font-medium text-brandTeal"
+                    className="min-h-9 rounded-full border border-primary-600/30 px-3 py-1.5 text-[12px] font-medium text-primary-600"
                   >
                     + Legg til time
                   </button>

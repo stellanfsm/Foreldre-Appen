@@ -218,8 +218,8 @@ function App() {
     return (
       <AppShell>
         <MobileFrame>
-          <div className="flex h-full w-full min-w-0 max-w-full flex-col items-center justify-center gap-3 overflow-x-hidden text-zinc-500">
-            <div className="h-8 w-8 animate-spin rounded-full border-2 border-zinc-300 border-t-zinc-600" />
+          <div className="flex h-full w-full min-w-0 max-w-full flex-col items-center justify-center gap-3 overflow-x-hidden text-neutral-400">
+            <div className="h-8 w-8 animate-spin rounded-full border-2 border-neutral-300 border-t-neutral-600" />
             <p className="text-sm">Loading…</p>
           </div>
         </MobileFrame>
@@ -426,7 +426,7 @@ function App() {
               className="pointer-events-none fixed inset-x-0 z-[50] flex justify-center px-3"
               style={{ bottom: 'calc(72px + env(safe-area-inset-bottom, 0px))' }}
             >
-              <div className="flex w-full max-w-[390px] items-center gap-3 rounded-2xl border-2 border-brandTeal/30 bg-brandTeal px-3 py-2.5 text-white shadow-planner">
+              <div className="flex w-full max-w-[390px] items-center gap-3 rounded-md border-2 border-primary-700/30 bg-primary-600 px-3 py-2.5 text-neutral-100 shadow-card">
                 <p className="min-w-0 flex-1 text-[13px] font-medium leading-snug">Varslet din partner om «{notifyToast}»</p>
               </div>
             </div>

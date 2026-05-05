@@ -135,7 +135,7 @@ export function CalendarHomeTab({
             <button
               type="button"
               onClick={() => handleChangeWeek(-1)}
-              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border border-zinc-200 bg-white text-zinc-500 shadow-soft transition hover:bg-zinc-50 active:bg-zinc-100 touch-manipulation"
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border border-neutral-200 bg-neutral-100 text-neutral-400 shadow-card transition hover:bg-neutral-50 active:bg-neutral-200 touch-manipulation"
               aria-label="Forrige uke"
             >
               <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor">
@@ -147,26 +147,26 @@ export function CalendarHomeTab({
               type="button"
               onClick={handleJumpToToday}
               aria-label="Hopp til i dag"
-              className="shrink-0 rounded-xl border border-zinc-200 bg-white px-2.5 py-1.5 text-caption font-medium text-zinc-600 shadow-soft transition hover:bg-zinc-50 active:bg-zinc-100 touch-manipulation"
+              className="shrink-0 rounded-xl border border-neutral-200 bg-neutral-100 px-2.5 py-1.5 text-caption font-medium text-neutral-500 shadow-card transition hover:bg-neutral-50 active:bg-neutral-200 touch-manipulation"
             >
               I dag
             </button>
             <button
               type="button"
               onClick={() => handleChangeWeek(1)}
-              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border border-zinc-200 bg-white text-zinc-500 shadow-soft transition hover:bg-zinc-50 active:bg-zinc-100 touch-manipulation"
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border border-neutral-200 bg-neutral-100 text-neutral-400 shadow-card transition hover:bg-neutral-50 active:bg-neutral-200 touch-manipulation"
               aria-label="Neste uke"
             >
               <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" />
               </svg>
             </button>
-            <div className="h-5 w-px shrink-0 bg-zinc-200" />
+            <div className="h-5 w-px shrink-0 bg-neutral-200" />
             <button
               id="onb-add-event"
               type="button"
               onClick={() => openAddEvent()}
-              className="shrink-0 rounded-pill bg-brandTeal px-3 py-1.5 text-caption font-semibold text-white shadow-planner-sm transition hover:brightness-95 active:translate-y-px active:shadow-planner-press focus:outline-none focus:ring-2 focus:ring-brandTeal/50 touch-manipulation"
+              className="shrink-0 rounded-pill bg-primary-600 px-3 py-1.5 text-caption font-semibold text-neutral-100 shadow-card transition hover:bg-primary-700 active:translate-y-px active:shadow-press focus:outline-none focus:ring-2 focus:ring-primary-500/50 touch-manipulation"
             >
               + Hendelse
             </button>
@@ -174,7 +174,7 @@ export function CalendarHomeTab({
               id="onb-add-task"
               type="button"
               onClick={() => openAddTask()}
-              className="shrink-0 rounded-pill border border-brandTeal px-3 py-1.5 text-caption font-semibold text-brandTeal transition hover:bg-brandTeal/10 active:translate-y-px focus:outline-none focus:ring-2 focus:ring-brandTeal/50 touch-manipulation"
+              className="shrink-0 rounded-pill border border-primary-600 px-3 py-1.5 text-caption font-semibold text-primary-600 transition hover:bg-primary-50 active:translate-y-px focus:outline-none focus:ring-2 focus:ring-primary-500/50 touch-manipulation"
             >
               + Gjøremål
             </button>
@@ -186,7 +186,7 @@ export function CalendarHomeTab({
                   animate={{ scale: 1, opacity: 1 }}
                   transition={springSnappy}
                   className={`inline-flex shrink-0 items-center gap-1 text-caption font-medium ${
-                    saveFeedback === 'error' ? 'text-rose-600' : saveFeedback === 'saving' ? 'text-zinc-400' : 'text-emerald-600'
+                    saveFeedback === 'error' ? 'text-semantic-red-600' : saveFeedback === 'saving' ? 'text-neutral-400' : 'text-primary-600'
                   }`}
                 >
                   {saveFeedback !== 'saving' && (
@@ -214,7 +214,7 @@ export function CalendarHomeTab({
         <div id="onb-week-strip">
           {periodContextLabel ? (
             <p
-              className="px-3 pb-1 pt-0.5 text-center text-[12px] font-semibold leading-tight text-zinc-700 tabular-nums"
+              className="px-3 pb-1 pt-0.5 text-center text-[12px] font-semibold leading-tight text-neutral-500 tabular-nums"
               aria-live="polite"
             >
               {periodContextLabel}
@@ -234,20 +234,20 @@ export function CalendarHomeTab({
             <button
               type="button"
               onClick={() => setShowTodayPanel((v) => !v)}
-              className="flex w-full items-center gap-2 rounded-xl px-1 py-1.5 text-left transition hover:bg-zinc-50"
+              className="flex w-full items-center gap-2 rounded-xl px-1 py-1.5 text-left transition hover:bg-neutral-50"
             >
-              <span className="text-caption font-semibold uppercase tracking-wider text-zinc-400">I dag</span>
-              <span className="min-w-0 flex-1 truncate text-caption text-zinc-400">
+              <span className="text-caption font-semibold uppercase tracking-wider text-neutral-400">I dag</span>
+              <span className="min-w-0 flex-1 truncate text-caption text-neutral-400">
                 {todayEvents.length > 0 && `${todayEvents.length} ${todayEvents.length === 1 ? 'hendelse' : 'hendelser'}`}
                 {todayEvents.length > 0 && todayOpenTasks.length > 0 && ' · '}
                 {todayOpenTasks.length > 0 && (
-                  <span className="text-amber-500">{todayOpenTasks.length} gjøremål</span>
+                  <span className="text-accent-sun-main">{todayOpenTasks.length} gjøremål</span>
                 )}
               </span>
               <motion.svg
                 animate={{ rotate: showTodayPanel ? 180 : 0 }}
                 transition={springSnappy}
-                className="h-3 w-3 shrink-0 text-zinc-300"
+                className="h-3 w-3 shrink-0 text-neutral-300"
                 fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor"
               >
                 <path strokeLinecap="round" strokeLinejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" />
@@ -267,8 +267,8 @@ export function CalendarHomeTab({
                       <div className="space-y-1">
                         {todayEvents.map((e) => (
                           <div key={e.id} className="flex items-center gap-2">
-                            <span className="shrink-0 tabular-nums text-caption text-zinc-400">{e.start}–{e.end}</span>
-                            <span className="min-w-0 truncate text-label font-medium text-zinc-800">{e.title}</span>
+                            <span className="shrink-0 tabular-nums text-caption text-neutral-400">{e.start}–{e.end}</span>
+                            <span className="min-w-0 truncate text-label font-medium text-neutral-600">{e.title}</span>
                           </div>
                         ))}
                       </div>
@@ -277,11 +277,11 @@ export function CalendarHomeTab({
                       <div className="space-y-1">
                         {todayOpenTasks.map((t) => (
                           <div key={t.id} className="flex items-center gap-2">
-                            <span className="h-1.5 w-1.5 shrink-0 rounded-sm bg-amber-400" />
+                            <span className="h-1.5 w-1.5 shrink-0 rounded-sm bg-accent-sun-main" />
                             {t.dueTime && (
-                              <span className="shrink-0 tabular-nums text-caption font-semibold text-amber-500">{t.dueTime}</span>
+                              <span className="shrink-0 tabular-nums text-caption font-semibold text-accent-sun-main">{t.dueTime}</span>
                             )}
-                            <span className="min-w-0 truncate text-label font-medium text-zinc-800">{t.title}</span>
+                            <span className="min-w-0 truncate text-label font-medium text-neutral-600">{t.title}</span>
                           </div>
                         ))}
                       </div>
@@ -294,7 +294,7 @@ export function CalendarHomeTab({
         )}
         {openTasksWithPerson.length > 0 && (
           <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-none px-3 pb-1.5 pt-0.5">
-            <span className="shrink-0 text-[10px] font-semibold uppercase tracking-wide text-zinc-400" aria-hidden>Gjøremål</span>
+            <span className="shrink-0 text-[10px] font-semibold uppercase tracking-wide text-neutral-400" aria-hidden>Gjøremål</span>
             {openTasksWithPerson.map(({ task, person }) => (
               <div
                 key={task.id}
@@ -302,11 +302,11 @@ export function CalendarHomeTab({
                 style={person ? {
                   backgroundColor: person.colorTint,
                   borderColor: person.colorAccent,
-                  color: '#3f3f46',
+                  color: '#14211b',
                 } : {
-                  backgroundColor: '#fef3c7',
-                  borderColor: '#fcd34d',
-                  color: '#b45309',
+                  backgroundColor: '#fbedc1',
+                  borderColor: '#c69a35',
+                  color: '#14211b',
                 }}
               >
                 <span

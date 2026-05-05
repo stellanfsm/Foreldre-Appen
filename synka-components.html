@@ -1,0 +1,1282 @@
+<!doctype html>
+<html lang="nb">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, viewport-fit=cover"
+    />
+    <title>Synka – Knapper og kjerneinteraktive kontroller</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Literata:wght@500;600;700&family=Source+Sans+3:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      /* ---------- Synka design tokens ---------- */
+      :root {
+        --bg: #f4f1ea;
+        --card: #ffffff;
+        --ink: #14211b;
+        --ink-soft: #3a4a42;
+        --muted: #7a7d77;
+        --line: #e3ded2;
+        --line-strong: #cdc6b6;
+
+        --green-50: #e9f1ec;
+        --green-100: #d6e7dc;
+        --green-500: #2c6a4f;
+        --green-600: #1d5a3f;
+        --green-700: #16472f;
+        --green-800: #0f3724;
+
+        --red-50: #fde9e7;
+        --red-100: #fbd9d6;
+        --red-500: #ec6464;
+        --red-600: #d94e4e;
+        --red-700: #b53d3d;
+
+        --mint-tint: #d6efde;
+        --mint-accent: #4f9a73;
+        --coral-tint: #fbd9d6;
+        --coral-accent: #d27970;
+        --sun-tint: #fbedc1;
+        --sun-accent: #c69a35;
+        --lilac-tint: #e1d8f0;
+        --lilac-accent: #9685c1;
+
+        --shadow-card: 0 1px 2px rgb(20 33 27 / 0.04),
+          0 8px 24px -10px rgb(20 33 27 / 0.08);
+        --shadow-press: inset 0 1px 2px rgb(0 0 0 / 0.18);
+        --radius-card: 20px;
+        --radius-block: 14px;
+        --radius-pill: 9999px;
+
+        --t-fast: 120ms cubic-bezier(0.2, 0, 0, 1);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+      }
+      body {
+        font-family: "Source Sans 3", system-ui, -apple-system, sans-serif;
+        background: var(--bg);
+        color: var(--ink);
+        font-size: 15px;
+        line-height: 1.5;
+        -webkit-font-smoothing: antialiased;
+      }
+      h1,
+      h2,
+      h3 {
+        font-family: Literata, Georgia, serif;
+        margin: 0;
+        letter-spacing: -0.01em;
+      }
+
+      /* ---------- Page chrome ---------- */
+      .page {
+        max-width: 1240px;
+        margin: 0 auto;
+        padding: 40px 28px 120px;
+      }
+      header.brand {
+        display: flex;
+        align-items: end;
+        justify-content: space-between;
+        gap: 24px;
+        margin-bottom: 32px;
+        flex-wrap: wrap;
+      }
+      .logo {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        color: var(--green-700);
+      }
+      .logo-mark {
+        width: 38px;
+        height: 38px;
+        border-radius: 12px;
+        background: var(--green-700);
+        color: #fbe9a8;
+        display: grid;
+        place-items: center;
+        font-family: Literata, serif;
+        font-weight: 700;
+        font-size: 22px;
+      }
+      .logo-name {
+        font-family: Literata, serif;
+        font-weight: 700;
+        font-size: 28px;
+        letter-spacing: -0.02em;
+      }
+      .logo-name .dot {
+        color: var(--sun-accent);
+      }
+      .header-meta {
+        text-align: right;
+        color: var(--ink-soft);
+      }
+      .header-meta h1 {
+        font-size: 22px;
+        color: var(--green-800);
+      }
+      .header-meta p {
+        margin: 4px 0 0;
+        color: var(--muted);
+        font-size: 13px;
+      }
+
+      /* ---------- Section card ---------- */
+      .section {
+        background: var(--card);
+        border-radius: var(--radius-card);
+        padding: 24px 28px 28px;
+        box-shadow: var(--shadow-card);
+        border: 1px solid var(--line);
+        margin-bottom: 24px;
+      }
+      .section-head {
+        display: flex;
+        align-items: baseline;
+        gap: 10px;
+        margin-bottom: 18px;
+      }
+      .section-head .num {
+        font-family: Literata, serif;
+        font-weight: 700;
+        color: var(--green-700);
+        font-size: 18px;
+      }
+      .section-head h2 {
+        font-size: 18px;
+        color: var(--ink);
+      }
+      .section-help {
+        color: var(--muted);
+        font-size: 13px;
+        margin: -8px 0 18px;
+      }
+
+      /* ---------- Grid for state matrices ---------- */
+      .grid {
+        display: grid;
+        gap: 14px 18px;
+      }
+      .grid-buttons {
+        grid-template-columns: 88px repeat(5, minmax(0, 1fr));
+        align-items: center;
+      }
+      .grid-states {
+        grid-template-columns: 84px repeat(5, minmax(0, 1fr));
+        align-items: center;
+      }
+      .grid-fields {
+        grid-template-columns: 110px repeat(4, minmax(0, 1fr));
+        align-items: center;
+      }
+      .grid-small {
+        grid-template-columns: 130px repeat(3, minmax(0, 1fr));
+        align-items: center;
+        gap: 18px 28px;
+      }
+
+      .col-head,
+      .row-head {
+        font-size: 12px;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        color: var(--muted);
+        font-weight: 600;
+      }
+      .col-head {
+        text-align: center;
+      }
+      .row-head {
+        color: var(--ink-soft);
+        text-transform: none;
+        letter-spacing: 0;
+        font-size: 13px;
+        font-weight: 500;
+      }
+      .cell {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        min-height: 44px;
+      }
+
+      /* ---------- BUTTONS ---------- */
+      .btn {
+        font-family: inherit;
+        font-weight: 600;
+        font-size: 14px;
+        letter-spacing: 0.005em;
+        line-height: 1;
+        padding: 11px 18px;
+        border-radius: 12px;
+        border: 1px solid transparent;
+        cursor: pointer;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        min-height: 40px;
+        white-space: nowrap;
+        transition: background var(--t-fast), color var(--t-fast),
+          border-color var(--t-fast), box-shadow var(--t-fast),
+          transform var(--t-fast);
+        user-select: none;
+        -webkit-tap-highlight-color: transparent;
+      }
+      .btn:focus-visible {
+        outline: 2px solid var(--green-500);
+        outline-offset: 2px;
+      }
+
+      /* Primary */
+      .btn-primary {
+        background: var(--green-600);
+        color: #ffffff;
+      }
+      .btn-primary:hover {
+        background: var(--green-700);
+      }
+      .btn-primary:active {
+        background: var(--green-800);
+        box-shadow: var(--shadow-press);
+      }
+
+      /* Secondary */
+      .btn-secondary {
+        background: transparent;
+        color: var(--green-700);
+        border-color: var(--green-700);
+      }
+      .btn-secondary:hover {
+        background: var(--green-50);
+      }
+      .btn-secondary:active {
+        background: var(--green-100);
+        box-shadow: var(--shadow-press);
+      }
+
+      /* Tertiary / ghost */
+      .btn-ghost {
+        background: transparent;
+        color: var(--green-700);
+      }
+      .btn-ghost:hover {
+        background: var(--green-50);
+      }
+      .btn-ghost:active {
+        background: var(--green-100);
+      }
+
+      /* Destructive */
+      .btn-danger {
+        background: var(--red-500);
+        color: #ffffff;
+      }
+      .btn-danger:hover {
+        background: var(--red-600);
+      }
+      .btn-danger:active {
+        background: var(--red-700);
+        box-shadow: var(--shadow-press);
+      }
+
+      /* Icon button */
+      .btn-icon {
+        width: 40px;
+        height: 40px;
+        min-height: 40px;
+        padding: 0;
+        border-radius: 12px;
+        background: var(--green-600);
+        color: #ffffff;
+      }
+      .btn-icon:hover {
+        background: var(--green-700);
+      }
+      .btn-icon:active {
+        background: var(--green-800);
+        box-shadow: var(--shadow-press);
+      }
+
+      /* Forced state classes (for the design state matrix) */
+      .is-hover.btn-primary {
+        background: var(--green-700);
+      }
+      .is-press.btn-primary {
+        background: var(--green-800);
+        box-shadow: var(--shadow-press);
+      }
+      .is-hover.btn-secondary {
+        background: var(--green-50);
+      }
+      .is-press.btn-secondary {
+        background: var(--green-100);
+        box-shadow: var(--shadow-press);
+      }
+      .is-hover.btn-ghost {
+        background: var(--green-50);
+      }
+      .is-press.btn-ghost {
+        background: var(--green-100);
+      }
+      .is-hover.btn-danger {
+        background: var(--red-600);
+      }
+      .is-press.btn-danger {
+        background: var(--red-700);
+        box-shadow: var(--shadow-press);
+      }
+      .is-hover.btn-icon {
+        background: var(--green-700);
+      }
+      .is-press.btn-icon {
+        background: var(--green-800);
+        box-shadow: var(--shadow-press);
+      }
+
+      /* Disabled */
+      .btn[disabled],
+      .btn.is-disabled {
+        cursor: not-allowed;
+        box-shadow: none;
+        transform: none;
+      }
+      .btn-primary[disabled],
+      .btn-primary.is-disabled,
+      .btn-icon[disabled],
+      .btn-icon.is-disabled {
+        background: #b9cdc1;
+        color: #ffffff;
+      }
+      .btn-secondary[disabled],
+      .btn-secondary.is-disabled {
+        color: #b9cdc1;
+        border-color: #d2dcd5;
+        background: transparent;
+      }
+      .btn-ghost[disabled],
+      .btn-ghost.is-disabled {
+        color: #b9cdc1;
+        background: transparent;
+      }
+      .btn-danger[disabled],
+      .btn-danger.is-disabled {
+        background: #f3c4c2;
+        color: #ffffff;
+      }
+
+      /* Loading dots */
+      .dots {
+        display: inline-flex;
+        gap: 4px;
+        align-items: center;
+      }
+      .dots span {
+        width: 5px;
+        height: 5px;
+        border-radius: 999px;
+        background: currentColor;
+        opacity: 0.4;
+        animation: bounce 1s infinite ease-in-out;
+      }
+      .dots span:nth-child(2) {
+        animation-delay: 120ms;
+      }
+      .dots span:nth-child(3) {
+        animation-delay: 240ms;
+      }
+      @keyframes bounce {
+        0%,
+        80%,
+        100% {
+          transform: translateY(0);
+          opacity: 0.35;
+        }
+        40% {
+          transform: translateY(-2px);
+          opacity: 1;
+        }
+      }
+      .btn.is-loading {
+        pointer-events: none;
+      }
+      .btn.is-loading .label {
+        display: none;
+      }
+
+      /* ---------- Chips ---------- */
+      .chips {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+      }
+      .chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 6px 14px 6px 6px;
+        border-radius: var(--radius-pill);
+        font-weight: 600;
+        font-size: 13px;
+        color: var(--ink);
+        background: var(--mint-tint);
+        cursor: pointer;
+        transition: filter var(--t-fast), transform var(--t-fast);
+      }
+      .chip:hover {
+        filter: brightness(0.97);
+      }
+      .chip:active {
+        transform: scale(0.98);
+      }
+      .chip .avatar {
+        width: 22px;
+        height: 22px;
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.6);
+        color: var(--ink-soft);
+        display: grid;
+        place-items: center;
+        font-size: 11px;
+        font-weight: 700;
+      }
+      .chip-mamma {
+        background: var(--mint-tint);
+      }
+      .chip-mamma .avatar {
+        background: var(--mint-accent);
+        color: #fff;
+      }
+      .chip-pappa {
+        background: var(--coral-tint);
+      }
+      .chip-pappa .avatar {
+        background: var(--coral-accent);
+        color: #fff;
+      }
+      .chip-ella {
+        background: var(--sun-tint);
+      }
+      .chip-ella .avatar {
+        background: var(--sun-accent);
+        color: #fff;
+      }
+      .chip-bestemor {
+        background: var(--lilac-tint);
+      }
+      .chip-bestemor .avatar {
+        background: var(--lilac-accent);
+        color: #fff;
+      }
+
+      /* ---------- Bottom tab nav ---------- */
+      .tabbar {
+        display: inline-flex;
+        background: #ffffff;
+        border: 1px solid var(--line);
+        border-radius: 18px;
+        padding: 6px;
+        gap: 4px;
+        box-shadow: var(--shadow-card);
+      }
+      .tab {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 2px;
+        padding: 8px 16px;
+        border-radius: 14px;
+        cursor: pointer;
+        color: var(--muted);
+        font-size: 12px;
+        font-weight: 600;
+        background: transparent;
+        border: 0;
+        font-family: inherit;
+        min-width: 64px;
+        transition: background var(--t-fast), color var(--t-fast);
+      }
+      .tab svg {
+        width: 22px;
+        height: 22px;
+        stroke: currentColor;
+        fill: none;
+        stroke-width: 1.8;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+      }
+      .tab:hover {
+        color: var(--green-700);
+      }
+      .tab.is-active {
+        color: var(--green-800);
+        background: var(--green-50);
+      }
+
+      /* ---------- Form fields ---------- */
+      .field {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        width: 100%;
+        height: 40px;
+        padding: 0 12px;
+        border-radius: 12px;
+        border: 1px solid var(--line-strong);
+        background: #ffffff;
+        font: inherit;
+        font-size: 14px;
+        color: var(--ink);
+        transition: border-color var(--t-fast), box-shadow var(--t-fast),
+          background var(--t-fast);
+      }
+      .field::placeholder {
+        color: var(--muted);
+      }
+      .field:focus {
+        outline: none;
+        border-color: var(--green-600);
+        box-shadow: 0 0 0 3px rgb(28 90 63 / 0.15);
+      }
+      .field.is-focus {
+        border-color: var(--green-600);
+        box-shadow: 0 0 0 3px rgb(28 90 63 / 0.15);
+      }
+      .field.is-error {
+        border-color: var(--red-600);
+        box-shadow: 0 0 0 3px rgb(217 78 78 / 0.15);
+      }
+      .field.is-disabled,
+      .field[disabled] {
+        background: #f1ede5;
+        color: var(--muted);
+        cursor: not-allowed;
+      }
+      .field-wrap {
+        position: relative;
+        width: 100%;
+      }
+      .field-wrap .endcap {
+        position: absolute;
+        right: 12px;
+        top: 50%;
+        transform: translateY(-50%);
+        color: var(--red-600);
+        pointer-events: none;
+      }
+      select.field {
+        appearance: none;
+        background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8' fill='none'><path d='M1 1l5 5 5-5' stroke='%23556' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/></svg>");
+        background-repeat: no-repeat;
+        background-position: right 12px center;
+        padding-right: 32px;
+      }
+      input[type="date"].field {
+        padding-right: 12px;
+      }
+      .field-textarea {
+        height: 90px;
+        align-items: flex-start;
+        padding: 10px 12px;
+        line-height: 1.45;
+        resize: vertical;
+      }
+      .field-error-msg {
+        margin-top: 6px;
+        color: var(--red-700);
+        font-size: 12px;
+        font-weight: 500;
+      }
+
+      /* ---------- Toggle / Checkbox / Radio ---------- */
+      .switch {
+        --w: 42px;
+        --h: 24px;
+        position: relative;
+        width: var(--w);
+        height: var(--h);
+        background: #cdc6b6;
+        border-radius: 999px;
+        cursor: pointer;
+        transition: background var(--t-fast);
+      }
+      .switch::after {
+        content: "";
+        position: absolute;
+        top: 2px;
+        left: 2px;
+        width: calc(var(--h) - 4px);
+        height: calc(var(--h) - 4px);
+        background: #ffffff;
+        border-radius: 999px;
+        box-shadow: 0 1px 2px rgb(0 0 0 / 0.2);
+        transition: transform var(--t-fast);
+      }
+      .switch.on {
+        background: var(--green-600);
+      }
+      .switch.on::after {
+        transform: translateX(calc(var(--w) - var(--h)));
+      }
+      .switch.is-disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
+
+      .check {
+        width: 20px;
+        height: 20px;
+        border-radius: 6px;
+        border: 1.5px solid var(--line-strong);
+        background: #ffffff;
+        cursor: pointer;
+        display: grid;
+        place-items: center;
+        transition: background var(--t-fast), border-color var(--t-fast);
+      }
+      .check.on {
+        background: var(--green-600);
+        border-color: var(--green-600);
+      }
+      .check.on::after {
+        content: "";
+        width: 10px;
+        height: 6px;
+        border: 2px solid #fff;
+        border-top: 0;
+        border-right: 0;
+        transform: rotate(-45deg) translate(1px, -1px);
+      }
+      .check.is-disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
+
+      .radio {
+        width: 20px;
+        height: 20px;
+        border-radius: 999px;
+        border: 1.5px solid var(--line-strong);
+        background: #ffffff;
+        cursor: pointer;
+        display: grid;
+        place-items: center;
+        transition: border-color var(--t-fast);
+      }
+      .radio.on {
+        border-color: var(--green-600);
+      }
+      .radio.on::after {
+        content: "";
+        width: 10px;
+        height: 10px;
+        border-radius: 999px;
+        background: var(--green-600);
+      }
+      .radio.is-disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
+
+      /* ---------- Status badges ---------- */
+      .badge {
+        display: inline-flex;
+        align-items: center;
+        padding: 4px 12px;
+        border-radius: var(--radius-pill);
+        font-size: 12px;
+        font-weight: 600;
+        letter-spacing: 0.01em;
+      }
+      .badge-new {
+        background: var(--mint-tint);
+        color: #1f5b3c;
+      }
+      .badge-progress {
+        background: var(--sun-tint);
+        color: #7a5a10;
+      }
+      .badge-done {
+        background: var(--green-100);
+        color: #14422c;
+      }
+      .badge-overdue {
+        background: var(--coral-tint);
+        color: #8a2f2a;
+      }
+
+      /* ---------- Live playground ---------- */
+      .playground {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 28px;
+      }
+      @media (max-width: 720px) {
+        .playground {
+          grid-template-columns: 1fr;
+        }
+      }
+      .pg-card {
+        border: 1px dashed var(--line-strong);
+        border-radius: var(--radius-block);
+        padding: 18px;
+        background: #fbfaf5;
+      }
+      .pg-card h3 {
+        font-size: 15px;
+        margin-bottom: 12px;
+      }
+      .pg-row {
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+        margin-bottom: 10px;
+        align-items: center;
+      }
+
+      /* ---------- Toast ---------- */
+      .toast-host {
+        position: fixed;
+        bottom: 24px;
+        left: 50%;
+        transform: translateX(-50%);
+        z-index: 50;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        align-items: center;
+        pointer-events: none;
+      }
+      .toast {
+        background: var(--green-700);
+        color: #ffffff;
+        padding: 10px 16px 10px 14px;
+        border-radius: 12px;
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        font-size: 14px;
+        box-shadow: 0 12px 32px -8px rgb(20 33 27 / 0.35);
+        opacity: 0;
+        transform: translateY(8px);
+        transition: opacity 200ms ease, transform 200ms ease;
+        pointer-events: auto;
+      }
+      .toast.show {
+        opacity: 1;
+        transform: translateY(0);
+      }
+      .toast .check {
+        width: 18px;
+        height: 18px;
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.18);
+        border: 0;
+      }
+      .toast .check::after {
+        width: 8px;
+        height: 5px;
+        border-color: #fff;
+      }
+
+      /* ---------- Misc icons ---------- */
+      .ico {
+        width: 16px;
+        height: 16px;
+        stroke: currentColor;
+        fill: none;
+        stroke-width: 2;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+      }
+
+      .ghost-row {
+        color: var(--muted);
+        font-size: 13px;
+      }
+
+      .small-note {
+        color: var(--muted);
+        font-size: 12px;
+      }
+    </style>
+  </head>
+
+  <body>
+    <div class="page">
+      <header class="brand">
+        <div class="logo">
+          <div class="logo-mark">S</div>
+          <div class="logo-name">synka<span class="dot">.</span></div>
+        </div>
+        <div class="header-meta">
+          <h1>Knapper og kjerneinteraktive kontroller</h1>
+          <p>Synka – en norsk familiekoordinator</p>
+        </div>
+      </header>
+
+      <!-- ---------- 0. Live playground ---------- -->
+      <section class="section">
+        <div class="section-head">
+          <span class="num">0.</span>
+          <h2>Test knappene</h2>
+        </div>
+        <p class="section-help">
+          Trykk på en knapp for å se hover, trykket og lasting i praksis.
+        </p>
+
+        <div class="playground">
+          <div class="pg-card">
+            <h3>Primær handling</h3>
+            <div class="pg-row">
+              <button class="btn btn-primary" data-toast="Lagt til i kalenderen">
+                <span class="label">Legg til</span>
+                <span class="dots" hidden><span></span><span></span><span></span></span>
+              </button>
+              <button class="btn btn-secondary" data-toast="Endringer lagret">
+                <span class="label">Lagre</span>
+                <span class="dots" hidden><span></span><span></span><span></span></span>
+              </button>
+              <button class="btn btn-ghost">
+                <span class="label">Avbryt</span>
+              </button>
+            </div>
+            <div class="pg-row">
+              <button class="btn btn-icon" aria-label="Legg til" data-toast="Ny oppgave">
+                <span class="label" aria-hidden="true">
+                  <svg class="ico" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
+                </span>
+                <span class="dots" hidden><span></span><span></span><span></span></span>
+              </button>
+              <span class="small-note">Ikonknapp – f.eks. legg til oppgave</span>
+            </div>
+          </div>
+
+          <div class="pg-card">
+            <h3>Destruktiv handling</h3>
+            <div class="pg-row">
+              <button class="btn btn-danger" data-toast="Slettet">
+                <span class="label">Slett</span>
+                <span class="dots" hidden><span></span><span></span><span></span></span>
+              </button>
+              <button class="btn btn-secondary">
+                <span class="label">Avbryt</span>
+              </button>
+            </div>
+            <p class="small-note" style="margin-top: 14px">
+              Knapper med <code>data-toast</code> viser en kort lasting (≈900 ms)
+              og deretter bekreftelse.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <!-- ---------- 1. Knapper ---------- -->
+      <section class="section">
+        <div class="section-head">
+          <span class="num">1.</span>
+          <h2>Knapper</h2>
+        </div>
+
+        <div class="grid grid-buttons">
+          <div></div>
+          <div class="col-head">Primær</div>
+          <div class="col-head">Sekundær</div>
+          <div class="col-head">Tertiær / ghost</div>
+          <div class="col-head">Destruktiv</div>
+          <div class="col-head">Ikonknapp</div>
+
+          <!-- Standard -->
+          <div class="row-head">Standard</div>
+          <div class="cell"><button class="btn btn-primary"><span class="label">Legg til</span></button></div>
+          <div class="cell"><button class="btn btn-secondary"><span class="label">Lagre</span></button></div>
+          <div class="cell"><button class="btn btn-ghost"><span class="label">Avbryt</span></button></div>
+          <div class="cell"><button class="btn btn-danger"><span class="label">Slett</span></button></div>
+          <div class="cell">
+            <button class="btn btn-icon" aria-label="Legg til">
+              <svg class="ico" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
+            </button>
+          </div>
+
+          <!-- Hover -->
+          <div class="row-head">Hover</div>
+          <div class="cell"><button class="btn btn-primary is-hover"><span class="label">Legg til</span></button></div>
+          <div class="cell"><button class="btn btn-secondary is-hover"><span class="label">Lagre</span></button></div>
+          <div class="cell"><button class="btn btn-ghost is-hover"><span class="label">Avbryt</span></button></div>
+          <div class="cell"><button class="btn btn-danger is-hover"><span class="label">Slett</span></button></div>
+          <div class="cell">
+            <button class="btn btn-icon is-hover" aria-label="Legg til">
+              <svg class="ico" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
+            </button>
+          </div>
+
+          <!-- Trykket -->
+          <div class="row-head">Trykket</div>
+          <div class="cell"><button class="btn btn-primary is-press"><span class="label">Legg til</span></button></div>
+          <div class="cell"><button class="btn btn-secondary is-press"><span class="label">Lagre</span></button></div>
+          <div class="cell"><button class="btn btn-ghost is-press"><span class="label">Avbryt</span></button></div>
+          <div class="cell"><button class="btn btn-danger is-press"><span class="label">Slett</span></button></div>
+          <div class="cell">
+            <button class="btn btn-icon is-press" aria-label="Legg til">
+              <svg class="ico" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
+            </button>
+          </div>
+
+          <!-- Deaktivert -->
+          <div class="row-head">Deaktivert</div>
+          <div class="cell"><button class="btn btn-primary" disabled><span class="label">Legg til</span></button></div>
+          <div class="cell"><button class="btn btn-secondary" disabled><span class="label">Lagre</span></button></div>
+          <div class="cell"><button class="btn btn-ghost" disabled><span class="label">Avbryt</span></button></div>
+          <div class="cell"><button class="btn btn-danger" disabled><span class="label">Slett</span></button></div>
+          <div class="cell">
+            <button class="btn btn-icon" disabled aria-label="Legg til">
+              <svg class="ico" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
+            </button>
+          </div>
+
+          <!-- Laster -->
+          <div class="row-head">Laster</div>
+          <div class="cell">
+            <button class="btn btn-primary is-loading">
+              <span class="dots"><span></span><span></span><span></span></span>
+            </button>
+          </div>
+          <div class="cell">
+            <button class="btn btn-secondary is-loading">
+              <span class="dots"><span></span><span></span><span></span></span>
+            </button>
+          </div>
+          <div class="cell">
+            <button class="btn btn-ghost is-loading">
+              <span class="dots"><span></span><span></span><span></span></span>
+            </button>
+          </div>
+          <div class="cell">
+            <button class="btn btn-danger is-loading">
+              <span class="dots"><span></span><span></span><span></span></span>
+            </button>
+          </div>
+          <div class="cell">
+            <button class="btn btn-icon is-loading" aria-label="Laster">
+              <span class="dots"><span></span><span></span><span></span></span>
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <!-- ---------- 2. Tilstander (knapp – primær) ---------- -->
+      <section class="section">
+        <div class="section-head">
+          <span class="num">2.</span>
+          <h2>Tilstander (knapp – primær)</h2>
+        </div>
+
+        <div class="grid grid-states">
+          <div></div>
+          <div class="col-head">Standard</div>
+          <div class="col-head">Hover</div>
+          <div class="col-head">Trykket</div>
+          <div class="col-head">Deaktivert</div>
+          <div class="col-head">Laster</div>
+
+          <!-- Legg til -->
+          <div class="row-head">Legg til</div>
+          <div class="cell"><button class="btn btn-primary"><span class="label">Legg til</span></button></div>
+          <div class="cell"><button class="btn btn-primary is-hover"><span class="label">Legg til</span></button></div>
+          <div class="cell"><button class="btn btn-primary is-press"><span class="label">Legg til</span></button></div>
+          <div class="cell"><button class="btn btn-primary" disabled><span class="label">Legg til</span></button></div>
+          <div class="cell">
+            <button class="btn btn-primary is-loading">
+              <span class="dots"><span></span><span></span><span></span></span>
+            </button>
+          </div>
+
+          <!-- Lagre -->
+          <div class="row-head">Lagre</div>
+          <div class="cell"><button class="btn btn-primary"><span class="label">Lagre</span></button></div>
+          <div class="cell"><button class="btn btn-primary is-hover"><span class="label">Lagre</span></button></div>
+          <div class="cell"><button class="btn btn-primary is-press"><span class="label">Lagre</span></button></div>
+          <div class="cell"><button class="btn btn-primary" disabled><span class="label">Lagre</span></button></div>
+          <div class="cell">
+            <button class="btn btn-primary is-loading">
+              <span class="dots"><span></span><span></span><span></span></span>
+            </button>
+          </div>
+
+          <!-- Inviter -->
+          <div class="row-head">Inviter</div>
+          <div class="cell"><button class="btn btn-primary"><span class="label">Inviter</span></button></div>
+          <div class="cell"><button class="btn btn-primary is-hover"><span class="label">Inviter</span></button></div>
+          <div class="cell"><button class="btn btn-primary is-press"><span class="label">Inviter</span></button></div>
+          <div class="cell"><button class="btn btn-primary" disabled><span class="label">Inviter</span></button></div>
+          <div class="cell">
+            <button class="btn btn-primary is-loading">
+              <span class="dots"><span></span><span></span><span></span></span>
+            </button>
+          </div>
+
+          <!-- Kom i gang -->
+          <div class="row-head">Kom i gang</div>
+          <div class="cell"><button class="btn btn-primary"><span class="label">Kom i gang</span></button></div>
+          <div class="cell"><button class="btn btn-primary is-hover"><span class="label">Kom i gang</span></button></div>
+          <div class="cell"><button class="btn btn-primary is-press"><span class="label">Kom i gang</span></button></div>
+          <div class="cell"><button class="btn btn-primary" disabled><span class="label">Kom i gang</span></button></div>
+          <div class="cell">
+            <button class="btn btn-primary is-loading">
+              <span class="dots"><span></span><span></span><span></span></span>
+            </button>
+          </div>
+
+          <!-- Slett -->
+          <div class="row-head">Slett</div>
+          <div class="cell"><button class="btn btn-danger"><span class="label">Slett</span></button></div>
+          <div class="cell"><button class="btn btn-danger is-hover"><span class="label">Slett</span></button></div>
+          <div class="cell"><button class="btn btn-danger is-press"><span class="label">Slett</span></button></div>
+          <div class="cell"><button class="btn btn-danger" disabled><span class="label">Slett</span></button></div>
+          <div class="cell">
+            <button class="btn btn-danger is-loading">
+              <span class="dots"><span></span><span></span><span></span></span>
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <!-- ---------- 3. Navigasjon ---------- -->
+      <section class="section">
+        <div class="section-head">
+          <span class="num">3.</span>
+          <h2>Navigasjon</h2>
+        </div>
+        <div class="tabbar" role="tablist">
+          <button class="tab is-active" role="tab" aria-selected="true">
+            <svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 9h18M8 3v4M16 3v4"/></svg>
+            Uke
+          </button>
+          <button class="tab" role="tab">
+            <svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="3"/><path d="M9 12l2 2 4-4"/></svg>
+            Oppgaver
+          </button>
+          <button class="tab" role="tab">
+            <svg viewBox="0 0 24 24"><circle cx="9" cy="9" r="3"/><circle cx="17" cy="10" r="2.5"/><path d="M3 19c0-3 3-5 6-5s6 2 6 5M14 19c0-2 2-4 4-4s4 2 4 4"/></svg>
+            Familie
+          </button>
+          <button class="tab" role="tab">
+            <svg viewBox="0 0 24 24"><circle cx="6" cy="12" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="18" cy="12" r="1.5"/></svg>
+            Mer
+          </button>
+        </div>
+      </section>
+
+      <!-- ---------- 4. Chips ---------- -->
+      <section class="section">
+        <div class="section-head">
+          <span class="num">4.</span>
+          <h2>Chips</h2>
+        </div>
+        <div class="chips">
+          <button class="chip chip-mamma" type="button">
+            <span class="avatar">M</span>Mamma
+          </button>
+          <button class="chip chip-pappa" type="button">
+            <span class="avatar">P</span>Pappa
+          </button>
+          <button class="chip chip-ella" type="button">
+            <span class="avatar">E</span>Ella
+          </button>
+          <button class="chip chip-bestemor" type="button">
+            <span class="avatar">B</span>Bestemor
+          </button>
+        </div>
+      </section>
+
+      <!-- ---------- 5. Felter ---------- -->
+      <section class="section">
+        <div class="section-head">
+          <span class="num">5.</span>
+          <h2>Felter</h2>
+        </div>
+
+        <div class="grid grid-fields">
+          <div></div>
+          <div class="col-head">Standard</div>
+          <div class="col-head">Fokus</div>
+          <div class="col-head">Feil</div>
+          <div class="col-head">Deaktivert</div>
+
+          <!-- Tekstfelt -->
+          <div class="row-head">Tekstfelt</div>
+          <div class="cell"><input class="field" placeholder="Skriv her" /></div>
+          <div class="cell"><input class="field is-focus" placeholder="Skriv her" /></div>
+          <div class="cell">
+            <div class="field-wrap">
+              <input class="field is-error" placeholder="Skriv her" />
+              <span class="endcap">
+                <svg class="ico" viewBox="0 0 24 24" style="width:18px;height:18px"><circle cx="12" cy="12" r="9"/><path d="M12 8v4M12 16h.01"/></svg>
+              </span>
+            </div>
+          </div>
+          <div class="cell"><input class="field" placeholder="Skriv her" disabled /></div>
+
+          <!-- Nedtrekksmeny -->
+          <div class="row-head">Nedtrekksmeny</div>
+          <div class="cell">
+            <select class="field"><option>Velg alternativ</option><option>Mamma</option><option>Pappa</option></select>
+          </div>
+          <div class="cell">
+            <select class="field is-focus"><option>Velg alternativ</option><option>Mamma</option></select>
+          </div>
+          <div class="cell">
+            <select class="field is-error"><option>Velg alternativ</option><option>Mamma</option></select>
+          </div>
+          <div class="cell">
+            <select class="field" disabled><option>Velg alternativ</option></select>
+          </div>
+
+          <!-- Dato -->
+          <div class="row-head">Dato</div>
+          <div class="cell"><input class="field" type="date" /></div>
+          <div class="cell"><input class="field is-focus" type="date" /></div>
+          <div class="cell"><input class="field is-error" type="date" /></div>
+          <div class="cell"><input class="field" type="date" disabled /></div>
+
+          <!-- Tekstområde -->
+          <div class="row-head">Tekstområde</div>
+          <div class="cell"><textarea class="field field-textarea" placeholder="Skriv en beskjed …"></textarea></div>
+          <div class="cell"><textarea class="field field-textarea is-focus" placeholder="Skriv en beskjed …"></textarea></div>
+          <div class="cell">
+            <div class="field-wrap" style="width:100%">
+              <textarea class="field field-textarea is-error" placeholder="Skriv en beskjed …"></textarea>
+              <div class="field-error-msg">Dette feltet må fylles ut.</div>
+            </div>
+          </div>
+          <div class="cell"><textarea class="field field-textarea" placeholder="Skriv en beskjed …" disabled></textarea></div>
+        </div>
+      </section>
+
+      <!-- ---------- 6. Små elementer ---------- -->
+      <section class="section">
+        <div class="section-head">
+          <span class="num">6.</span>
+          <h2>Små elementer</h2>
+        </div>
+
+        <div class="grid grid-small">
+          <div></div>
+          <div class="col-head">Av</div>
+          <div class="col-head">På</div>
+          <div class="col-head">Deaktivert</div>
+
+          <div class="row-head">Bryter</div>
+          <div class="cell"><div class="switch" data-toggle="switch"></div></div>
+          <div class="cell"><div class="switch on" data-toggle="switch"></div></div>
+          <div class="cell"><div class="switch is-disabled"></div></div>
+
+          <div class="row-head">Avkrysningsboks</div>
+          <div class="cell"><div class="check" data-toggle="check"></div></div>
+          <div class="cell"><div class="check on" data-toggle="check"></div></div>
+          <div class="cell"><div class="check on is-disabled"></div></div>
+
+          <div class="row-head">Radioknapp</div>
+          <div class="cell"><div class="radio" data-toggle="radio"></div></div>
+          <div class="cell"><div class="radio on" data-toggle="radio"></div></div>
+          <div class="cell"><div class="radio on is-disabled"></div></div>
+
+          <div class="row-head">Status / merke</div>
+          <div class="cell" style="grid-column: span 3; justify-content:flex-start; gap:10px; display:flex">
+            <span class="badge badge-new">Ny</span>
+            <span class="badge badge-progress">Pågår</span>
+            <span class="badge badge-done">Ferdig</span>
+            <span class="badge badge-overdue">Overdue</span>
+          </div>
+        </div>
+      </section>
+
+      <p class="small-note" style="text-align:center; margin-top: 28px">
+        Synka komponentbibliotek · forhåndsvisning · alle tekster og farger
+        følger merkevaren.
+      </p>
+    </div>
+
+    <!-- Toast host -->
+    <div class="toast-host" id="toast-host" aria-live="polite"></div>
+
+    <script>
+      // ---------- Toggles (switch / check / radio) ----------
+      document.querySelectorAll("[data-toggle]").forEach((el) => {
+        el.addEventListener("click", () => {
+          if (el.classList.contains("is-disabled")) return;
+          if (el.dataset.toggle === "radio") {
+            // Single-select within siblings sharing the same parent row
+            const parentRow = el.closest(".grid");
+            if (parentRow) {
+              parentRow
+                .querySelectorAll('[data-toggle="radio"]')
+                .forEach((r) => r.classList.remove("on"));
+            }
+            el.classList.add("on");
+          } else {
+            el.classList.toggle("on");
+          }
+        });
+      });
+
+      // ---------- Tabs ----------
+      document.querySelectorAll(".tabbar .tab").forEach((tab) => {
+        tab.addEventListener("click", () => {
+          tab.parentElement
+            .querySelectorAll(".tab")
+            .forEach((t) => t.classList.remove("is-active"));
+          tab.classList.add("is-active");
+          tab.setAttribute("aria-selected", "true");
+        });
+      });
+
+      // ---------- Toast on click ----------
+      const host = document.getElementById("toast-host");
+      function showToast(message) {
+        const t = document.createElement("div");
+        t.className = "toast";
+        t.innerHTML =
+          '<span class="check on" aria-hidden="true"></span><span>' +
+          message +
+          "</span>";
+        host.appendChild(t);
+        requestAnimationFrame(() => t.classList.add("show"));
+        setTimeout(() => {
+          t.classList.remove("show");
+          setTimeout(() => t.remove(), 220);
+        }, 1800);
+      }
+
+      // Loading + toast wiring on playground buttons
+      document.querySelectorAll(".pg-card .btn[data-toast]").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          if (btn.disabled || btn.classList.contains("is-loading")) return;
+          const dots = btn.querySelector(".dots");
+          const label = btn.querySelector(".label");
+          btn.classList.add("is-loading");
+          if (dots) dots.hidden = false;
+          setTimeout(() => {
+            btn.classList.remove("is-loading");
+            if (dots) dots.hidden = true;
+            showToast(btn.dataset.toast);
+          }, 900);
+        });
+      });
+    </script>
+  </body>
+</html>
