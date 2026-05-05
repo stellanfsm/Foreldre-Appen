@@ -223,8 +223,7 @@ export function newSecondaryCandidateProposalId(): string {
 
 export function buildTaskProposalFromSecondaryCandidate(
   c: PortalSecondaryImportCandidate,
-  _provenance: PortalImportProposalBundle['provenance'],
-  defaultPersonId: string
+  _provenance: PortalImportProposalBundle['provenance']
 ): PortalTaskProposal {
   const today = new Date().toISOString().slice(0, 10)
   return {
@@ -238,7 +237,7 @@ export function buildTaskProposalFromSecondaryCandidate(
       title: c.title.trim(),
       notes: c.notes?.trim() || c.summary?.trim() || undefined,
       dueTime: undefined,
-      childPersonId: defaultPersonId,
+      childPersonId: '',
       assignedToPersonId: undefined,
       taskIntent: 'must_do',
     },
@@ -247,8 +246,7 @@ export function buildTaskProposalFromSecondaryCandidate(
 
 export function buildEventProposalFromSecondaryCandidate(
   c: PortalSecondaryImportCandidate,
-  provenance: PortalImportProposalBundle['provenance'],
-  defaultPersonId: string
+  provenance: PortalImportProposalBundle['provenance']
 ): PortalEventProposal {
   const today = new Date().toISOString().slice(0, 10)
   const date = c.date && /^\d{4}-\d{2}-\d{2}$/.test(c.date) ? c.date : today
@@ -260,7 +258,7 @@ export function buildEventProposalFromSecondaryCandidate(
     confidence: Math.max(0.5, Math.min(0.72, c.confidence + 0.08)),
     event: {
       date,
-      personId: defaultPersonId,
+      personId: '',
       title: c.title.trim(),
       start: '09:00',
       end: '10:00',

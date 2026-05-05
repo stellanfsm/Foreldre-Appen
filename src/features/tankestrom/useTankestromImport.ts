@@ -63,6 +63,7 @@ import {
   proposalItemQualifiesSecondaryZone,
   type ImportClassificationContext,
 } from '../../lib/tankestromSecondaryCandidates'
+import { resolvePersonForImport } from '../../lib/tankestromImportPersonResolve'
 
 const TANKESTROM_IMPORT_PERSIST_DEBUG =
   import.meta.env.DEV || import.meta.env.VITE_DEBUG_SCHOOL_IMPORT === 'true'
@@ -93,6 +94,9 @@ function newPendingFileId(): string {
 }
 
 const DATE_KEY_RE = /^\d{4}-\d{2}-\d{2}$/
+
+const MANUAL_REVIEW_SOURCE_TYPE = 'manual_review'
+const MANUAL_REVIEW_SOURCE_LABEL = 'Manuelt tillegg i import'
 
 function isHm24(s: string): boolean {
   return /^([01]\d|2[0-3]):[0-5]\d$/.test(s.trim())
@@ -237,6 +241,7 @@ function buildEmbeddedChildEventDraft(
   }
   return {
     ...parentDraft,
+    documentExtractedPersonName: undefined,
     title: calendarTitle,
     date: segment.date,
     start,
@@ -764,10 +769,10 @@ function sanitizeEmbeddedChildCalendarExportMetadata(metadata: Record<string, un
 function buildEventDraftFromProposal(
   p: PortalEventProposal,
   validPersonIds: Set<string>,
+  people: Person[],
   defaultPersonId: string
 ): TankestromEventDraft {
   const ev = p.event
-  const pid = validPersonIds.has(ev.personId) ? ev.personId : defaultPersonId
   const transport =
     ev.metadata && typeof ev.metadata === 'object' && !Array.isArray(ev.metadata)
       ? ((ev.metadata as { transport?: { dropoffBy?: unknown; pickupBy?: unknown } }).transport ?? null)
@@ -778,12 +783,31 @@ function buildEventDraftFromProposal(
     ev.metadata && typeof ev.metadata === 'object' && !Array.isArray(ev.metadata)
       ? (ev.metadata as { participants?: unknown }).participants
       : undefined
-  const fromMeta = Array.isArray(metaParticipants)
-    ? metaParticipants.filter((x): x is string => typeof x === 'string' && validPersonIds.has(x))
-    : []
-  const merged = [...new Set([pid, ...fromMeta])]
-  const orderedParticipants = [pid, ...merged.filter((id) => id !== pid)]
-  const participantPersonIds = orderedParticipants.length > 1 ? orderedParticipants : undefined
+
+  let pid: string
+  let documentExtractedPersonName: string | undefined
+
+  if (p.originalSourceType === MANUAL_REVIEW_SOURCE_TYPE) {
+    pid = validPersonIds.has(ev.personId) ? ev.personId : defaultPersonId
+  } else {
+    const resolution = resolvePersonForImport(p, people)
+    pid =
+      resolution.personId != null && validPersonIds.has(resolution.personId) ? resolution.personId : ''
+    if (resolution.status === 'unmatched_document_name') {
+      documentExtractedPersonName = resolution.extractedName
+    }
+  }
+
+  let participantPersonIds: string[] | undefined
+  if (pid) {
+    const fromMeta = Array.isArray(metaParticipants)
+      ? metaParticipants.filter((x): x is string => typeof x === 'string' && validPersonIds.has(x))
+      : []
+    const merged = [...new Set([pid, ...fromMeta])]
+    const orderedParticipants = [pid, ...merged.filter((id) => id !== pid)]
+    participantPersonIds = orderedParticipants.length > 1 ? orderedParticipants : undefined
+  }
+
   const title =
     isEmbeddedScheduleParentProposalItem(p)
       ? normalizeEmbeddedScheduleParentDisplayTitle(ev.title.trim()).title
@@ -794,6 +818,7 @@ function buildEventDraftFromProposal(
     start: ev.start,
     end: ev.end,
     personId: pid,
+    documentExtractedPersonName,
     participantPersonIds,
     location: ev.location ?? '',
     notes: ev.notes ?? '',
@@ -854,7 +879,11 @@ function buildTaskDraftFromProposal(
     t.childPersonId && validPersonIds.has(t.childPersonId) ? t.childPersonId : ''
   let assignedToPersonId =
     t.assignedToPersonId && validPersonIds.has(t.assignedToPersonId) ? t.assignedToPersonId : ''
-  if (!childPersonId && !assignedToPersonId) {
+  if (
+    p.originalSourceType === MANUAL_REVIEW_SOURCE_TYPE &&
+    !childPersonId &&
+    !assignedToPersonId
+  ) {
     childPersonId = defaultChildPersonId(people, validPersonIds)
   }
   const fromApi = normalizeTaskIntent(t.taskIntent)
@@ -878,9 +907,6 @@ function buildTaskDraftFromProposal(
     taskIntent,
   }
 }
-
-const MANUAL_REVIEW_SOURCE_TYPE = 'manual_review'
-const MANUAL_REVIEW_SOURCE_LABEL = 'Manuelt tillegg i import'
 
 function newManualReviewProposalId(): string {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
@@ -937,7 +963,10 @@ function importDraftFromProposal(
   taskSourceLabelHint?: string
 ): TankestromImportDraft {
   if (item.kind === 'event') {
-    return { importKind: 'event', event: buildEventDraftFromProposal(item, validPersonIds, defaultPersonId) }
+    return {
+      importKind: 'event',
+      event: buildEventDraftFromProposal(item, validPersonIds, people, defaultPersonId),
+    }
   }
   return {
     importKind: 'task',
@@ -1096,11 +1125,7 @@ function taskDraftFromEventDraft(e: TankestromEventDraft, people: Person[], vali
   }
 }
 
-function eventDraftFromTaskDraft(
-  t: TankestromTaskDraft,
-  validPersonIds: Set<string>,
-  defaultPersonId: string
-): TankestromEventDraft {
+function eventDraftFromTaskDraft(t: TankestromTaskDraft, validPersonIds: Set<string>): TankestromEventDraft {
   const due = t.dueTime.trim()
   const start = due && isHm24(normalizeTimeInput(due)) ? normalizeTimeInput(due) : '09:00'
   const end = hmPlusMinutes(start, 60)
@@ -1108,7 +1133,7 @@ function eventDraftFromTaskDraft(
   if (t.childPersonId.trim() && validPersonIds.has(t.childPersonId)) personId = t.childPersonId
   else if (t.assignedToPersonId.trim() && validPersonIds.has(t.assignedToPersonId)) {
     personId = t.assignedToPersonId
-  } else personId = defaultPersonId
+  }
   return {
     title: t.title,
     date: t.date,
@@ -1874,7 +1899,6 @@ export function useTankestromImport({
         }
         const cur = base[proposalId]
         if (!cur) return prev
-        const defaultPersonId = people[0]?.id ?? ''
         if (importKind === 'task') {
           if (cur.importKind === 'task') return base
           return {
@@ -1887,7 +1911,7 @@ export function useTankestromImport({
           ...base,
           [proposalId]: {
             importKind: 'event',
-            event: eventDraftFromTaskDraft(cur.task, validPersonIds, defaultPersonId),
+            event: eventDraftFromTaskDraft(cur.task, validPersonIds),
           },
         }
       })
@@ -3249,11 +3273,10 @@ export function useTankestromImport({
       }
 
       if (!bundle) return
-      const childDefault = defaultChildPersonId(people, validPersonIds) || defaultPersonId
       const newItem: PortalProposalItem =
         targetKind === 'task'
-          ? buildTaskProposalFromSecondaryCandidate(c, bundle.provenance, childDefault)
-          : buildEventProposalFromSecondaryCandidate(c, bundle.provenance, childDefault)
+          ? buildTaskProposalFromSecondaryCandidate(c, bundle.provenance)
+          : buildEventProposalFromSecondaryCandidate(c, bundle.provenance)
 
       setBundle((prev) => (prev ? { ...prev, items: [...prev.items, newItem] } : null))
       setDraftByProposalId((prev) => ({

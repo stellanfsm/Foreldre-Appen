@@ -134,6 +134,11 @@ export interface TankestromEventDraft {
   end: string
   personId: string
   /**
+   * Navn fra dokument (boarding pass, PDF, …) når det ikke kunne kobles til en kjent person.
+   * Vises som «Navn i dokument: …» i review.
+   */
+  documentExtractedPersonName?: string
+  /**
    * Flere deltakere på hendelsen (som `metadata.participants` ved import).
    * Første id skal alltid være lik `personId` (primær / kalendereier for raden).
    */

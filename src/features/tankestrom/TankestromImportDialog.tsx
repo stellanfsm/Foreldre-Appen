@@ -112,10 +112,12 @@ function formatEventDraftPeopleSummary(ev: TankestromEventDraft, peopleList: Per
   const names = ids
     .map((id) => peopleList.find((p) => p.id === id)?.name)
     .filter(Boolean) as string[]
-  if (names.length === 0) return ''
-  if (names.length === 1) return names[0]!
-  if (names.length === 2) return `${names[0]!} · ${names[1]!}`
-  return `${names[0]!} +${names.length - 1}`
+  if (names.length > 0) {
+    if (names.length === 1) return names[0]!
+    if (names.length === 2) return `${names[0]!} · ${names[1]!}`
+    return `${names[0]!} +${names.length - 1}`
+  }
+  return 'Person ikke oppgitt'
 }
 
 /** Les `metadata.schoolContext` fra et event-forslag hvis det finnes. */
@@ -4442,6 +4444,16 @@ export function TankestromImportDialog({
                                   {eventFieldErrors.personId}
                                 </p>
                               )}
+                              {!u.event.personId?.trim() ? (
+                                <div className="mt-1.5 space-y-0.5">
+                                  <p className="text-[11px] text-zinc-600">Person ikke oppgitt</p>
+                                  {u.event.documentExtractedPersonName?.trim() ? (
+                                    <p className="text-[10px] text-zinc-500">
+                                      Navn i dokument: {u.event.documentExtractedPersonName.trim()}
+                                    </p>
+                                  ) : null}
+                                </div>
+                              ) : null}
                             </div>
 
                             <div className="rounded-lg border border-rose-100 bg-rose-50/50 px-2.5 py-2 sm:rounded-xl sm:px-3 sm:py-3">
