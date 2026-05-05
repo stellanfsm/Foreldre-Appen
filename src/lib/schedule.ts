@@ -37,9 +37,7 @@ function hasPositiveDuration(e: Event): boolean {
 }
 
 function isRenderableEvent(e: Event): boolean {
-  // Drop events with no person or invalid duration; they should behave as if they don't exist.
-  const participantIds = getEventParticipantIds(e)
-  if (participantIds.length === 0) return false
+  // Timed foreground blocks without person (f.eks. dokumentimport) skal fortsatt vises.
   return hasPositiveDuration(e)
 }
 

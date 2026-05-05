@@ -8,7 +8,7 @@ const EVENT_COLUMNS =
 type EventRow = {
   id: string
   user_id: string
-  person_id: string
+  person_id: string | null
   date: string
   title: string
   start: string
@@ -187,7 +187,7 @@ export async function updateEvent(
   newDate?: string
 ): Promise<Event | null> {
   const payload: Record<string, unknown> = {}
-  if (updates.personId != null) payload.person_id = updates.personId
+  if (updates.personId !== undefined) payload.person_id = updates.personId
   if (updates.title != null) payload.title = updates.title
   if (updates.start != null) payload.start = updates.start
   if (updates.end != null) payload.end = updates.end
@@ -218,7 +218,7 @@ export async function updateEventsByGroup(
   updates: Partial<Pick<Event, 'personId' | 'title' | 'start' | 'end' | 'notes' | 'location' | 'reminderMinutes'>>
 ): Promise<boolean> {
   const payload: Record<string, unknown> = {}
-  if (updates.personId != null) payload.person_id = updates.personId
+  if (updates.personId !== undefined) payload.person_id = updates.personId
   if (updates.title != null) payload.title = updates.title
   if (updates.start != null) payload.start = updates.start
   if (updates.end != null) payload.end = updates.end

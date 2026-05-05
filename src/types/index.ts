@@ -278,7 +278,8 @@ export interface EventMetadata {
 
 export interface Event {
   id: string;
-  personId: PersonId;
+  /** Primær kalenderperson; null for generelle importerte hendelser uten kobling. */
+  personId: PersonId | null;
   title: string;
   /** Start time "HH:mm" (24h) */
   start: string;

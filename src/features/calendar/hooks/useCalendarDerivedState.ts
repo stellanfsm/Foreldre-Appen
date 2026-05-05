@@ -70,7 +70,8 @@ export function useCalendarDerivedState({
             if (!hasTimeOverlap(backgroundEvent.start, backgroundEvent.end, nextEvent.start, nextEvent.end)) {
               return count
             }
-            if (!nextEventParticipantIds.includes(backgroundEvent.personId)) return count
+            if (!backgroundEvent.personId || !nextEventParticipantIds.includes(backgroundEvent.personId))
+              return count
             return count + 1
           }, 0)
         : 0,

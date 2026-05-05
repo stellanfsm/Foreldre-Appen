@@ -73,7 +73,8 @@ function normalizeBackgroundColumns(
   const personOrder = new Map<string, number>()
   people.forEach((p, idx) => personOrder.set(p.id, idx))
 
-  const uniquePersonIds = Array.from(new Set(items.map((i) => i.block.personId))).sort((a, b) => {
+  const columnKey = (pid: string | null) => (pid && pid.trim()) || '__none__'
+  const uniquePersonIds = Array.from(new Set(items.map((i) => columnKey(i.block.personId)))).sort((a, b) => {
     const ai = personOrder.get(a) ?? Number.MAX_SAFE_INTEGER
     const bi = personOrder.get(b) ?? Number.MAX_SAFE_INTEGER
     if (ai !== bi) return ai - bi
@@ -85,7 +86,7 @@ function normalizeBackgroundColumns(
   const totalColumns = Math.max(1, uniquePersonIds.length)
 
   return items.map((item) => {
-    const columnIndex = personToColumn.get(item.block.personId) ?? 0
+    const columnIndex = personToColumn.get(columnKey(item.block.personId)) ?? 0
     return {
       ...item,
       block: {

@@ -183,7 +183,7 @@ export function EventDetailSheet({ event, date, onClose, onEdit, onDelete, onDup
           </button>
         </div>
         <div className={sheetDetailBody}>
-          {participants.length > 0 && (
+          {participants.length > 0 ? (
             <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
               {participants.map((person) => (
                 <span
@@ -195,7 +195,18 @@ export function EventDetailSheet({ event, date, onClose, onEdit, onDelete, onDup
                 </span>
               ))}
             </div>
-          )}
+          ) : !event.personId ? (
+            <p className="text-caption text-zinc-500">
+              Ikke knyttet til person
+              {(() => {
+                const docName = (event.metadata as { documentExtractedPersonName?: unknown } | undefined)
+                  ?.documentExtractedPersonName
+                return typeof docName === 'string' && docName.trim() ? (
+                  <> · Navn i dokument: {docName.trim()}</>
+                ) : null
+              })()}
+            </p>
+          ) : null}
           <h2 className="mt-1 text-[22px] font-bold text-zinc-900 leading-tight">{event.title}</h2>
           {isAllDay ? (
             <p className="mt-2 text-body font-medium text-brandNavy">

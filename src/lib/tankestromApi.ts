@@ -209,6 +209,34 @@ function asOptionalString(x: unknown): string | undefined {
   return t.length ? t : undefined
 }
 
+/** Kalender-person fra analyse: null/undefined/tom/ugyldig type → tom streng (ikke kast). */
+function asEventPersonId(raw: unknown): string {
+  if (raw === undefined || raw === null) return ''
+  if (typeof raw !== 'string') return ''
+  return raw.trim()
+}
+
+function mergeTankestromEventTopLevelIntoMetadata(
+  metadata: Record<string, unknown>,
+  raw: Record<string, unknown>
+): void {
+  const pms = raw.personMatchStatus
+  if (typeof pms === 'string' && pms.trim()) {
+    metadata.personMatchStatus = pms.trim()
+  }
+  const dep = raw.documentExtractedPersonName
+  if (typeof dep === 'string' && dep.trim()) {
+    metadata.documentExtractedPersonName = dep.trim()
+  }
+  const sk = raw.sourceKind
+  if (typeof sk === 'string' && sk.trim()) {
+    metadata.sourceKind = sk.trim()
+  }
+  if (typeof raw.requiresPerson === 'boolean') {
+    metadata.requiresPerson = raw.requiresPerson
+  }
+}
+
 function asNumber01(x: unknown, field: string): number {
   if (typeof x !== 'number' || Number.isNaN(x)) throw new Error(`Ugyldig svar: ${field} må være et tall`)
   if (x < 0 || x > 1) throw new Error(`Ugyldig svar: ${field} må være mellom 0 og 1`)
@@ -307,7 +335,7 @@ function parseEventPayload(raw: unknown): PortalEventPayload {
   const start = asString(raw.start, 'event.start')
   const end = asString(raw.end, 'event.end')
   if (!isHm(start) || !isHm(end)) throw new Error('Ugyldig svar: start/slutt må være HH:mm')
-  const personId = asString(raw.personId, 'event.personId')
+  const personId = asEventPersonId(raw.personId)
   const title = asString(raw.title, 'event.title')
   const out: PortalEventPayload = {
     date,
@@ -328,10 +356,16 @@ function parseEventPayload(raw: unknown): PortalEventPayload {
   }
   const rg = asOptionalString(raw.recurrenceGroupId)
   if (rg !== undefined) out.recurrenceGroupId = rg
-  if (raw.metadata !== undefined && raw.metadata !== null) {
-    if (!isRecord(raw.metadata)) throw new Error('Ugyldig svar: event.metadata')
-    out.metadata = { ...raw.metadata }
-  }
+  const meta: Record<string, unknown> =
+    raw.metadata !== undefined && raw.metadata !== null
+      ? isRecord(raw.metadata)
+        ? { ...raw.metadata }
+        : (() => {
+            throw new Error('Ugyldig svar: event.metadata')
+          })()
+      : {}
+  mergeTankestromEventTopLevelIntoMetadata(meta, raw)
+  if (Object.keys(meta).length > 0) out.metadata = meta
   return out
 }
 
@@ -559,6 +593,16 @@ function tryParseProposalItem(raw: unknown, index: number): PortalProposalItem {
       task: parseTaskPayload(mergedTask),
     }
   }
+  const evRaw = raw.event
+  if (!isRecord(evRaw)) {
+    throw new Error(`Forslag #${index + 1}: event må være et objekt`)
+  }
+  const mergedEvent: Record<string, unknown> = { ...evRaw }
+  for (const k of ['personMatchStatus', 'documentExtractedPersonName', 'sourceKind', 'requiresPerson'] as const) {
+    if (mergedEvent[k] === undefined && k in raw) {
+      mergedEvent[k] = raw[k]
+    }
+  }
   return {
     proposalId,
     kind: 'event',
@@ -567,7 +611,7 @@ function tryParseProposalItem(raw: unknown, index: number): PortalProposalItem {
     confidence,
     externalRef,
     calendarOwnerUserId,
-    event: parseEventPayload(raw.event),
+    event: parseEventPayload(mergedEvent),
   }
 }
 

@@ -14,7 +14,9 @@ export function overlapsSameParticipant(backgroundEvent: Event, foregroundEvent:
   if (!hasTimeOverlap(backgroundEvent.start, backgroundEvent.end, foregroundEvent.start, foregroundEvent.end)) {
     return false
   }
-  return getEventParticipantIds(foregroundEvent).includes(backgroundEvent.personId)
+  const bgPid = backgroundEvent.personId
+  if (!bgPid) return false
+  return getEventParticipantIds(foregroundEvent).includes(bgPid)
 }
 
 export function countResolvableCollisions(backgroundEvents: Event[], foregroundEvents: Event[]): number {

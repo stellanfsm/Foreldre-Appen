@@ -24,6 +24,7 @@ import type {
   PortalTaskProposal,
   TankestromEventDraft,
   TankestromImportDraft,
+  TankestromPersonMatchStatus,
   TankestromTaskDraft,
 } from './types'
 import {
@@ -64,6 +65,7 @@ import {
   type ImportClassificationContext,
 } from '../../lib/tankestromSecondaryCandidates'
 import { resolvePersonForImport } from '../../lib/tankestromImportPersonResolve'
+import { normalizePersistedPersonId, requiresPersonForImport } from '../../lib/tankestromRequiresPerson'
 
 const TANKESTROM_IMPORT_PERSIST_DEBUG =
   import.meta.env.DEV || import.meta.env.VITE_DEBUG_SCHOOL_IMPORT === 'true'
@@ -635,12 +637,17 @@ export function validateTankestromDraft(
   const endMin = parseTime(endNorm)
   if (endMin <= startMin) return 'Sluttid må være senere enn starttid.'
 
-  if (!d.personId.trim() || !validPersonIds.has(d.personId)) return 'Velg en gyldig person.'
+  if (requiresPersonForImport(d)) {
+    if (!d.personId.trim() || !validPersonIds.has(d.personId)) return 'Velg person før import.'
+  } else if (d.personId.trim() && !validPersonIds.has(d.personId)) {
+    return 'Ugyldig person valgt.'
+  }
   if (d.participantPersonIds?.length) {
     for (const id of d.participantPersonIds) {
       if (!validPersonIds.has(id)) return 'Ugyldig deltaker på hendelsen.'
     }
-    if (d.participantPersonIds[0] !== d.personId) {
+    const primary = d.personId.trim()
+    if (primary && d.participantPersonIds[0] !== d.personId) {
       return 'Primær person må være den første i deltakerlisten.'
     }
   }
@@ -681,8 +688,12 @@ export function getTankestromDraftFieldErrors(
   if (isHm24(startNorm) && isHm24(endNorm) && parseTime(endNorm) <= parseTime(startNorm)) {
     out.end = 'Slutt må være etter start.'
   }
-  if (!d.personId.trim() || !validPersonIds.has(d.personId)) {
-    out.personId = 'Velg hvem hendelsen gjelder.'
+  if (requiresPersonForImport(d)) {
+    if (!d.personId.trim() || !validPersonIds.has(d.personId)) {
+      out.personId = 'Velg person før import.'
+    }
+  } else if (d.personId.trim() && !validPersonIds.has(d.personId)) {
+    out.personId = 'Ugyldig person valgt.'
   }
   if (d.participantPersonIds?.length) {
     for (const id of d.participantPersonIds) {
@@ -691,7 +702,8 @@ export function getTankestromDraftFieldErrors(
         break
       }
     }
-    if (d.participantPersonIds[0] !== d.personId) {
+    const primary = d.personId.trim()
+    if (primary && d.participantPersonIds[0] !== d.personId) {
       out.personId = 'Primær person må være først blant deltakerne.'
     }
   }
@@ -773,29 +785,53 @@ function buildEventDraftFromProposal(
   defaultPersonId: string
 ): TankestromEventDraft {
   const ev = p.event
-  const transport =
+  const meta =
     ev.metadata && typeof ev.metadata === 'object' && !Array.isArray(ev.metadata)
-      ? ((ev.metadata as { transport?: { dropoffBy?: unknown; pickupBy?: unknown } }).transport ?? null)
+      ? (ev.metadata as Record<string, unknown>)
+      : {}
+  const transport =
+    meta.transport && typeof meta.transport === 'object' && !Array.isArray(meta.transport)
+      ? (meta.transport as { dropoffBy?: unknown; pickupBy?: unknown })
       : null
   const dropoffBy = typeof transport?.dropoffBy === 'string' ? transport.dropoffBy : ''
   const pickupBy = typeof transport?.pickupBy === 'string' ? transport.pickupBy : ''
-  const metaParticipants =
-    ev.metadata && typeof ev.metadata === 'object' && !Array.isArray(ev.metadata)
-      ? (ev.metadata as { participants?: unknown }).participants
+  const metaParticipants = meta.participants
+  const travelRaw = meta.travel
+  const travelImportType =
+    travelRaw && typeof travelRaw === 'object' && !Array.isArray(travelRaw)
+      ? typeof (travelRaw as { type?: unknown }).type === 'string'
+        ? (travelRaw as { type: string }).type
+        : undefined
       : undefined
+  const importSourceKind = typeof meta.sourceKind === 'string' ? meta.sourceKind : undefined
+  const importRequiresPerson = meta.requiresPerson === true
 
   let pid: string
   let documentExtractedPersonName: string | undefined
+  let personMatchStatus: TankestromPersonMatchStatus | undefined
 
   if (p.originalSourceType === MANUAL_REVIEW_SOURCE_TYPE) {
     pid = validPersonIds.has(ev.personId) ? ev.personId : defaultPersonId
+    personMatchStatus = pid ? 'matched' : undefined
   } else {
-    const resolution = resolvePersonForImport(p, people)
-    pid =
-      resolution.personId != null && validPersonIds.has(resolution.personId) ? resolution.personId : ''
-    if (resolution.status === 'unmatched_document_name') {
-      documentExtractedPersonName = resolution.extractedName
+    const trimmedApiPid = ev.personId.trim()
+    if (trimmedApiPid && validPersonIds.has(trimmedApiPid)) {
+      pid = trimmedApiPid
+      personMatchStatus = 'matched'
+    } else {
+      const resolution = resolvePersonForImport(p, people)
+      pid =
+        resolution.personId != null && validPersonIds.has(resolution.personId) ? resolution.personId : ''
+      personMatchStatus = resolution.status
+      if (resolution.status === 'unmatched_document_name') {
+        documentExtractedPersonName = resolution.extractedName
+      }
     }
+  }
+
+  if (!documentExtractedPersonName) {
+    const dn = meta.documentExtractedPersonName
+    if (typeof dn === 'string' && dn.trim()) documentExtractedPersonName = dn.trim()
   }
 
   let participantPersonIds: string[] | undefined
@@ -818,6 +854,11 @@ function buildEventDraftFromProposal(
     start: ev.start,
     end: ev.end,
     personId: pid,
+    personMatchStatus,
+    importSourceKind,
+    importRequiresPerson,
+    travelImportType,
+    isManualCalendarEntry: p.originalSourceType === MANUAL_REVIEW_SOURCE_TYPE,
     documentExtractedPersonName,
     participantPersonIds,
     location: ev.location ?? '',
@@ -2473,7 +2514,7 @@ export function useTankestromImport({
           mergeEventParticipantsIntoMetadata(metadata, draftEv, validPersonIds)
           sanitizeEmbeddedChildCalendarExportMetadata(metadata)
           const input: Omit<Event, 'id'> = {
-            personId: draftEv.personId,
+            personId: normalizePersistedPersonId(draftEv.personId),
             title: draftEv.title,
             start: draftEv.start,
             end: draftEv.end,
@@ -2828,7 +2869,10 @@ export function useTankestromImport({
             metadata.arrangementBlockGroupId = incomingBlockGroup
           }
 
-          const updates: Partial<Event> = { metadata }
+          const updates: Partial<Event> = {
+            metadata,
+            personId: normalizePersistedPersonId(draft.personId),
+          }
           if (draft.notes.length > 0) updates.notes = draft.notes
           if (draft.location.length > 0) updates.location = draft.location
 
@@ -2849,7 +2893,7 @@ export function useTankestromImport({
                 getAnchoredForegroundEventsForMatching: getAnchoredForegroundEventsForMatching!,
                 anchorEventId: target.eventId,
                 importParentTitleRaw: draft.title.trim(),
-                importPersonId: draft.personId.trim(),
+                importPersonId: normalizePersistedPersonId(draft.personId) ?? '',
                 programDates: clusterCleanupProgramDates,
               })
             }
@@ -2991,7 +3035,7 @@ export function useTankestromImport({
               sanitizeEmbeddedChildCalendarExportMetadata(metadata)
 
               const input: Omit<Event, 'id'> = {
-                personId: draftEv.personId,
+                personId: normalizePersistedPersonId(draftEv.personId),
                 title: draftEv.title,
                 start: draftEv.start,
                 end: draftEv.end,
@@ -3110,7 +3154,7 @@ export function useTankestromImport({
             ? normalizeEmbeddedScheduleParentDisplayTitle(draft.title.trim()).title
             : draft.title.trim()
         const input: Omit<Event, 'id'> = {
-          personId: draft.personId,
+          personId: normalizePersistedPersonId(draft.personId),
           title: calendarTitle,
           start: draft.start,
           end: draft.end,

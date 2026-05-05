@@ -34,6 +34,8 @@ function normPersonName(s: string): string {
 export function readExtractedDocumentPersonNameFromMetadata(meta: unknown): string | undefined {
   if (!meta || typeof meta !== 'object' || Array.isArray(meta)) return undefined
   const m = meta as Record<string, unknown>
+  const docExtracted = m.documentExtractedPersonName
+  if (typeof docExtracted === 'string' && docExtracted.trim()) return docExtracted.trim()
   for (const key of ['passengerName', 'documentPersonName', 'personName'] as const) {
     const v = m[key]
     if (typeof v === 'string' && v.trim()) return v.trim()

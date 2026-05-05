@@ -33,6 +33,7 @@ export interface PortalProposalItemBase {
 
 export interface PortalEventPayload {
   date: string
+  /** Tom streng = ingen kjent person (dokumentimport, reise, …). */
   personId: string
   title: string
   start: string
@@ -127,12 +128,21 @@ export interface PortalImportProposalBundle {
 }
 
 /** Lokalt redigerbart utkast per forslag før import (speiler det brukeren kan endre i UI). */
+export type TankestromPersonMatchStatus = 'not_specified' | 'unmatched_document_name' | 'matched'
+
 export interface TankestromEventDraft {
   title: string
   date: string
   start: string
   end: string
   personId: string
+  /** Fra analyse/metadata; styrer requiresPersonForImport sammen med importSourceKind osv. */
+  personMatchStatus?: TankestromPersonMatchStatus
+  importSourceKind?: string
+  importRequiresPerson?: boolean
+  travelImportType?: string
+  /** Manuell «tom» hendelse i review — person skal alltid velges. */
+  isManualCalendarEntry?: boolean
   /**
    * Navn fra dokument (boarding pass, PDF, …) når det ikke kunne kobles til en kjent person.
    * Vises som «Navn i dokument: …» i review.

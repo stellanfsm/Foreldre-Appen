@@ -6,7 +6,7 @@ DROP TABLE IF EXISTS public.events CASCADE;
 CREATE TABLE public.events (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id uuid NOT NULL,
-  person_id text NOT NULL,
+  person_id text,
   date date NOT NULL,
   title text NOT NULL,
   start text NOT NULL,
