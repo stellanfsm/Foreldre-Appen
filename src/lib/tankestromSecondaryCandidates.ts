@@ -103,6 +103,12 @@ export function shouldPromoteEventItemToPrimary(
   if (meta?.requiresManualTimeReview === true) return true
   if (!ev.start?.trim() || !ev.end?.trim()) return true
 
+  const travel =
+    meta?.travel && typeof meta.travel === 'object' && !Array.isArray(meta.travel)
+      ? (meta.travel as Record<string, unknown>)
+      : null
+  if (travel?.departureArrivalMerged === true) return true
+
   if (hasArrangementSignalsForEvent(item)) return true
 
   if (ctx.isExplicitUserImport) {
