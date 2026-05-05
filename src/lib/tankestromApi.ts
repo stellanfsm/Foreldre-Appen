@@ -916,9 +916,12 @@ async function analyzeWithTankestrom(analyzePayload: AnalyzePayload): Promise<Po
     body = JSON.stringify({ text: analyzePayload.text })
   }
 
+  const analyzeUrl = url
+  console.info('[Tankestrom endpoint]', analyzeUrl)
+
   let res: Response
   try {
-    res = await fetch(url, {
+    res = await fetch(analyzeUrl, {
       method: 'POST',
       headers,
       body,
@@ -931,11 +934,19 @@ async function analyzeWithTankestrom(analyzePayload: AnalyzePayload): Promise<Po
       msg.toLowerCase().includes('network request failed')
     ) {
       throw new Error(
-        `Kunne ikke kontakte Tankestrøm-analyse (${url}). Sjekk at URL er riktig, at tjenesten er oppe, og at CORS/HTTPS tillater kall fra denne appen.`
+        `Kunne ikke kontakte Tankestrøm-analyse (${analyzeUrl}). Sjekk at URL er riktig, at tjenesten er oppe, og at CORS/HTTPS tillater kall fra denne appen.`
       )
     }
     throw err instanceof Error ? err : new Error('Kunne ikke kontakte Tankestrøm-analyse.')
   }
+
+  console.info('[Tankestrom response headers]', {
+    status: res.status,
+    service: res.headers.get('X-Tankestrom-Service'),
+    version: res.headers.get('X-Tankestrom-Version'),
+    wrapper: res.headers.get('X-Tankestrom-Analyze-Wrapper'),
+    contentType: res.headers.get('content-type'),
+  })
 
   const responseText = await res.text()
   let responseJson: unknown = null
