@@ -3503,6 +3503,12 @@ export function TankestromImportDialog({
                   )
                   const existingEventLinkChoice =
                     existingEventLinkByProposalId[pid] ?? (showExistingEventMatchBanner ? 'update' : 'new')
+                  const existingMatchStatus = existingEventMatchForCard?.matchStatus
+                  const existingMatchReasons = existingEventMatchForCard?.reasons ?? []
+                  const existingMatchHeadline =
+                    existingMatchStatus === 'exact'
+                      ? 'Fant samsvar med eksisterende arrangement'
+                      : 'Fant sannsynlig samsvar med eksisterende arrangement'
 
                   const existingMatchUpdateHints: string[] = []
                   if (showExistingEventMatchBanner && existingMatchCandidate) {
@@ -3635,18 +3641,24 @@ export function TankestromImportDialog({
                               className={`mx-3 mt-2 rounded-xl border px-2.5 py-2 sm:px-3 ${
                                 existingEventLinkChoice === 'update'
                                   ? 'border-teal-300/90 bg-teal-50/95 text-teal-950'
-                                  : 'border-amber-200/90 bg-amber-50/95 text-amber-950'
+                                  : existingEventLinkChoice === 'skip'
+                                    ? 'border-zinc-300/90 bg-zinc-50/95 text-zinc-900'
+                                    : 'border-amber-200/90 bg-amber-50/95 text-amber-950'
                               }`}
                             >
-                              <p className="text-[11px] font-semibold leading-snug">
-                                Fant samsvar med eksisterende arrangement
-                              </p>
+                              <p className="text-[11px] font-semibold leading-snug">{existingMatchHeadline}</p>
                               <p className="mt-1 text-[10px] leading-snug sm:text-[11px]">
-                                Kalenderen har allerede «{existingMatchCandidate.event.title.trim()}». Velg om
-                                denne importen skal{' '}
-                                <span className="font-medium">oppdatere den hendelsen</span> eller legges inn
-                                som <span className="font-medium">ny rad</span>.
+                                Kalenderen har allerede «{existingMatchCandidate.event.title.trim()}».{' '}
+                                <span className="font-medium">Anbefalt:</span> oppdater eksisterende hendelse.
+                                Alternativt kan du legge inn som ny rad eller hoppe over denne importen.
                               </p>
+                              {existingMatchReasons.length > 0 ? (
+                                <ul className="mt-1.5 list-inside list-disc text-[10px] leading-snug sm:text-[11px]">
+                                  {existingMatchReasons.map((r) => (
+                                    <li key={r}>{r}</li>
+                                  ))}
+                                </ul>
+                              ) : null}
                               {existingEventLinkChoice === 'update' ? (
                                 <>
                                   <p className="mt-1.5 text-[10px] font-semibold text-teal-900 sm:text-[11px]">
@@ -3657,10 +3669,14 @@ export function TankestromImportDialog({
                                     nytt arrangement.
                                   </p>
                                 </>
-                              ) : (
+                              ) : existingEventLinkChoice === 'new' ? (
                                 <p className="mt-1.5 text-[10px] leading-snug text-amber-900/95 sm:text-[11px]">
-                                  Standard er ny rad. Trykk «Oppdater eksisterende» hvis dette er mer informasjon
-                                  om arrangementet over.
+                                  Du har valgt ny rad. Godkjenning oppretter et ekstra arrangement i tillegg til
+                                  det som finnes.
+                                </p>
+                              ) : (
+                                <p className="mt-1.5 text-[10px] leading-snug text-zinc-700 sm:text-[11px]">
+                                  Du har valgt å ikke importere dette forslaget. Det tas ikke med ved godkjenning.
                                 </p>
                               )}
                               {existingMatchUpdateHints.length > 0 && existingEventLinkChoice === 'update' ? (
@@ -3702,6 +3718,17 @@ export function TankestromImportDialog({
                                 >
                                   Behold som nytt
                                 </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setExistingEventImportLink(pid, 'skip')}
+                                  className={`touch-manipulation rounded-lg border px-2.5 py-1.5 text-[11px] font-semibold transition ${
+                                    existingEventLinkChoice === 'skip'
+                                      ? 'border-zinc-500 bg-zinc-200/80 text-zinc-950 ring-1 ring-zinc-400/50'
+                                      : 'border-zinc-200/90 bg-white text-zinc-800 hover:bg-zinc-100/80'
+                                  }`}
+                                >
+                                  Ikke importer
+                                </button>
                               </div>
                             </div>
                           ) : null}
@@ -3720,7 +3747,9 @@ export function TankestromImportDialog({
                               Dagene under er tilleggsdetaljer til samme arrangement
                               {existingEventLinkChoice === 'update'
                                 ? ' og blir med når du oppdaterer eksisterende hendelse.'
-                                : ' — velg «Oppdater eksisterende» over hvis det ikke skal bli et ekstra arrangement.'}
+                                : existingEventLinkChoice === 'skip'
+                                  ? ' — valget «Ikke importer» hopper over hele forslaget.'
+                                  : ' — velg «Oppdater eksisterende» over hvis det ikke skal bli et ekstra arrangement.'}
                             </p>
                           ) : null}
                           {embeddedScheduleParentCard && item.kind === 'event' ? (

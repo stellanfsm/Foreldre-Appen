@@ -262,6 +262,16 @@ export interface EventMetadata {
    * Tankestrøm: deterministisk nøkkel for samme arrangement på tvers av meldinger (import-matching).
    */
   arrangementStableKey?: string;
+  /** Tankestrøm: normalisert kjerne-tittel for matching (valgfri). */
+  arrangementCoreTitle?: string;
+  /** Tankestrøm: logisk gruppe-id for programblokker (valgfri). */
+  arrangementBlockGroupId?: string;
+  /** Tankestrøm: signal om at innholdet sannsynligvis er oppfølging på eksisterende arrangement. */
+  updateIntent?: {
+    likelyFollowup?: boolean;
+    confidence?: string;
+    signals?: string[];
+  };
   /** Free-form metadata reserved for future automation features. */
   [key: string]: unknown;
 }

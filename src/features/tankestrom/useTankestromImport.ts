@@ -37,6 +37,8 @@ import { parseTime } from '../../lib/time'
 import { getISOWeek, getISOWeekYear } from '../../lib/isoWeek'
 import {
   findConservativeExistingEventMatch,
+  readArrangementBlockGroupId,
+  readArrangementCoreTitle,
   readArrangementStableKey,
   type ExistingEventMatchResult,
 } from '../../lib/tankestromExistingEventMatch'
@@ -186,11 +188,16 @@ function proposalImportDateRangeForMatch(
  */
 function resolveTankestromExistingEventPersistPlan(
   match: ExistingEventMatchResult | undefined,
-  explicitLink: 'new' | 'update' | undefined,
+  explicitLink: 'new' | 'update' | 'skip' | undefined,
   explicitTarget: { eventId: string; anchorDate: string } | undefined
 ):
   | { mode: 'update'; target: { eventId: string; anchorDate: string } }
-  | { mode: 'new'; reason: string } {
+  | { mode: 'new'; reason: string }
+  | { mode: 'skip' }
+  | { mode: 'blocked'; message: string } {
+  if (explicitLink === 'skip') {
+    return { mode: 'skip' }
+  }
   if (explicitLink === 'new') {
     return { mode: 'new', reason: 'explicit_new' }
   }
@@ -198,7 +205,11 @@ function resolveTankestromExistingEventPersistPlan(
   if (explicitLink === 'update') {
     if (explicitTarget) return { mode: 'update', target: explicitTarget }
     if (cand) return { mode: 'update', target: { eventId: cand.event.id, anchorDate: cand.anchorDate } }
-    return { mode: 'new', reason: 'explicit_update_missing_target_and_match' }
+    return {
+      mode: 'blocked',
+      message:
+        'Update valgt, men ingen eksisterende hendelse var koblet til importforslaget.',
+    }
   }
   if (explicitLink === undefined && cand) {
     return { mode: 'update', target: { eventId: cand.event.id, anchorDate: cand.anchorDate } }
@@ -1260,7 +1271,7 @@ export function useTankestromImport({
   const [detachedEmbeddedChildIds, setDetachedEmbeddedChildIds] = useState<Set<string>>(() => new Set())
 
   const [existingEventLinkByProposalId, setExistingEventLinkByProposalId] = useState<
-    Record<string, 'new' | 'update'>
+    Record<string, 'new' | 'update' | 'skip'>
   >({})
   const [existingEventUpdateTarget, setExistingEventUpdateTarget] = useState<
     Record<string, { eventId: string; anchorDate: string }>
@@ -1345,8 +1356,38 @@ export function useTankestromImport({
     embeddedScheduleReviewRowsByParentId,
   ])
 
+  useEffect(() => {
+    if (step !== 'review' || !bundle) return
+    for (const item of primaryCalendarProposalItems) {
+      if (item.kind !== 'event') continue
+      const draftWrap = draftByProposalId[item.proposalId]
+      if (!draftWrap || draftWrap.importKind !== 'event') continue
+      const incomingDraft = draftWrap.event
+      const meta = item.event.metadata
+      const match = existingEventMatchesByProposalId[item.proposalId]
+      console.info('[Tankestrom match result]', {
+        incomingTitle: incomingDraft.title,
+        incomingStableKey: readArrangementStableKey(meta),
+        incomingUpdateIntent:
+          meta && typeof meta === 'object' && !Array.isArray(meta)
+            ? (meta as Record<string, unknown>).updateIntent
+            : undefined,
+        matched: Boolean(match && !match.rejected && match.candidate),
+        matchStatus: match?.matchStatus,
+        score: match?.score,
+        matchedEventTitle: match?.candidate?.event.title,
+        matchedEventId: match?.candidate?.event.id,
+        reasons: match?.reasons,
+      })
+    }
+  }, [step, bundle, primaryCalendarProposalItems, draftByProposalId, existingEventMatchesByProposalId])
+
   const setExistingEventImportLink = useCallback(
-    (proposalId: string, choice: 'new' | 'update', updateTarget?: { eventId: string; anchorDate: string }) => {
+    (
+      proposalId: string,
+      choice: 'new' | 'update' | 'skip',
+      updateTarget?: { eventId: string; anchorDate: string }
+    ) => {
       if (import.meta.env.DEV || import.meta.env.VITE_DEBUG_SCHOOL_IMPORT === 'true') {
         console.debug('[tankestrom existing event link]', {
           existingEventLinkChoiceResolved: choice,
@@ -1356,7 +1397,7 @@ export function useTankestromImport({
         })
       }
       setExistingEventLinkByProposalId((prev) => ({ ...prev, [proposalId]: choice }))
-      if (choice === 'new') {
+      if (choice === 'new' || choice === 'skip') {
         setExistingEventUpdateTarget((prev) => {
           const n = { ...prev }
           delete n[proposalId]
@@ -2571,6 +2612,15 @@ export function useTankestromImport({
           }
         }
 
+        if (item.kind === 'event' && persistPlan.mode === 'skip') {
+          continue
+        }
+
+        if (item.kind === 'event' && persistPlan.mode === 'blocked') {
+          recordFailure(id, 'event', 'editEventPrecheck', 'validation', persistPlan.message)
+          continue
+        }
+
         if (persistPlan.mode === 'update' && (!editEvent || !getAnchoredForegroundEventsForMatching)) {
           recordFailure(
             id,
@@ -2684,9 +2734,8 @@ export function useTankestromImport({
           }
           mergeEventParticipantsIntoMetadata(metadata, draft, validPersonIds)
 
-          const matchRow = existingEventMatchesByProposalId[id]
           const incomingStableForPatch = readArrangementStableKey(ev.metadata)
-          if (matchRow?.learnedStableKey && incomingStableForPatch) {
+          if (incomingStableForPatch && !readArrangementStableKey(baseMeta)) {
             metadata.arrangementStableKey = incomingStableForPatch
             if (import.meta.env.DEV || import.meta.env.VITE_DEBUG_SCHOOL_IMPORT === 'true') {
               console.debug('[tankestrom approve existing event stable key]', {
@@ -2696,6 +2745,14 @@ export function useTankestromImport({
                 arrangementStableKey: incomingStableForPatch,
               })
             }
+          }
+          const incomingCoreTitle = readArrangementCoreTitle(ev.metadata)
+          if (incomingCoreTitle && !readArrangementCoreTitle(metadata)) {
+            metadata.arrangementCoreTitle = incomingCoreTitle
+          }
+          const incomingBlockGroup = readArrangementBlockGroupId(ev.metadata)
+          if (incomingBlockGroup && !readArrangementBlockGroupId(metadata)) {
+            metadata.arrangementBlockGroupId = incomingBlockGroup
           }
 
           const updates: Partial<Event> = { metadata }

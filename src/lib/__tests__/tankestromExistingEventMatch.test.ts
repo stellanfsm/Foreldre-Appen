@@ -3,6 +3,7 @@ import type { Event } from '../../types'
 import type { PortalEventProposal } from '../../features/tankestrom/types'
 import {
   arrangementTitleCoreForMatch,
+  findBestArrangementMatch,
   findConservativeExistingEventMatch,
 } from '../tankestromExistingEventMatch'
 
@@ -58,6 +59,9 @@ describe('findConservativeExistingEventMatch', () => {
     expect(r.candidate?.event.id).toBe('evt-existing')
     expect(r.score).toBeGreaterThanOrEqual(78)
     expect(r.learnedStableKey).toBe(true)
+    expect(r.matchStatus).toBe('learned')
+    expect(r.defaultAction).toBe('update')
+    expect(r.reasons?.length).toBeGreaterThan(0)
   })
 
   it('avviser ved for svak tittel selv med overlapp', () => {
@@ -173,6 +177,63 @@ describe('findConservativeExistingEventMatch', () => {
     expect(r.score).toBe(100)
     expect(r.candidate?.event.id).toBe('evt-stable')
     expect(r.learnedStableKey).toBeUndefined()
+    expect(r.matchStatus).toBe('exact')
+    expect(r.defaultAction).toBe('update')
+  })
+
+  it('matcher svak enkeldagsrad mot flerdagers program + stableKey + likelyFollowup (Vårcupen-regresjon)', () => {
+    const stable = 'tg-arr-vaarcupen-ola-2026-05-cup'
+    const proposal: PortalEventProposal = {
+      proposalId: '44444444-4444-4444-8444-444444444444',
+      kind: 'event',
+      sourceId: 'src',
+      originalSourceType: 'text',
+      confidence: 0.9,
+      event: {
+        date: '2026-05-08',
+        personId: 'ola',
+        title: 'Vårcupen - oppdatert program fredag og lørdag',
+        start: '18:40',
+        end: '12:00',
+        notes: '',
+        location: '',
+        metadata: {
+          endDate: '2026-05-09',
+          arrangementStableKey: stable,
+          updateIntent: {
+            likelyFollowup: true,
+            confidence: 'high',
+            signals: ['more_info_or_program_update'],
+          },
+          embeddedSchedule: [
+            { date: '2026-05-08', title: 'Fredag', start: '18:40', end: '20:00' },
+            { date: '2026-05-09', title: 'Lørdag', start: '10:00', end: '12:00' },
+          ],
+        },
+      },
+    }
+    const existing: Event = {
+      id: 'event-1',
+      personId: 'ola',
+      title: 'Vårcupen',
+      start: '18:40',
+      end: '19:40',
+      notes: '',
+      metadata: {},
+    }
+    const r = findBestArrangementMatch(
+      proposal,
+      proposal.event.title,
+      '2026-05-08',
+      '2026-05-09',
+      'ola',
+      [{ event: existing, anchorDate: '2026-05-08' }]
+    )
+    expect(r.rejected).toBe(false)
+    expect(r.candidate?.event.id).toBe('event-1')
+    expect(['learned', 'probable']).toContain(r.matchStatus)
+    expect(r.defaultAction).toBe('update')
+    expect(r.learnedStableKey).toBe(true)
   })
 
   it('avviser import som ikke er container-lik (ingen flerdagers/endDate-skille, ikke programforelder)', () => {
