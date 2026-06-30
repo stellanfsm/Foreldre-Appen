@@ -74,6 +74,34 @@ function makeSingleEventBundle(event: Record<string, unknown>) {
   })
 }
 
+/** Enkelt-task-bundle (bare ett gjøremål, ingen events) — Vei 1 task-person-match. */
+function makeSingleTaskBundle(task: Record<string, unknown>) {
+  return parsePortalImportProposalBundle({
+    schemaVersion: '1.0.0',
+    provenance: {
+      sourceSystem: 'tankestrom',
+      sourceType: 'e2e_fixture',
+      generatorVersion: 'test',
+      generatedAt: '2026-05-08T20:00:00.000Z',
+      importRunId: 'single-task-1',
+    },
+    items: [
+      {
+        proposalId: 'a1b2c3d4-2222-4abc-9def-000000000001',
+        kind: 'task',
+        sourceId: 'e2e',
+        originalSourceType: 'pasted_text',
+        confidence: 0.9,
+        task: {
+          date: '2026-09-10',
+          title: 'Lekse i matematikk',
+          ...task,
+        },
+      },
+    ],
+  })
+}
+
 /** Skole-uke som SEPARATE dag-hendelser (riktig sti) med server-satt schoolContext + schoolDayOverride. */
 function makeSchoolWeekBundle() {
   const day = (id: string, date: string, overrideKind: string, start = '', end = '') => ({
@@ -346,6 +374,49 @@ describe('TankestrømPage primærflyt-smoke', () => {
     await user.click(screen.getByRole('button', { name: 'Analyser tekst' }))
 
     // Eventet mangler person (serveren var usikker) → velgeren vises, men ingen pill er forhåndsvalgt:
+    expect(await screen.findByText('Hvem gjelder dette?')).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Ada' }).getAttribute('aria-pressed')).toBe('false')
+    expect(screen.getByRole('button', { name: 'Bo' }).getAttribute('aria-pressed')).toBe('false')
+  })
+
+  it('Vei 1 (bare-task, matched): server-matched gjøremål forhåndsutfyller velgeren', async () => {
+    vi.mocked(analyzeTextWithTankestrom).mockResolvedValueOnce(
+      makeSingleTaskBundle({ personMatchStatus: 'matched', personId: 'child-a' })
+    )
+    const twoChildren: Person[] = [
+      { id: 'child-a', name: 'Ada', memberKind: 'child', colorTint: 'bg-slate-200', colorAccent: 'border-slate-400' },
+      { id: 'child-b', name: 'Bo', memberKind: 'child', colorTint: 'bg-slate-200', colorAccent: 'border-slate-400' },
+    ]
+    const user = userEvent.setup()
+    render(<TankestrømPage onBack={() => undefined} people={twoChildren} createEvent={vi.fn()} createTask={vi.fn()} />)
+
+    await user.click(screen.getByRole('button', { name: /Eller lim inn tekst/i }))
+    await user.type(screen.getByPlaceholderText(/Lim inn ukeplan/i), 'noe tekst')
+    await user.click(screen.getByRole('button', { name: 'Analyser tekst' }))
+
+    // Bare-task-bundle (ingen events): serverens matchede barn seedes inn → velger synlig + Ada forhåndsvalgt.
+    expect(await screen.findByText('Hvem gjelder dette?')).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Ada' }).getAttribute('aria-pressed')).toBe('true')
+    expect(screen.getByRole('button', { name: 'Bo' }).getAttribute('aria-pressed')).toBe('false')
+  })
+
+  it('Vei 1 (bare-task, child_unresolved): velger vises tom for bare-task-bundle', async () => {
+    vi.mocked(analyzeTextWithTankestrom).mockResolvedValueOnce(
+      makeSingleTaskBundle({ personMatchStatus: 'child_unresolved' })
+    )
+    const twoChildren: Person[] = [
+      { id: 'child-a', name: 'Ada', memberKind: 'child', colorTint: 'bg-slate-200', colorAccent: 'border-slate-400' },
+      { id: 'child-b', name: 'Bo', memberKind: 'child', colorTint: 'bg-slate-200', colorAccent: 'border-slate-400' },
+    ]
+    const user = userEvent.setup()
+    render(<TankestrømPage onBack={() => undefined} people={twoChildren} createEvent={vi.fn()} createTask={vi.fn()} />)
+
+    await user.click(screen.getByRole('button', { name: /Eller lim inn tekst/i }))
+    await user.type(screen.getByPlaceholderText(/Lim inn ukeplan/i), 'noe tekst')
+    await user.click(screen.getByRole('button', { name: 'Analyser tekst' }))
+
+    // Serveren vet det gjelder et barn men er usikker (child_unresolved) → velgeren vises (utvidet
+    // selectedEventLacksPerson dekker tasks), men ingen pill er forhåndsvalgt.
     expect(await screen.findByText('Hvem gjelder dette?')).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Ada' }).getAttribute('aria-pressed')).toBe('false')
     expect(screen.getByRole('button', { name: 'Bo' }).getAttribute('aria-pressed')).toBe('false')
@@ -1296,5 +1367,55 @@ describe('TankestrømPage primærflyt-smoke', () => {
     expect(input.title).toBe('Samling ved Sognsvann')
     expect(input.notes ?? '').toContain('Ta med drikke')
     expect(input.location).toBe('Sognsvann')
+  })
+})
+
+describe('parse: task personMatchStatus (tolerant — Vei 1)', () => {
+  function taskOf(task: Record<string, unknown>) {
+    const b = parsePortalImportProposalBundle({
+      schemaVersion: '1.0.0',
+      provenance: {
+        sourceSystem: 'tankestrom',
+        sourceType: 'e2e_fixture',
+        generatorVersion: 'test',
+        generatedAt: '2026-05-08T20:00:00.000Z',
+        importRunId: 'parse-task-1',
+      },
+      items: [
+        {
+          proposalId: 'c0ffee00-1111-4abc-9def-000000000001',
+          kind: 'task',
+          sourceId: 'e2e',
+          originalSourceType: 'pasted_text',
+          confidence: 0.9,
+          task: { date: '2026-09-10', title: 'Lekse', ...task },
+        },
+      ],
+    })
+    const item = b.items[0]
+    if (!item || item.kind !== 'task') throw new Error('forventet task-item')
+    return item.task
+  }
+
+  it('leser personMatchStatus + personId når serveren sender dem', () => {
+    const t = taskOf({ personMatchStatus: 'matched', personId: 'p-ida' })
+    expect(t.personMatchStatus).toBe('matched')
+    expect(t.personId).toBe('p-ida')
+  })
+
+  it('manglende personMatchStatus (gammel server) → not_specified, personId undefined', () => {
+    const t = taskOf({ childPersonId: 'p-ida' })
+    expect(t.personMatchStatus).toBe('not_specified')
+    expect(t.personId).toBeUndefined()
+  })
+
+  it('ukjent personMatchStatus → not_specified (tolerant)', () => {
+    const t = taskOf({ personMatchStatus: 'noe-rart' })
+    expect(t.personMatchStatus).toBe('not_specified')
+  })
+
+  it('child_unresolved bevares', () => {
+    const t = taskOf({ personMatchStatus: 'child_unresolved' })
+    expect(t.personMatchStatus).toBe('child_unresolved')
   })
 })

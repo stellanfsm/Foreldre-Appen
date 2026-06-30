@@ -60,6 +60,10 @@ export interface PortalTaskProposal extends PortalProposalItemBase {
     dueTime?: string
     assignedToPersonId?: string
     childPersonId?: string
+    /** Vei 1: serverens matchede barn for tasken (ny server bruker `personId`, ikke `childPersonId`). */
+    personId?: string
+    /** Vei 1: serverens barn-match-status (speiler event). Gammel server uten feltet → tolerant → not_specified. */
+    personMatchStatus?: TankestromPersonMatchStatus
     showInMonthView?: boolean
     /** Fra analyse; klient kan overstyre i review. */
     taskIntent?: TaskIntent
@@ -185,6 +189,8 @@ export interface TankestromTaskDraft {
   dueTime: string
   childPersonId: string
   assignedToPersonId: string
+  /** Vei 1: serverens barn-match-status (speiler TankestromEventDraft). Server-taus → not_specified. */
+  personMatchStatus?: TankestromPersonMatchStatus
   showInMonthView: boolean
   taskIntent: TaskIntent
 }
