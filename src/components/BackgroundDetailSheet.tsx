@@ -508,7 +508,14 @@ export function BackgroundDetailSheet({
                                               <p className="font-medium text-indigo-900">{OVERLAY_SECTION_LABELS[key]}</p>
                                               <ul className="list-disc pl-4 text-indigo-900">
                                                 {lines.map((line, i) => (
-                                                  <li key={`${key}-${i}`}>{line}</li>
+                                                  <li key={`${key}-${i}`}>
+                                                    <ClassHighlightedText
+                                                      text={line}
+                                                      fallback={line}
+                                                      childClassCode={childClassCode}
+                                                      mode="spans"
+                                                    />
+                                                  </li>
                                                 ))}
                                               </ul>
                                             </li>
@@ -758,7 +765,14 @@ export function BackgroundDetailSheet({
                                 <p className="font-medium text-indigo-900">{OVERLAY_SECTION_LABELS[key]}</p>
                                 <ul className="list-disc pl-4 text-indigo-900">
                                   {lines.map((line, i) => (
-                                    <li key={i}>{line}</li>
+                                    <li key={i}>
+                                      <ClassHighlightedText
+                                        text={line}
+                                        fallback={line}
+                                        childClassCode={childClassCode}
+                                        mode="spans"
+                                      />
+                                    </li>
                                   ))}
                                 </ul>
                               </li>

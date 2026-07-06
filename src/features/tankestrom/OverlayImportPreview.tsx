@@ -28,6 +28,8 @@ export function OverlayImportPreview({
   child: Person | undefined
 }) {
   const gradeBand = child?.school?.gradeBand ?? '8-10'
+  // Klassekode-utheving på overlay-linjene (samme som event-notatene) — entydig: previewens barn.
+  const childClassCode = child?.relevanceProfile?.school?.classCode
   const days = (
     Object.entries(overlay.dailyActions) as Array<[string, SchoolWeekOverlayDailyAction | undefined]>
   )
@@ -65,7 +67,12 @@ export function OverlayImportPreview({
                 <p className="text-caption font-semibold text-synkaNavy">
                   {dayLabel}: {buildSpecialSchoolTitle(action, gradeBand)}
                 </p>
-                <LessonOverlayBoxReadOnly lesson={undefined} overlayDayAction={action} isReplaceDay />
+                <LessonOverlayBoxReadOnly
+                  lesson={undefined}
+                  overlayDayAction={action}
+                  isReplaceDay
+                  childClassCode={childClassCode}
+                />
               </div>
             )
           }
@@ -83,11 +90,19 @@ export function OverlayImportPreview({
                     <p className="text-caption font-medium text-synkaNavy/80">
                       {r.label} <span className="text-synkaNavy/40">{r.start}–{r.end}</span>
                     </p>
-                    <LessonOverlayBoxReadOnly lesson={r.lesson} overlayDayAction={action} />
+                    <LessonOverlayBoxReadOnly
+                      lesson={r.lesson}
+                      overlayDayAction={action}
+                      childClassCode={childClassCode}
+                    />
                   </div>
                 ))}
               </div>
-              <OverlayUnmatchedFallback lessons={lessons} overlayDayAction={action} />
+              <OverlayUnmatchedFallback
+                lessons={lessons}
+                overlayDayAction={action}
+                childClassCode={childClassCode}
+              />
             </div>
           )
         })}

@@ -4,6 +4,7 @@ import {
   overlayUpdatesForLesson,
 } from '../lib/schoolWeekOverlayLessonMatch'
 import { OVERLAY_SECTION_LABELS, sectionsForReadOnly } from '../lib/schoolOverlayDisplay'
+import { ClassHighlightedText } from '../features/tankestrom/classHighlight'
 
 /**
  * READ-ONLY-visning av uke-overlay under fag — for import-previewen. Deler matcheren
@@ -12,8 +13,19 @@ import { OVERLAY_SECTION_LABELS, sectionsForReadOnly } from '../lib/schoolOverla
  * ingen event/context/persist — rene presentasjons-komponenter.
  */
 
-/** Én overlay-linje: fag-etikett + seksjoner (I timen / Lekse / …). Ingen Rediger-knapp. */
-export function OverlayUpdateReadOnly({ update }: { update: SchoolWeekOverlaySubjectUpdate }) {
+/**
+ * Én overlay-linje: fag-etikett + seksjoner (I timen / Lekse / …). Ingen Rediger-knapp.
+ * `childClassCode` (valgfri): klassekode-utheving + segment-demping på seksjonslinjene
+ * (samme mode="spans" som event-notatene) — uten kode / uten klassekoder i teksten er
+ * ClassHighlightedText no-op og teksten uendret.
+ */
+export function OverlayUpdateReadOnly({
+  update,
+  childClassCode,
+}: {
+  update: SchoolWeekOverlaySubjectUpdate
+  childClassCode?: string
+}) {
   const readOnlySections = sectionsForReadOnly(update.sections)
   return (
     <li className="rounded-md border border-indigo-200 bg-white/85 px-2 py-1.5 text-caption text-indigo-950">
@@ -27,7 +39,14 @@ export function OverlayUpdateReadOnly({ update }: { update: SchoolWeekOverlaySub
               <p className="font-medium text-indigo-900">{OVERLAY_SECTION_LABELS[key]}</p>
               <ul className="list-disc pl-4 text-indigo-900">
                 {lines.map((line, i) => (
-                  <li key={`${key}-${i}`}>{line}</li>
+                  <li key={`${key}-${i}`}>
+                    <ClassHighlightedText
+                      text={line}
+                      fallback={line}
+                      childClassCode={childClassCode}
+                      mode="spans"
+                    />
+                  </li>
                 ))}
               </ul>
             </li>
@@ -48,10 +67,12 @@ export function LessonOverlayBoxReadOnly({
   lesson,
   overlayDayAction,
   isReplaceDay = false,
+  childClassCode,
 }: {
   lesson: SchoolLessonSlot | undefined
   overlayDayAction: SchoolWeekOverlayDayAction
   isReplaceDay?: boolean
+  childClassCode?: string
 }) {
   if (!overlayDayAction.subjectUpdates?.length) return null
   const matched = isReplaceDay
@@ -64,7 +85,11 @@ export function LessonOverlayBoxReadOnly({
     <div className="mt-2 rounded-md border border-indigo-200 bg-indigo-50/70 p-2">
       <ul className="space-y-1">
         {matched.map(({ update, updateIndex }) => (
-          <OverlayUpdateReadOnly key={`${updateIndex}-${update.subjectKey}`} update={update} />
+          <OverlayUpdateReadOnly
+            key={`${updateIndex}-${update.subjectKey}`}
+            update={update}
+            childClassCode={childClassCode}
+          />
         ))}
       </ul>
     </div>
@@ -75,9 +100,11 @@ export function LessonOverlayBoxReadOnly({
 export function OverlayUnmatchedFallback({
   lessons,
   overlayDayAction,
+  childClassCode,
 }: {
   lessons: SchoolLessonSlot[]
   overlayDayAction: SchoolWeekOverlayDayAction
+  childClassCode?: string
 }) {
   const unplaced = overlaySubjectUpdatesUnmatchedByLessons(overlayDayAction.subjectUpdates, lessons)
   if (unplaced.length === 0) return null
@@ -88,7 +115,7 @@ export function OverlayUnmatchedFallback({
       </p>
       <ul className="mt-1 space-y-1.5">
         {unplaced.map((u, idx) => (
-          <OverlayUpdateReadOnly key={`${u.subjectKey}-${idx}`} update={u} />
+          <OverlayUpdateReadOnly key={`${u.subjectKey}-${idx}`} update={u} childClassCode={childClassCode} />
         ))}
       </ul>
     </div>
