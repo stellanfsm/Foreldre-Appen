@@ -472,6 +472,8 @@ export function TankestrømPage({
       const d = draftByProposalId[id]!
       if (d.importKind === 'event' && d.event.personMatchStatus === 'matched' && d.event.personId.trim()) {
         matched.add(d.event.personId.trim())
+      } else if (d.importKind === 'task' && d.task.personMatchStatus === 'matched' && d.task.childPersonId.trim()) {
+        matched.add(d.task.childPersonId.trim())
       }
     }
     seededRunRef.current = runId

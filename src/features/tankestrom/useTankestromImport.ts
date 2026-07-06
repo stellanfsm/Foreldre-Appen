@@ -488,7 +488,11 @@ export function computeTankestromImportPersonContext(
         : null
   const selectedEventLacksPerson = [...selectedIds].some((id) => {
     const d = draftByProposalId[id]
-    return d?.importKind === 'event' && normalizePersistedPersonId(d.event.personId) == null
+    if (d?.importKind === 'event') return normalizePersistedPersonId(d.event.personId) == null
+    // Vei 1: server-flagget child-relevant task uten løst barn → trenger person-valg
+    // (symmetri for bare-task-bundles; child_unresolved → blank → velger må vises).
+    if (d?.importKind === 'task') return d.task.personMatchStatus === 'child_unresolved' && !d.task.childPersonId.trim()
+    return false
   })
   // Vis alle familiemedlemmer i personvelgeren (barn + voksne/partner), ikke bare barn.
   // `children`/`all` brukes fortsatt til auto-default (soleImportPersonId).
@@ -2345,16 +2349,30 @@ function buildTaskDraftFromProposal(
     })
   }
 
-  let childPersonId =
-    t.childPersonId && validPersonIds.has(t.childPersonId) ? t.childPersonId : ''
-  let assignedToPersonId =
+  const assignedToPersonId =
     t.assignedToPersonId && validPersonIds.has(t.assignedToPersonId) ? t.assignedToPersonId : ''
-  if (
-    p.originalSourceType === MANUAL_REVIEW_SOURCE_TYPE &&
-    !childPersonId &&
-    !assignedToPersonId
-  ) {
-    childPersonId = defaultChildPersonId(people, validPersonIds)
+  // Vei 1: server-autoritativ når personMatchStatus uttaler seg (speiler buildEventDraftFromProposal).
+  // matched → bruk serverens task-personId som barnet; child_unresolved → blank → bruker velger.
+  // Serveren tier (not_specified) → dagens logikk UENDRET. NB: childPersonId-feltet er IKKE et match-signal
+  // (ellers ville hver gammel task med childPersonId seedet velgeren), så det utleder vi aldri 'matched' fra.
+  const serverStatus = t.personMatchStatus
+  let childPersonId: string
+  let personMatchStatus: TankestromPersonMatchStatus
+  if (serverStatus === 'matched' || serverStatus === 'child_unresolved') {
+    const apiPid = (t.personId ?? '').trim()
+    childPersonId =
+      serverStatus === 'matched' && apiPid && validPersonIds.has(apiPid) ? apiPid : ''
+    personMatchStatus = serverStatus
+  } else {
+    childPersonId = t.childPersonId && validPersonIds.has(t.childPersonId) ? t.childPersonId : ''
+    if (
+      p.originalSourceType === MANUAL_REVIEW_SOURCE_TYPE &&
+      !childPersonId &&
+      !assignedToPersonId
+    ) {
+      childPersonId = defaultChildPersonId(people, validPersonIds)
+    }
+    personMatchStatus = 'not_specified'
   }
   const fromApi = normalizeTaskIntent(t.taskIntent)
   const suggested = suggestTaskIntentFromTitleAndNotes(t.title, t.notes)
@@ -2373,6 +2391,7 @@ function buildTaskDraftFromProposal(
     dueTime: t.dueTime ?? '',
     childPersonId,
     assignedToPersonId,
+    personMatchStatus,
     showInMonthView: !!t.showInMonthView,
     taskIntent,
   }

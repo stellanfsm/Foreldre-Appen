@@ -457,6 +457,18 @@ function parseTaskPayload(raw: unknown): PortalTaskProposal['task'] {
   if (assign !== undefined) out.assignedToPersonId = assign
   const child = asOptionalString(raw.childPersonId)
   if (child !== undefined) out.childPersonId = child
+  // Vei 1: serverens barn-match for tasks (speiler event). Tolerant mot deploy-vinduet:
+  // manglende/ukjent personMatchStatus → 'not_specified'.
+  const apiPersonId = asOptionalString(raw.personId)
+  if (apiPersonId !== undefined) out.personId = apiPersonId
+  const rawPms = asOptionalString(raw.personMatchStatus)
+  out.personMatchStatus =
+    rawPms === 'matched' ||
+    rawPms === 'child_unresolved' ||
+    rawPms === 'unmatched_document_name' ||
+    rawPms === 'not_specified'
+      ? rawPms
+      : 'not_specified'
   if (raw.showInMonthView !== undefined && raw.showInMonthView !== null) {
     if (typeof raw.showInMonthView !== 'boolean') throw new Error('Ugyldig svar: task.showInMonthView')
     out.showInMonthView = raw.showInMonthView
@@ -637,6 +649,12 @@ function tryParseProposalItem(raw: unknown, index: number): PortalProposalItem {
     const mergedTask: Record<string, unknown> = { ...raw.task }
     const liftFromItemKeys = [...TASK_DETAIL_FIELD_KEYS] as readonly string[]
     for (const k of liftFromItemKeys) {
+      if (mergedTask[k] === undefined && k in raw) {
+        mergedTask[k] = raw[k]
+      }
+    }
+    // Vei 1: løft barn-match-feltene fra item-root om de ligger der (speiler event-branchen).
+    for (const k of ['personId', 'personMatchStatus'] as const) {
       if (mergedTask[k] === undefined && k in raw) {
         mergedTask[k] = raw[k]
       }
