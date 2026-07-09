@@ -72,6 +72,7 @@ import {
   mergePortalImportProposalBundles,
   portalEventProposalIsArrangementDeadlineMisclassification,
   type AnalyzeRelevanceContext,
+  type TankestromDocumentKind,
 } from '../../lib/tankestromApi'
 import { detectLessonConflicts } from '../../lib/schoolProfileConflicts'
 import { normalizeTaskIntent, suggestTaskIntentFromTitleAndNotes } from '../../lib/taskIntent'
@@ -279,6 +280,9 @@ function applyDefensiveArrangementNormalization(items: PortalProposalItem[]): Po
 
 type Step = 'pick' | 'review'
 export type TankestromInputMode = 'file' | 'text'
+
+/** Brukerens doktype-valg i import-flyten. 'auto' = default (sender ingenting til serveren). */
+export type TankestromDocumentKindChoice = 'auto' | TankestromDocumentKind
 
 export type TankestromAnalyzePickBlockedReason = 'no_people' | 'file_mode_no_files' | 'text_mode_empty'
 
@@ -2740,6 +2744,10 @@ export function useTankestromImport({
 }: UseTankestromImportOptions) {
   const [step, setStep] = useState<Step>('pick')
   const [inputMode, setInputMode] = useState<TankestromInputMode>('text')
+  // Vei 1: brukerens doktype-valg som sendes som `documentKind` på analyse-kallet.
+  // 'auto' (default) sender ingenting → byte-identisk dagens payload. Beholdes ved re-analyse,
+  // nullstilles i `reset` (ny fil/tekst/tilbake) så et glemt valg aldri feil-ruter neste dokument.
+  const [documentKind, setDocumentKind] = useState<TankestromDocumentKindChoice>('auto')
   const [pendingFiles, setPendingFiles] = useState<TankestromPendingFile[]>([])
   const [textInput, setTextInput] = useState('')
   const [bundle, setBundle] = useState<PortalImportProposalBundle | null>(null)
@@ -3149,6 +3157,7 @@ export function useTankestromImport({
   const reset = useCallback(() => {
     setStep('pick')
     setInputMode('text')
+    setDocumentKind('auto') // full reset (ny fil/tekst/tilbake) → glemt doktype-valg feil-ruter aldri neste dokument
     setPendingFiles([])
     setTextInput('')
     setBundle(null)
@@ -3705,8 +3714,10 @@ export function useTankestromImport({
           ? { inputMode, pendingFileCount: pendingFiles.length }
           : { inputMode, textCharCount: textInput.trim().length }
       )
+      // Doktype-valg → documentKind på kallet ('auto' sendes ikke; gaten i analyzeWithTankestrom).
+      const documentKindArg = documentKind === 'auto' ? undefined : documentKind
       if (inputMode === 'text') {
-        const b = await analyzeTextWithTankestrom(textInput, relevanceContext) as PortalImportProposalBundle
+        const b = await analyzeTextWithTankestrom(textInput, relevanceContext, documentKindArg) as PortalImportProposalBundle
         if (isSchoolProfileBundle(b)) {
           setImportPipelineAnalyzeSnapshot(null)
           setBundle(b)
@@ -3821,7 +3832,7 @@ export function useTankestromImport({
       for (const pf of queue) {
         patchPendingFile(pf.id, { status: 'analyzing', statusDetail: undefined })
         try {
-          const b = await analyzeDocumentWithTankestrom(pf.file, relevanceContext) as PortalImportProposalBundle
+          const b = await analyzeDocumentWithTankestrom(pf.file, relevanceContext, documentKindArg) as PortalImportProposalBundle
           if (!hasAnalyzeContent(b)) {
             patchPendingFile(pf.id, {
               status: 'error',
@@ -3996,9 +4007,10 @@ export function useTankestromImport({
     } finally {
       setAnalyzeLoading(false)
     }
-  }, [inputMode, patchPendingFile, pendingFiles, people, textInput, validPersonIds])
+  }, [documentKind, inputMode, patchPendingFile, pendingFiles, people, textInput, validPersonIds])
 
-  /** Tømmer review-tilstand uten å gå til «Velg innhold» eller endre tekst/filer. */
+  /** Tømmer review-tilstand uten å gå til «Velg innhold» eller endre tekst/filer.
+   *  Rører BEVISST ikke documentKind — valget beholdes så brukeren kan bytte doktype og re-analysere. */
   const clearReviewStateForReanalyze = useCallback(() => {
     setBundle(null)
     lastAnalyzedTextRef.current = ''
@@ -6410,6 +6422,8 @@ export function useTankestromImport({
     step,
     inputMode,
     setInputMode: setInputModeSafe,
+    documentKind,
+    setDocumentKind,
     file,
     pendingFiles,
     addFilesFromList,

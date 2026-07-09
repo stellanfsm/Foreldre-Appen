@@ -412,6 +412,40 @@ describe('TankestrømPage primærflyt-smoke', () => {
     expect(screen.getByRole('button', { name: /Legg til \d+ hendelse/i })).toBeTruthy()
   })
 
+  it('Vei 1: dokumenttype-raden vises i input-fasen (Automatisk default) og forsvinner etter analyse', async () => {
+    const user = userEvent.setup()
+    renderPage()
+
+    // Input-fasen: raden finnes, «Automatisk» er valgt (aria-pressed).
+    expect(screen.getByText('Dokumenttype')).toBeTruthy()
+    expect(screen.getByRole('button', { name: /Automatisk/ }).getAttribute('aria-pressed')).toBe('true')
+    expect(screen.getByRole('button', { name: /Arrangement/ }).getAttribute('aria-pressed')).toBe('false')
+
+    await user.click(screen.getByRole('button', { name: /Eller lim inn tekst/i }))
+    await user.type(screen.getByPlaceholderText(/Lim inn ukeplan/i), 'Høstcupen 2026 test')
+    await user.click(screen.getByRole('button', { name: 'Analyser tekst' }))
+
+    // Etter analyse (bundle finnes) → raden borte.
+    await screen.findByText('Foreslåtte hendelser')
+    expect(screen.queryByText('Dokumenttype')).toBeNull()
+  })
+
+  it('Vei 1: valg «Arrangement» sender documentKind=event_doc til analysen (Automatisk sender undefined)', async () => {
+    const user = userEvent.setup()
+    renderPage()
+
+    await user.click(screen.getByRole('button', { name: /Arrangement/ }))
+    expect(screen.getByRole('button', { name: /Arrangement/ }).getAttribute('aria-pressed')).toBe('true')
+
+    await user.click(screen.getByRole('button', { name: /Eller lim inn tekst/i }))
+    await user.type(screen.getByPlaceholderText(/Lim inn ukeplan/i), 'Et arrangement')
+    await user.click(screen.getByRole('button', { name: 'Analyser tekst' }))
+
+    await waitFor(() => expect(analyzeTextWithTankestrom).toHaveBeenCalledTimes(1))
+    // 3. arg = documentKind.
+    expect(vi.mocked(analyzeTextWithTankestrom).mock.calls[0]![2]).toBe('event_doc')
+  })
+
   it('skole-uke (separate hendelser): dag-kort viser per-dag-overskrift + uke-tittel som gruppe-header én gang', async () => {
     vi.mocked(analyzeTextWithTankestrom).mockResolvedValueOnce(makeSchoolWeekBundle())
     const user = userEvent.setup()

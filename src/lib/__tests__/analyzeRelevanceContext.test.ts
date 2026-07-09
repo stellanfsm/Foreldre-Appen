@@ -110,4 +110,40 @@ describe('analyze* sender schoolProfile på wire-en', () => {
     expect(body.text).toBe('en ukeplan')
     expect(body.relevanceContext).toEqual({ schoolProfile: SCHOOL })
   })
+
+  // ---- Vei 1: documentKind på wire-en (gate: kun eksplisitt valg sendes) ----
+  it('FIL: documentKind=event_doc → nøkkel i FormData', async () => {
+    const file = new File(['x'], 'plan.pdf', { type: 'application/pdf' })
+    await expect(analyzeDocumentWithTankestrom(file, undefined, 'event_doc')).rejects.toBeTruthy()
+    const body = fetchMock.mock.calls[0]![1]!.body as FormData
+    expect(body.get('documentKind')).toBe('event_doc')
+  })
+
+  it('TEKST: documentKind=activity_plan → nøkkel i JSON-body', async () => {
+    await expect(analyzeTextWithTankestrom('en plan', undefined, 'activity_plan')).rejects.toBeTruthy()
+    const body = JSON.parse(fetchMock.mock.calls[0]![1]!.body as string)
+    expect(body.documentKind).toBe('activity_plan')
+  })
+
+  it('BYTE-IDENTISK: undefined documentKind → INGEN nøkkel (fil OG tekst)', async () => {
+    const file = new File(['x'], 'plan.pdf', { type: 'application/pdf' })
+    await expect(analyzeDocumentWithTankestrom(file, undefined)).rejects.toBeTruthy()
+    const fileBody = fetchMock.mock.calls[0]![1]!.body as FormData
+    expect(fileBody.has('documentKind')).toBe(false)
+
+    fetchMock.mockClear()
+    await expect(analyzeTextWithTankestrom('en plan')).rejects.toBeTruthy()
+    const textBody = JSON.parse(fetchMock.mock.calls[0]![1]!.body as string)
+    expect('documentKind' in textBody).toBe(false)
+    // Tekst-body byte-identisk med dagens kall (kun {text}):
+    expect(textBody).toEqual({ text: 'en plan' })
+  })
+
+  it('documentKind + relevanceContext sameksisterer på wire-en', async () => {
+    await expect(
+      analyzeTextWithTankestrom('en plan', { classCode: '2STC' }, 'event_doc')
+    ).rejects.toBeTruthy()
+    const body = JSON.parse(fetchMock.mock.calls[0]![1]!.body as string)
+    expect(body).toEqual({ text: 'en plan', relevanceContext: { classCode: '2STC' }, documentKind: 'event_doc' })
+  })
 })

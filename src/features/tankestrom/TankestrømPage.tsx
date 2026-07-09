@@ -414,6 +414,8 @@ export function TankestrømPage({
     setTextInput,
     inputMode,
     setInputMode,
+    documentKind,
+    setDocumentKind,
     analyzedImportTextSnapshot,
     promisedImportItemCount,
     importPersonContext,
@@ -764,6 +766,41 @@ export function TankestrømPage({
           }}
           analyzing={analyzeLoading}
         />
+
+        {/* Doktype-valg (Vei 1): sendes som documentKind på analyse-kallet. Kun i input-fasen.
+            «Automatisk» (default) sender ingenting → byte-identisk dagens analyse. */}
+        {!bundle && (
+          <div className="mx-4 mt-3">
+            <p className="text-caption font-medium text-synkaNavy/50">Dokumenttype</p>
+            <div className="mt-1 grid grid-cols-3 gap-1.5">
+              {([
+                { value: 'auto', label: 'Automatisk', hint: 'vi gjetter doktypen' },
+                { value: 'activity_plan', label: 'Ukeplan', hint: 'lekser plasseres under fagene' },
+                { value: 'event_doc', label: 'Arrangement', hint: 'tider, rom og klasse bevares' },
+              ] as const).map((opt) => {
+                const active = documentKind === opt.value
+                return (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    onClick={() => setDocumentKind(opt.value)}
+                    aria-pressed={active}
+                    className={`rounded-lg border px-2 py-1.5 text-left transition touch-manipulation ${
+                      active
+                        ? 'border-synkaTeal/50 bg-synkaTeal/10'
+                        : 'border-synkaNavy/10 bg-white hover:bg-synkaCream/60'
+                    }`}
+                  >
+                    <span className={`block text-caption font-semibold ${active ? 'text-synkaNavy' : 'text-synkaNavy/70'}`}>
+                      {opt.label}
+                    </span>
+                    <span className="mt-0.5 block text-[10px] leading-snug text-synkaNavy/45">{opt.hint}</span>
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+        )}
 
         {/* Paste text section */}
         <div className="mx-4 mt-3">

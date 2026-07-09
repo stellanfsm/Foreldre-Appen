@@ -1044,9 +1044,16 @@ export type AnalyzeRelevanceContext = {
   children?: { personId: string; classCode?: string; schoolProfile?: ChildSchoolProfile }[]
 }
 
+/**
+ * Doktype-hint fra brukerens valg i import-flyten. 'activity_plan' forsterker overlay-ruting,
+ * 'event_doc' vetoer den (dokumentet blir events med bevarte tider). Sendes ALDRI ved 'auto'/
+ * undefined → payloaden er da byte-identisk med i dag (serveren behandler fravær = auto).
+ */
+export type TankestromDocumentKind = 'activity_plan' | 'event_doc'
+
 type AnalyzePayload =
-  | { kind: 'file'; file: File; relevanceContext?: AnalyzeRelevanceContext }
-  | { kind: 'text'; text: string; relevanceContext?: AnalyzeRelevanceContext }
+  | { kind: 'file'; file: File; relevanceContext?: AnalyzeRelevanceContext; documentKind?: TankestromDocumentKind }
+  | { kind: 'text'; text: string; relevanceContext?: AnalyzeRelevanceContext; documentKind?: TankestromDocumentKind }
 
 /**
  * Bygger det UTGÅENDE relevanceContext-objektet fra det innkommende: trimmer `classCode` og bærer
@@ -1158,16 +1165,23 @@ async function analyzeWithTankestrom(analyzePayload: AnalyzePayload): Promise<Po
   let body: BodyInit
   const headers: Record<string, string> = { Authorization: `Bearer ${token}` }
   const relevanceContext = buildOutgoingRelevanceContext(analyzePayload.relevanceContext)
+  // Gate speiler relevanceContext: send documentKind KUN når det er satt (et eksplisitt valg).
+  // Typen utelukker 'auto' — kalleren (runAnalyze) sender undefined for Automatisk, så fravær
+  // her → ingen nøkkel → payload byte-identisk med dagens kall.
+  const documentKind = analyzePayload.documentKind
   if (analyzePayload.kind === 'file') {
     const form = new FormData()
     form.append('file', analyzePayload.file)
     if (relevanceContext) form.append('relevanceContext', JSON.stringify(relevanceContext))
+    if (documentKind) form.append('documentKind', documentKind)
     body = form
   } else {
     headers['Content-Type'] = 'application/json'
-    body = JSON.stringify(
-      relevanceContext ? { text: analyzePayload.text, relevanceContext } : { text: analyzePayload.text }
-    )
+    body = JSON.stringify({
+      text: analyzePayload.text,
+      ...(relevanceContext ? { relevanceContext } : {}),
+      ...(documentKind ? { documentKind } : {}),
+    })
   }
 
   const analyzeUrl = url
@@ -1327,20 +1341,22 @@ export function mergePortalImportProposalBundles(bundles: PortalImportProposalBu
  */
 export async function analyzeDocumentWithTankestrom(
   file: File,
-  relevanceContext?: AnalyzeRelevanceContext
+  relevanceContext?: AnalyzeRelevanceContext,
+  documentKind?: TankestromDocumentKind
 ): Promise<PortalImportProposalBundle | TankestromV2RawResult> {
   if (file.size > MAX_FILE_SIZE_BYTES) {
     throw new Error(
       `Filen "${file.name}" er for stor (${(file.size / 1024 / 1024).toFixed(1)} MB). Maksimal filstørrelse er 20 MB.`
     )
   }
-  return analyzeWithTankestrom({ kind: 'file', file, relevanceContext })
+  return analyzeWithTankestrom({ kind: 'file', file, relevanceContext, documentKind })
 }
 
 /** Analyse av ren tekst (MVP) med samme backend-endepunkt og svarformat. */
 export async function analyzeTextWithTankestrom(
   text: string,
-  relevanceContext?: AnalyzeRelevanceContext
+  relevanceContext?: AnalyzeRelevanceContext,
+  documentKind?: TankestromDocumentKind
 ): Promise<PortalImportProposalBundle | TankestromV2RawResult> {
   const normalized = text.trim()
   if (!normalized) throw new Error('Skriv inn tekst før du analyserer.')
@@ -1349,5 +1365,5 @@ export async function analyzeTextWithTankestrom(
       `Teksten er for lang (${normalized.length.toLocaleString('nb-NO')} tegn). Maksimalt ${MAX_TEXT_LENGTH.toLocaleString('nb-NO')} tegn er tillatt.`
     )
   }
-  return analyzeWithTankestrom({ kind: 'text', text: normalized, relevanceContext })
+  return analyzeWithTankestrom({ kind: 'text', text: normalized, relevanceContext, documentKind })
 }
