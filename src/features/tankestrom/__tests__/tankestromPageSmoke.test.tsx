@@ -416,10 +416,13 @@ describe('TankestrømPage primærflyt-smoke', () => {
     const user = userEvent.setup()
     renderPage()
 
-    // Input-fasen: raden finnes, «Automatisk» er valgt (aria-pressed).
+    // Input-fasen: raden finnes med tre valg (Automatisk / Skole / Arrangement); «Automatisk» valgt.
     expect(screen.getByText('Dokumenttype')).toBeTruthy()
     expect(screen.getByRole('button', { name: /Automatisk/ }).getAttribute('aria-pressed')).toBe('true')
+    expect(screen.getByRole('button', { name: /Skole/ }).getAttribute('aria-pressed')).toBe('false')
     expect(screen.getByRole('button', { name: /Arrangement/ }).getAttribute('aria-pressed')).toBe('false')
+    // «Ukeplan» er erstattet av «Skole» som synlig chip.
+    expect(screen.queryByRole('button', { name: /Ukeplan/ })).toBeNull()
 
     await user.click(screen.getByRole('button', { name: /Eller lim inn tekst/i }))
     await user.type(screen.getByPlaceholderText(/Lim inn ukeplan/i), 'Høstcupen 2026 test')
@@ -430,20 +433,42 @@ describe('TankestrømPage primærflyt-smoke', () => {
     expect(screen.queryByText('Dokumenttype')).toBeNull()
   })
 
-  it('Vei 1: valg «Arrangement» sender documentKind=event_doc til analysen (Automatisk sender undefined)', async () => {
+  it('Vei 1: «Skole» sender documentKind=school; «Arrangement» sender event_doc; Automatisk sender undefined', async () => {
     const user = userEvent.setup()
-    renderPage()
 
+    // «Skole» → 'school'
+    const { unmount } = renderPage()
+    await user.click(screen.getByRole('button', { name: /Skole/ }))
+    expect(screen.getByRole('button', { name: /Skole/ }).getAttribute('aria-pressed')).toBe('true')
+    await user.click(screen.getByRole('button', { name: /Eller lim inn tekst/i }))
+    await user.type(screen.getByPlaceholderText(/Lim inn ukeplan/i), 'En skoleplan')
+    await user.click(screen.getByRole('button', { name: 'Analyser tekst' }))
+    await waitFor(() => expect(analyzeTextWithTankestrom).toHaveBeenCalledTimes(1))
+    expect(vi.mocked(analyzeTextWithTankestrom).mock.calls[0]![2]).toBe('school')
+    unmount()
+    vi.mocked(analyzeTextWithTankestrom).mockClear()
+
+    // «Arrangement» → 'event_doc'
+    renderPage()
     await user.click(screen.getByRole('button', { name: /Arrangement/ }))
     expect(screen.getByRole('button', { name: /Arrangement/ }).getAttribute('aria-pressed')).toBe('true')
-
     await user.click(screen.getByRole('button', { name: /Eller lim inn tekst/i }))
     await user.type(screen.getByPlaceholderText(/Lim inn ukeplan/i), 'Et arrangement')
     await user.click(screen.getByRole('button', { name: 'Analyser tekst' }))
+    await waitFor(() => expect(analyzeTextWithTankestrom).toHaveBeenCalledTimes(1))
+    expect(vi.mocked(analyzeTextWithTankestrom).mock.calls[0]![2]).toBe('event_doc')
+  })
+
+  it('Vei 1: Automatisk (default) sender undefined documentKind', async () => {
+    const user = userEvent.setup()
+    renderPage()
+
+    await user.click(screen.getByRole('button', { name: /Eller lim inn tekst/i }))
+    await user.type(screen.getByPlaceholderText(/Lim inn ukeplan/i), 'Et dokument')
+    await user.click(screen.getByRole('button', { name: 'Analyser tekst' }))
 
     await waitFor(() => expect(analyzeTextWithTankestrom).toHaveBeenCalledTimes(1))
-    // 3. arg = documentKind.
-    expect(vi.mocked(analyzeTextWithTankestrom).mock.calls[0]![2]).toBe('event_doc')
+    expect(vi.mocked(analyzeTextWithTankestrom).mock.calls[0]![2]).toBeUndefined()
   })
 
   it('skole-uke (separate hendelser): dag-kort viser per-dag-overskrift + uke-tittel som gruppe-header én gang', async () => {

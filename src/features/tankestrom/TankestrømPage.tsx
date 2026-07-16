@@ -775,7 +775,7 @@ export function TankestrømPage({
             <div className="mt-1 grid grid-cols-3 gap-1.5">
               {([
                 { value: 'auto', label: 'Automatisk', hint: 'vi gjetter doktypen' },
-                { value: 'activity_plan', label: 'Ukeplan', hint: 'lekser plasseres under fagene' },
+                { value: 'school', label: 'Skole', hint: 'ukeplan, lekser, prøver og klasseinfo' },
                 { value: 'event_doc', label: 'Arrangement', hint: 'tider, rom og klasse bevares' },
               ] as const).map((opt) => {
                 const active = documentKind === opt.value
