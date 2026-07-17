@@ -123,11 +123,202 @@ export interface PortalSecondaryImportCandidate {
   sourceProposalId?: string
 }
 
+// -------------------------------------------------------------------------------------
+// schoolBlockProposal — additiv toppnivå-struktur fra `documentKind: "school"` (Vei 1).
+// Kun wire-typer + parsing i dette steget; ingen preview/draft/persist.
+// -------------------------------------------------------------------------------------
+
+/** Speiler `TankestromPersonMatchStatus` (gjenbrukt, ikke duplisert). */
+export type SchoolBlockWeekdayIndex = '0' | '1' | '2' | '3' | '4'
+
+export type SchoolBlockStructureStatus = 'complete' | 'review_required'
+
+export type SchoolBlockDayResolution =
+  | 'enrich_only'
+  | 'partial_replace'
+  | 'full_replace'
+  | 'hours_adjusted'
+
+export type SchoolBlockContentType =
+  | 'lesson'
+  | 'homework'
+  | 'assessment'
+  | 'reminder'
+  | 'resource'
+  | 'message'
+  | 'alternative_program'
+
+export type SchoolBlockElementAction = 'enrich' | 'replace_range'
+
+export type SchoolBlockAudienceScope = 'common' | 'per_audience'
+
+export type SchoolBlockActivityKind =
+  | 'exam_day'
+  | 'trip_day'
+  | 'activity_day'
+  | 'free_day'
+  | 'other'
+
+export type SchoolBlockReviewCode =
+  | 'missing_time'
+  | 'ambiguous_subject'
+  | 'child_class_unresolved'
+  | 'unrecognized_activity'
+  | 'conflicting_actions'
+  | 'low_confidence'
+
+export interface SchoolBlockReviewFlag {
+  code: SchoolBlockReviewCode
+  message: string
+  scope: {
+    dayId?: string
+    itemId?: string
+    audienceEntryId?: string
+  }
+}
+
+export type SchoolBlockDayOperation =
+  | { op: 'none' }
+  | {
+      op: 'replace_day'
+      activityKind: SchoolBlockActivityKind
+      effectiveStart: string | null
+      effectiveEnd: string | null
+      reason: string | null
+      confidence: number
+    }
+  | {
+      op: 'adjust_start'
+      effectiveStart: string
+      reason: string | null
+      confidence: number
+    }
+  | {
+      op: 'adjust_end'
+      effectiveEnd: string
+      reason: string | null
+      confidence: number
+    }
+
+export interface SchoolBlockSections {
+  iTimen?: string[]
+  lekse?: string[]
+  husk?: string[]
+  proveVurdering?: string[]
+  ressurser?: string[]
+  ekstraBeskjed?: string[]
+  descriptionLines?: string[]
+}
+
+export interface SchoolBlockSubjectCandidate {
+  subjectKey: string
+  subject: string
+  weight: number
+}
+
+export interface SchoolBlockAudienceEntry {
+  audienceEntryId: string
+  classCodes: string[]
+  pulje: string | null
+  start: string | null
+  end: string | null
+  room: string | null
+  teacher: string | null
+  /** Tri-state: true | false | null. */
+  isChildAudience: boolean | null
+}
+
+export interface SchoolBlockResolvedChildAudience {
+  audienceEntryId: string | null
+  start: string | null
+  end: string | null
+  room: string | null
+  teacher: string | null
+}
+
+export interface SchoolBlockCommonSchedule {
+  start: string | null
+  end: string | null
+  room: string | null
+  teacher: string | null
+}
+
+export interface SchoolBlockContentItem {
+  itemId: string
+  title: string
+  contentType: SchoolBlockContentType
+  action: SchoolBlockElementAction
+
+  subject: string | null
+  subjectKey: string | null
+  customLabel: string | null
+  subjectCandidates?: SchoolBlockSubjectCandidate[]
+
+  audienceScope: SchoolBlockAudienceScope
+  commonSchedule: SchoolBlockCommonSchedule | null
+  audienceEntries: SchoolBlockAudienceEntry[]
+  resolvedChildAudience: SchoolBlockResolvedChildAudience | null
+
+  sections: SchoolBlockSections
+  activityKind: SchoolBlockActivityKind | null
+
+  evidence: string | null
+  sourceText: string | null
+  confidence: number
+  reviewFlags: SchoolBlockReviewFlag[]
+}
+
+export interface SchoolBlockDay {
+  dayId: string
+  date: string | null
+  weekdayIndex: SchoolBlockWeekdayIndex | null
+  dayLabel: string | null
+  blockTitle: string | null
+
+  dayOperation: SchoolBlockDayOperation
+  dayResolution: SchoolBlockDayResolution
+
+  contentItems: SchoolBlockContentItem[]
+
+  confidence: number
+  evidence: string | null
+  reviewFlags: SchoolBlockReviewFlag[]
+}
+
+export interface SchoolBlockProposal {
+  proposalId: string
+  kind: 'school_block'
+  schemaVersion: '1.0.0'
+
+  sourceTitle: string
+  originalSourceType: string
+  confidence: number
+
+  personId: string | null
+  personMatchStatus: TankestromPersonMatchStatus
+  classCode: string | null
+
+  weekNumber?: number | null
+
+  days: SchoolBlockDay[]
+
+  structureStatus: SchoolBlockStructureStatus
+  reviewFlags: SchoolBlockReviewFlag[]
+
+  languageTrack?: {
+    resolvedTrack: string | null
+    confidence: number
+    reason: string
+  }
+}
+
 export interface PortalImportProposalBundle {
   schemaVersion: PortalImportSchemaVersion
   provenance: PortalImportProvenance
   items: PortalProposalItem[]
   schoolWeekOverlayProposal?: PortalSchoolWeekOverlayProposal
+  /** Additiv toppnivå-struktur fra `documentKind: "school"` — kun parsing i dette steget. */
+  schoolBlockProposal?: SchoolBlockProposal
   /** Valgfri liste fra analyse — ellers utledes noen få fra lav sikkerhet på items (klient). */
   secondaryCandidates?: PortalSecondaryImportCandidate[]
 }

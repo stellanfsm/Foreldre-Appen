@@ -11,7 +11,26 @@ import type {
   PortalSourceSystem,
   PortalTaskProposal,
   SchoolWeekOverlayDailyAction,
+  SchoolBlockProposal,
+  SchoolBlockDay,
+  SchoolBlockContentItem,
+  SchoolBlockAudienceEntry,
+  SchoolBlockResolvedChildAudience,
+  SchoolBlockCommonSchedule,
+  SchoolBlockDayOperation,
+  SchoolBlockSections,
+  SchoolBlockSubjectCandidate,
+  SchoolBlockReviewFlag,
+  SchoolBlockContentType,
+  SchoolBlockElementAction,
+  SchoolBlockAudienceScope,
+  SchoolBlockActivityKind,
+  SchoolBlockStructureStatus,
+  SchoolBlockDayResolution,
+  SchoolBlockWeekdayIndex,
+  SchoolBlockReviewCode,
 } from '../features/tankestrom/types'
+import type { TankestromPersonMatchStatus } from '../features/tankestrom/types'
 import type {
   ChildSchoolDayPlan,
   ChildSchoolProfile,
@@ -925,6 +944,308 @@ function buildArrangementEventFallbacksFromTasks(items: PortalProposalItem[]): P
   return out
 }
 
+// -------------------------------------------------------------------------------------
+// schoolBlockProposal — ATOMISK parser (Vei 1 «school»). Hele proposalet godtas eller hele
+// forkastes (undefined ved hvilken som helst kontraktfeil). Aldri dropp enkelt-days/-items og
+// behold resten; aldri konstruer review-flagg eller endre structureStatus i frontend.
+// Interne helpere KASTER ved brudd; tryParseSchoolBlockProposal fanger og returnerer undefined.
+// -------------------------------------------------------------------------------------
+
+const SB_CONTENT_TYPES = new Set<SchoolBlockContentType>([
+  'lesson', 'homework', 'assessment', 'reminder', 'resource', 'message', 'alternative_program',
+])
+const SB_ELEMENT_ACTIONS = new Set<SchoolBlockElementAction>(['enrich', 'replace_range'])
+const SB_AUDIENCE_SCOPES = new Set<SchoolBlockAudienceScope>(['common', 'per_audience'])
+const SB_ACTIVITY_KINDS = new Set<SchoolBlockActivityKind>([
+  'exam_day', 'trip_day', 'activity_day', 'free_day', 'other',
+])
+const SB_STRUCTURE_STATUS = new Set<SchoolBlockStructureStatus>(['complete', 'review_required'])
+const SB_DAY_RESOLUTIONS = new Set<SchoolBlockDayResolution>([
+  'enrich_only', 'partial_replace', 'full_replace', 'hours_adjusted',
+])
+const SB_WEEKDAYS = new Set<SchoolBlockWeekdayIndex>(['0', '1', '2', '3', '4'])
+const SB_REVIEW_CODES = new Set<SchoolBlockReviewCode>([
+  'missing_time', 'ambiguous_subject', 'child_class_unresolved',
+  'unrecognized_activity', 'conflicting_actions', 'low_confidence',
+])
+const SB_PERSON_MATCH = new Set<TankestromPersonMatchStatus>([
+  'not_specified', 'unmatched_document_name', 'matched', 'child_unresolved',
+])
+const SB_SECTION_KEYS = ['iTimen', 'lekse', 'husk', 'proveVurdering', 'ressurser', 'ekstraBeskjed', 'descriptionLines'] as const
+
+/** True kun når propertyen faktisk finnes på objektet (skiller manglende fra eksplisitt undefined). */
+function sbHas(raw: Record<string, unknown>, key: string): boolean {
+  return Object.prototype.hasOwnProperty.call(raw, key)
+}
+
+/**
+ * OBLIGATORISK `string | null`-felt. Propertyen MÅ finnes. Eksplisitt null → null; string →
+ * trimmet; manglende property ELLER eksplisitt undefined ELLER annen type → kast (hele
+ * proposalet forkastes atomisk). Brukes ALDRI for valgfrie felt.
+ */
+function sbReqNullableStr(raw: Record<string, unknown>, key: string, field: string): string | null {
+  if (!sbHas(raw, key)) throw new Error(`schoolBlock: ${field} mangler`)
+  const value = raw[key]
+  if (value === null) return null
+  if (typeof value !== 'string') throw new Error(`schoolBlock: ${field} må være string eller null`)
+  return value.trim()
+}
+
+/** OBLIGATORISK `<enum> | null`. Property må finnes; null → null; ellers valider mot enum-settet. */
+function sbReqNullableEnum<T>(raw: Record<string, unknown>, key: string, set: Set<T>, field: string): T | null {
+  if (!sbHas(raw, key)) throw new Error(`schoolBlock: ${field} mangler`)
+  const value = raw[key]
+  if (value === null) return null
+  return sbEnum(value, set, field)
+}
+
+/** OBLIGATORISK tri-state `boolean | null`. Property må finnes; null → null; boolean → verdi; ellers kast. */
+function sbReqNullableBool(raw: Record<string, unknown>, key: string, field: string): boolean | null {
+  if (!sbHas(raw, key)) throw new Error(`schoolBlock: ${field} mangler`)
+  const value = raw[key]
+  if (value === null) return null
+  if (typeof value !== 'boolean') throw new Error(`schoolBlock: ${field} må være true|false|null`)
+  return value
+}
+/** Endelig number (ingen 0–1-grense — brukes for weight/weekNumber der kontrakten ikke setter grense). */
+function sbFiniteNum(x: unknown, field: string): number {
+  if (typeof x !== 'number' || !Number.isFinite(x)) throw new Error(`schoolBlock: ${field} må være et endelig tall`)
+  return x
+}
+/** Array av ikke-tomme strenger (tom array er gyldig; ikke-array/ikke-streng-element → kast). */
+function sbStrArray(x: unknown, field: string): string[] {
+  if (!Array.isArray(x)) throw new Error(`schoolBlock: ${field} må være en liste`)
+  return x.map((v, i) => {
+    if (typeof v !== 'string') throw new Error(`schoolBlock: ${field}[${i}] må være string`)
+    return v.trim()
+  })
+}
+function sbEnum<T>(x: unknown, set: Set<T>, field: string): T {
+  if (typeof x !== 'string' || !set.has(x as T)) throw new Error(`schoolBlock: ugyldig ${field}: ${String(x)}`)
+  return x as T
+}
+/** OBLIGATORISK nullable ISO-dato (YYYY-MM-DD). Property må finnes; null → null; string → gyldig dato ellers kast. */
+function sbReqNullableDate(raw: Record<string, unknown>, key: string, field: string): string | null {
+  if (!sbHas(raw, key)) throw new Error(`schoolBlock: ${field} mangler`)
+  const value = raw[key]
+  if (value === null) return null
+  if (typeof value !== 'string' || !isDateKey(value)) throw new Error(`schoolBlock: ${field} må være YYYY-MM-DD eller null`)
+  return value
+}
+
+function sbReviewFlag(raw: unknown): SchoolBlockReviewFlag {
+  if (!isRecord(raw)) throw new Error('schoolBlock: reviewFlag må være objekt')
+  const code = sbEnum(raw.code, SB_REVIEW_CODES, 'reviewFlag.code')
+  const message = asString(raw.message, 'reviewFlag.message')
+  if (!isRecord(raw.scope)) throw new Error('schoolBlock: reviewFlag.scope må være objekt')
+  const scope: SchoolBlockReviewFlag['scope'] = {}
+  const dayId = asOptionalString(raw.scope.dayId)
+  const itemId = asOptionalString(raw.scope.itemId)
+  const audienceEntryId = asOptionalString(raw.scope.audienceEntryId)
+  if (dayId !== undefined) scope.dayId = dayId
+  if (itemId !== undefined) scope.itemId = itemId
+  if (audienceEntryId !== undefined) scope.audienceEntryId = audienceEntryId
+  return { code, message, scope }
+}
+function sbReviewFlags(x: unknown, field: string): SchoolBlockReviewFlag[] {
+  if (!Array.isArray(x)) throw new Error(`schoolBlock: ${field} må være en liste`)
+  return x.map(sbReviewFlag)
+}
+
+function sbSections(raw: unknown): SchoolBlockSections {
+  if (!isRecord(raw)) throw new Error('schoolBlock: sections må være objekt')
+  const out: SchoolBlockSections = {}
+  for (const key of SB_SECTION_KEYS) {
+    if (raw[key] !== undefined) out[key] = sbStrArray(raw[key], `sections.${key}`)
+  }
+  return out
+}
+
+function sbSubjectCandidates(x: unknown): SchoolBlockSubjectCandidate[] | undefined {
+  if (x === undefined) return undefined
+  if (!Array.isArray(x)) throw new Error('schoolBlock: subjectCandidates må være en liste')
+  return x.map((c) => {
+    if (!isRecord(c)) throw new Error('schoolBlock: subjectCandidate må være objekt')
+    return {
+      subjectKey: asString(c.subjectKey, 'subjectCandidate.subjectKey'),
+      subject: asString(c.subject, 'subjectCandidate.subject'),
+      weight: sbFiniteNum(c.weight, 'subjectCandidate.weight'),
+    }
+  })
+}
+
+function sbAudienceEntry(raw: unknown): SchoolBlockAudienceEntry {
+  if (!isRecord(raw)) throw new Error('schoolBlock: audienceEntry må være objekt')
+  return {
+    audienceEntryId: asString(raw.audienceEntryId, 'audienceEntry.audienceEntryId'),
+    classCodes: sbStrArray(raw.classCodes, 'audienceEntry.classCodes'),
+    pulje: sbReqNullableStr(raw, 'pulje', 'audienceEntry.pulje'),
+    start: sbReqNullableStr(raw, 'start', 'audienceEntry.start'),
+    end: sbReqNullableStr(raw, 'end', 'audienceEntry.end'),
+    room: sbReqNullableStr(raw, 'room', 'audienceEntry.room'),
+    teacher: sbReqNullableStr(raw, 'teacher', 'audienceEntry.teacher'),
+    isChildAudience: sbReqNullableBool(raw, 'isChildAudience', 'audienceEntry.isChildAudience'),
+  }
+}
+
+/** OBLIGATORISK `resolvedChildAudience: <objekt> | null`. Property må finnes; null → null; ellers valider felt eksplisitt. */
+function sbResolvedChildAudience(raw: Record<string, unknown>, key: string, field: string): SchoolBlockResolvedChildAudience | null {
+  if (!sbHas(raw, key)) throw new Error(`schoolBlock: ${field} mangler`)
+  const obj = raw[key]
+  if (obj === null) return null
+  if (!isRecord(obj)) throw new Error(`schoolBlock: ${field} må være objekt eller null`)
+  return {
+    audienceEntryId: sbReqNullableStr(obj, 'audienceEntryId', `${field}.audienceEntryId`),
+    start: sbReqNullableStr(obj, 'start', `${field}.start`),
+    end: sbReqNullableStr(obj, 'end', `${field}.end`),
+    room: sbReqNullableStr(obj, 'room', `${field}.room`),
+    teacher: sbReqNullableStr(obj, 'teacher', `${field}.teacher`),
+  }
+}
+
+/** OBLIGATORISK `commonSchedule: <objekt> | null`. Property må finnes; null → null; ellers valider felt eksplisitt. */
+function sbCommonSchedule(raw: Record<string, unknown>, key: string, field: string): SchoolBlockCommonSchedule | null {
+  if (!sbHas(raw, key)) throw new Error(`schoolBlock: ${field} mangler`)
+  const obj = raw[key]
+  if (obj === null) return null
+  if (!isRecord(obj)) throw new Error(`schoolBlock: ${field} må være objekt eller null`)
+  return {
+    start: sbReqNullableStr(obj, 'start', `${field}.start`),
+    end: sbReqNullableStr(obj, 'end', `${field}.end`),
+    room: sbReqNullableStr(obj, 'room', `${field}.room`),
+    teacher: sbReqNullableStr(obj, 'teacher', `${field}.teacher`),
+  }
+}
+
+function sbContentItem(raw: unknown): SchoolBlockContentItem {
+  if (!isRecord(raw)) throw new Error('schoolBlock: contentItem må være objekt')
+  const item: SchoolBlockContentItem = {
+    itemId: asString(raw.itemId, 'contentItem.itemId'),
+    title: asString(raw.title, 'contentItem.title'),
+    contentType: sbEnum(raw.contentType, SB_CONTENT_TYPES, 'contentItem.contentType'),
+    action: sbEnum(raw.action, SB_ELEMENT_ACTIONS, 'contentItem.action'),
+    subject: sbReqNullableStr(raw, 'subject', 'contentItem.subject'),
+    subjectKey: sbReqNullableStr(raw, 'subjectKey', 'contentItem.subjectKey'),
+    customLabel: sbReqNullableStr(raw, 'customLabel', 'contentItem.customLabel'),
+    audienceScope: sbEnum(raw.audienceScope, SB_AUDIENCE_SCOPES, 'contentItem.audienceScope'),
+    commonSchedule: sbCommonSchedule(raw, 'commonSchedule', 'contentItem.commonSchedule'),
+    audienceEntries: Array.isArray(raw.audienceEntries)
+      ? raw.audienceEntries.map(sbAudienceEntry)
+      : (() => { throw new Error('schoolBlock: contentItem.audienceEntries må være en liste') })(),
+    resolvedChildAudience: sbResolvedChildAudience(raw, 'resolvedChildAudience', 'contentItem.resolvedChildAudience'),
+    sections: sbSections(raw.sections),
+    activityKind: sbReqNullableEnum(raw, 'activityKind', SB_ACTIVITY_KINDS, 'contentItem.activityKind'),
+    evidence: sbReqNullableStr(raw, 'evidence', 'contentItem.evidence'),
+    sourceText: sbReqNullableStr(raw, 'sourceText', 'contentItem.sourceText'),
+    confidence: asNumber01(raw.confidence, 'contentItem.confidence'),
+    reviewFlags: sbReviewFlags(raw.reviewFlags, 'contentItem.reviewFlags'),
+  }
+  const cands = sbSubjectCandidates(raw.subjectCandidates)
+  if (cands !== undefined) item.subjectCandidates = cands
+  return item
+}
+
+function sbDayOperation(raw: unknown): SchoolBlockDayOperation {
+  if (!isRecord(raw)) throw new Error('schoolBlock: dayOperation må være objekt')
+  const op = raw.op
+  if (op === 'none') return { op: 'none' }
+  if (op === 'replace_day') {
+    return {
+      op: 'replace_day',
+      activityKind: sbEnum(raw.activityKind, SB_ACTIVITY_KINDS, 'dayOperation.activityKind'),
+      effectiveStart: sbReqNullableStr(raw, 'effectiveStart', 'dayOperation.effectiveStart'),
+      effectiveEnd: sbReqNullableStr(raw, 'effectiveEnd', 'dayOperation.effectiveEnd'),
+      reason: sbReqNullableStr(raw, 'reason', 'dayOperation.reason'),
+      confidence: asNumber01(raw.confidence, 'dayOperation.confidence'),
+    }
+  }
+  if (op === 'adjust_start') {
+    return {
+      op: 'adjust_start',
+      effectiveStart: asString(raw.effectiveStart, 'dayOperation.effectiveStart'),
+      reason: sbReqNullableStr(raw, 'reason', 'dayOperation.reason'),
+      confidence: asNumber01(raw.confidence, 'dayOperation.confidence'),
+    }
+  }
+  if (op === 'adjust_end') {
+    return {
+      op: 'adjust_end',
+      effectiveEnd: asString(raw.effectiveEnd, 'dayOperation.effectiveEnd'),
+      reason: sbReqNullableStr(raw, 'reason', 'dayOperation.reason'),
+      confidence: asNumber01(raw.confidence, 'dayOperation.confidence'),
+    }
+  }
+  throw new Error(`schoolBlock: ugyldig dayOperation.op: ${String(op)}`)
+}
+
+function sbDay(raw: unknown): SchoolBlockDay {
+  if (!isRecord(raw)) throw new Error('schoolBlock: day må være objekt')
+  if (!Array.isArray(raw.contentItems)) throw new Error('schoolBlock: day.contentItems må være en liste')
+  return {
+    dayId: asString(raw.dayId, 'day.dayId'),
+    date: sbReqNullableDate(raw, 'date', 'day.date'),
+    weekdayIndex: sbReqNullableEnum(raw, 'weekdayIndex', SB_WEEKDAYS, 'day.weekdayIndex'),
+    dayLabel: sbReqNullableStr(raw, 'dayLabel', 'day.dayLabel'),
+    blockTitle: sbReqNullableStr(raw, 'blockTitle', 'day.blockTitle'),
+    dayOperation: sbDayOperation(raw.dayOperation),
+    dayResolution: sbEnum(raw.dayResolution, SB_DAY_RESOLUTIONS, 'day.dayResolution'),
+    contentItems: raw.contentItems.map(sbContentItem),
+    confidence: asNumber01(raw.confidence, 'day.confidence'),
+    evidence: sbReqNullableStr(raw, 'evidence', 'day.evidence'),
+    reviewFlags: sbReviewFlags(raw.reviewFlags, 'day.reviewFlags'),
+  }
+}
+
+function parseSchoolBlockProposalStrict(raw: unknown): SchoolBlockProposal {
+  if (!isRecord(raw)) throw new Error('schoolBlock: proposal må være objekt')
+  if (raw.kind !== 'school_block') throw new Error(`schoolBlock: ugyldig kind: ${String(raw.kind)}`)
+  if (raw.schemaVersion !== '1.0.0') throw new Error(`schoolBlock: ugyldig schemaVersion: ${String(raw.schemaVersion)}`)
+  if (!Array.isArray(raw.days)) throw new Error('schoolBlock: days må være en liste')
+  const personMatchStatus = sbEnum<TankestromPersonMatchStatus>(
+    raw.personMatchStatus, SB_PERSON_MATCH, 'personMatchStatus',
+  )
+  const proposal: SchoolBlockProposal = {
+    proposalId: asString(raw.proposalId, 'proposalId'),
+    kind: 'school_block',
+    schemaVersion: '1.0.0',
+    sourceTitle: asString(raw.sourceTitle, 'sourceTitle'),
+    originalSourceType: asString(raw.originalSourceType, 'originalSourceType'),
+    confidence: asNumber01(raw.confidence, 'confidence'),
+    personId: sbReqNullableStr(raw, 'personId', 'personId'),
+    personMatchStatus,
+    classCode: sbReqNullableStr(raw, 'classCode', 'classCode'),
+    days: raw.days.map(sbDay),
+    structureStatus: sbEnum(raw.structureStatus, SB_STRUCTURE_STATUS, 'structureStatus'),
+    reviewFlags: sbReviewFlags(raw.reviewFlags, 'reviewFlags'),
+  }
+  if (raw.weekNumber !== undefined) {
+    proposal.weekNumber = raw.weekNumber === null ? null : sbFiniteNum(raw.weekNumber, 'weekNumber')
+  }
+  if (raw.languageTrack !== undefined && raw.languageTrack !== null) {
+    if (!isRecord(raw.languageTrack)) throw new Error('schoolBlock: languageTrack må være objekt')
+    const lt = raw.languageTrack
+    proposal.languageTrack = {
+      resolvedTrack: sbReqNullableStr(lt, 'resolvedTrack', 'languageTrack.resolvedTrack'),
+      confidence: asNumber01(lt.confidence, 'languageTrack.confidence'),
+      reason: asString(lt.reason, 'languageTrack.reason'),
+    }
+  }
+  return proposal
+}
+
+/**
+ * Atomisk: returnerer et gyldig SchoolBlockProposal, eller `undefined` ved HVILKEN SOM HELST
+ * kontraktfeil. Feilen fanges her og lekker aldri ut i parsePortalImportProposalBundle — så en
+ * ugyldig schoolBlock velter aldri resten av bundelen (overlay/items beholdes).
+ */
+function tryParseSchoolBlockProposal(raw: unknown): SchoolBlockProposal | undefined {
+  try {
+    return parseSchoolBlockProposalStrict(raw)
+  } catch {
+    return undefined
+  }
+}
+
 /**
  * Validerer og parser JSON fra analyse-backend til typet bundle.
  */
@@ -976,7 +1297,11 @@ export function parsePortalImportProposalBundle(data: unknown): PortalImportProp
   }
   assertBundleItemKindsCoherent(items)
   const secondaryCandidates = parseSecondaryCandidatesField(data)
-  return { schemaVersion: '1.0.0', provenance, items, schoolWeekOverlayProposal, secondaryCandidates }
+  // Additivt (Vei 1 «school»): schoolBlockProposal parses atomisk. Mangler/null → undefined;
+  // ugyldig → undefined (velter ALDRI resten av bundelen — overlay/items/secondary beholdes).
+  const schoolBlockProposal =
+    data.schoolBlockProposal == null ? undefined : tryParseSchoolBlockProposal(data.schoolBlockProposal)
+  return { schemaVersion: '1.0.0', provenance, items, schoolWeekOverlayProposal, schoolBlockProposal, secondaryCandidates }
 }
 
 function tryParseSecondaryImportCandidate(raw: unknown, index: number): PortalSecondaryImportCandidate | null {
