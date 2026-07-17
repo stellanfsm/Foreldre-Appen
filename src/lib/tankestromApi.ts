@@ -1045,11 +1045,13 @@ export type AnalyzeRelevanceContext = {
 }
 
 /**
- * Doktype-hint fra brukerens valg i import-flyten. 'activity_plan' forsterker overlay-ruting,
- * 'event_doc' vetoer den (dokumentet blir events med bevarte tider). Sendes ALDRI ved 'auto'/
- * undefined → payloaden er da byte-identisk med i dag (serveren behandler fravær = auto).
+ * Doktype-hint fra brukerens valg i import-flyten. Sendes ALDRI ved 'auto'/undefined →
+ * payloaden er da byte-identisk med i dag (serveren behandler fravær = auto).
+ * - 'school': brede skoledokumenter (ukeplan, lekser, prøver, beskjeder, klasse-/puljeinfo).
+ * - 'activity_plan': eksisterende legacy-/spesialrute som forsterker overlay-ruting (bevart).
+ * - 'event_doc': vetoer overlay-ruting → dokumentet blir events med bevarte tider.
  */
-export type TankestromDocumentKind = 'activity_plan' | 'event_doc'
+export type TankestromDocumentKind = 'activity_plan' | 'event_doc' | 'school'
 
 type AnalyzePayload =
   | { kind: 'file'; file: File; relevanceContext?: AnalyzeRelevanceContext; documentKind?: TankestromDocumentKind }

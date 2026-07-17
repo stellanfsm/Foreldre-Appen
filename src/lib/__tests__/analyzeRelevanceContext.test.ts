@@ -125,6 +125,19 @@ describe('analyze* sender schoolProfile på wire-en', () => {
     expect(body.documentKind).toBe('activity_plan')
   })
 
+  it('FIL: documentKind=school → nøkkel i FormData', async () => {
+    const file = new File(['x'], 'skoleplan.pdf', { type: 'application/pdf' })
+    await expect(analyzeDocumentWithTankestrom(file, undefined, 'school')).rejects.toBeTruthy()
+    const body = fetchMock.mock.calls[0]![1]!.body as FormData
+    expect(body.get('documentKind')).toBe('school')
+  })
+
+  it('TEKST: documentKind=school → nøkkel i JSON-body', async () => {
+    await expect(analyzeTextWithTankestrom('en skoleplan', undefined, 'school')).rejects.toBeTruthy()
+    const body = JSON.parse(fetchMock.mock.calls[0]![1]!.body as string)
+    expect(body).toEqual({ text: 'en skoleplan', documentKind: 'school' })
+  })
+
   it('BYTE-IDENTISK: undefined documentKind → INGEN nøkkel (fil OG tekst)', async () => {
     const file = new File(['x'], 'plan.pdf', { type: 'application/pdf' })
     await expect(analyzeDocumentWithTankestrom(file, undefined)).rejects.toBeTruthy()
