@@ -4202,6 +4202,16 @@ export function useTankestromImport({
   }, [])
 
   const approveSelected = useCallback(async (): Promise<TankestromImportResult> => {
+    // Defense-in-depth: eksplisitt skoleimport skal ALDRI persisteres som generiske kalender-
+    // hendelser/gjøremål. Sideflyten ruter til saveExplicitSchoolOverlay; denne barrieren
+    // stopper enhver generisk approve FØR første createEvent/createTask (strukturert avvisning).
+    if (documentKind === 'school') {
+      return {
+        ok: false,
+        partial: false,
+        failureMessage: 'Skoleimport lagres ikke som hendelser. Bruk skoleflyten.',
+      }
+    }
     const importAttemptId = newPendingFileId()
     const nowIso = () => new Date().toISOString()
 
@@ -6290,6 +6300,7 @@ export function useTankestromImport({
     existingEventUpdateTarget,
     existingEventMatchesByProposalId,
     prefetchEventsForDateRange,
+    documentKind,
   ])
 
   /**
@@ -6306,6 +6317,23 @@ export function useTankestromImport({
     if (selectedIds.size === 0) return { ok: true, partial: false }
     return approveSelected()
   }, [schoolReview, bundle?.schoolWeekOverlayProposal, saveSchoolWeekOverlay, selectedIds, approveSelected])
+
+  /**
+   * Eksplisitt skoleimport (documentKind === 'school'): lagre KUN uke-overlayen i barnets
+   * `person.school.weekOverlays` — aldri approveSelected/createEvent/createTask. Overlay-only-
+   * persist (gjenbruker saveSchoolWeekOverlay) med replace-by-week-semantikk. Returnerer samme
+   * TankestromImportResult-form. Krever eksplisitt skolevalg + gyldig overlay; ellers strukturert feil.
+   */
+  const saveExplicitSchoolOverlay = useCallback(async (): Promise<TankestromImportResult> => {
+    if (documentKind !== 'school') {
+      return { ok: false, partial: false, failureMessage: 'Skoleflyten krever eksplisitt «Skole»-valg.' }
+    }
+    if (!bundle?.schoolWeekOverlayProposal) {
+      return { ok: false, partial: false, failureMessage: 'Analysen ga ingen importerbar skoleblokk.' }
+    }
+    const okOverlay = await saveSchoolWeekOverlay()
+    return okOverlay ? { ok: true, partial: false } : { ok: false, partial: false }
+  }, [documentKind, bundle?.schoolWeekOverlayProposal, saveSchoolWeekOverlay])
 
   const promoteSecondaryImportCandidate = useCallback(
     (c: PortalSecondaryImportCandidate, targetKind: 'event' | 'task') => {
@@ -6467,6 +6495,7 @@ export function useTankestromImport({
     setSchoolProfileDraft,
     saveSchoolWeekOverlay,
     saveSchoolWeekOverlayThenCalendarSelection,
+    saveExplicitSchoolOverlay,
     setSchoolWeekOverlayProposalDraft,
     embeddedScheduleReviewRowsByParentId,
     detachedEmbeddedChildren,

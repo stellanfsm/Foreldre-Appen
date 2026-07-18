@@ -406,6 +406,7 @@ export function TankestrømPage({
     saveLoading,
     approveSelected,
     saveSchoolWeekOverlayThenCalendarSelection,
+    saveExplicitSchoolOverlay,
     schoolProfileChildId,
     canApproveSelection,
     runAnalyze,
@@ -535,6 +536,16 @@ export function TankestrømPage({
   // ikke deriveActiveChildClassCode, som gir undefined ved flere distinkte koder).
   const familyClassCodes = useMemo(() => buildFamilyClassCodeSet(people), [people])
 
+  // Eksplisitt skolemodus: brukerens dokumenttypevalg er ENESTE autoritative signal (ikke tittel/
+  // fritekst/AI-inferens). I skolemodus vises/persisteres ALDRI generiske hendelser/gjøremål —
+  // uke-overlayen er den importerbare skoleflyten (schoolBlockProposal beholdes i state, men får
+  // ingen egen preview/persist i denne fasen).
+  const isExplicitSchoolImport = documentKind === 'school'
+  const hasSchoolOverlayProposal = !!bundle?.schoolWeekOverlayProposal
+  const hasSchoolBlockProposal = !!bundle?.schoolBlockProposal
+  // Eksplisitt skole uten importerbar overlay → blokkeringstilstand (ingen event-fallback).
+  const showExplicitSchoolBlocked = isExplicitSchoolImport && !!bundle && !hasSchoolOverlayProposal
+
   // Tomtilstand: analyse ferdig (bundle satt, ikke i gang, ingen feil), men ingenting brukbart å vise.
   // Skoleprofil/uke-overlay regnes som brukbart resultat (vises ikke som «fant ingenting»).
   const hasSchoolResult =
@@ -545,7 +556,7 @@ export function TankestrømPage({
     visibleSecondaryImportCandidates.length > 0 ||
     hasSchoolResult
   const showEmptyAnalysisState =
-    !!bundle && !analyzeLoading && !error && !importError && !hasUsableResult
+    !!bundle && !analyzeLoading && !error && !importError && !hasUsableResult && !isExplicitSchoolImport
   // Timeplan (school_profile) hører til relevansprofilen per barn, ikke hovedsidens hendelsesflate.
   // Vis en tydelig henvisning i stedet for blank. Overlay/ukeplan (Del A) ekskluderes av predikatet
   // (items er da hendelser eller tomme), så den meldingen kan aldri trigge på en ukeplan.
@@ -654,6 +665,21 @@ export function TankestrømPage({
   const handleApprove = async () => {
     if (saveLoading) return
     setImportError(null)
+    // Eksplisitt skole: rout ALLTID til overlay-only-persist, aldri gjennom event-grenen.
+    // Uten gyldig overlay → blokkert (knappen er deaktivert; defensiv retur her).
+    if (isExplicitSchoolImport) {
+      if (!hasSchoolOverlayProposal) return
+      const result = await saveExplicitSchoolOverlay()
+      if (result.ok) {
+        onBack()
+        return
+      }
+      setImportError(
+        result.failureMessage ??
+          'Importen kunne ikke fullføres, og ingenting ble lagret. Prøv igjen.'
+      )
+      return
+    }
     // Fiks 1a: når analysen ga en uke-overlay, lagre den OGSÅ (speiler dialogens :5701).
     // Wrapperen lagrer overlayen og kaller deretter approveSelected for forslagene, og
     // returnerer samme TankestromImportResult-form. Ingen overlay → uendret (approveSelected).
@@ -842,6 +868,7 @@ export function TankestrømPage({
 
         {/* Personvelger (multi-select) — når familien har flere medlemmer og et valgt event mangler person */}
         {displayItems.length > 0 &&
+          !isExplicitSchoolImport &&
           importPersonContext.candidatePersons.length > 1 &&
           (importPersonContext.selectedEventLacksPerson || chosenPersonIds.size > 0) && (
             <div className="mx-4 mt-4 rounded-md border border-synkaNavy/10 bg-white p-3">
@@ -880,8 +907,22 @@ export function TankestrømPage({
           />
         ) : null}
 
-        {/* Proposals section */}
-        {eventDisplayItems.length > 0 && (
+        {/* Eksplisitt skole uten importerbar overlay → blokkeringstilstand (aldri event-fallback). */}
+        {showExplicitSchoolBlocked && (
+          <div className="mx-4 mt-4 rounded-md border border-amber-200/80 bg-amber-50/70 p-3">
+            <p className="text-body-sm font-semibold text-amber-950">
+              Analysen ga ingen importerbar skoleblokk
+            </p>
+            <p className="mt-1 text-caption text-amber-900/90">
+              {hasSchoolBlockProposal
+                ? 'Skoleinformasjonen ble analysert, men kan ikke lagres i skoleblokken med dagens importformat.'
+                : 'Prøv å analysere dokumentet på nytt eller kontroller at det inneholder en ukeplan.'}
+            </p>
+          </div>
+        )}
+
+        {/* Proposals section — skjules i eksplisitt skolemodus (aldri generiske hendelser) */}
+        {eventDisplayItems.length > 0 && !isExplicitSchoolImport && (
           <div className="mt-5">
             {/* Section header */}
             <div className="mb-3 flex items-center gap-2 px-4">
@@ -1049,8 +1090,8 @@ export function TankestrømPage({
           </div>
         )}
 
-        {/* Tasks/frister — egen rolig seksjon, ikke blandet med kalenderdager */}
-        {taskDisplayItems.length > 0 && (
+        {/* Tasks/frister — egen rolig seksjon, ikke blandet med kalenderdager (skjult i skolemodus) */}
+        {taskDisplayItems.length > 0 && !isExplicitSchoolImport && (
           <div className="mt-5">
             <div className="mb-3 flex items-center gap-2 px-4">
               <SectionDots size="sm" />
@@ -1132,7 +1173,7 @@ export function TankestrømPage({
         {/* Sekundærsone: tasks/hendelser med lavere sikkerhet rutes hit av
             primaryCalendarProposalItems. Uten denne seksjonen var de usynlige i siden.
             Promote = eksplisitt brukerhandling → flyttes til hovedlisten (ingen auto-import). */}
-        {visibleSecondaryImportCandidates.length > 0 && (
+        {visibleSecondaryImportCandidates.length > 0 && !isExplicitSchoolImport && (
           <div className="mt-5">
             <div className="mb-2 flex items-center gap-2 px-4">
               <SectionDots size="sm" />
@@ -1188,8 +1229,10 @@ export function TankestrømPage({
         {isSchoolProfileResult && <SchoolProfileRedirectNotice onNavigateFamilie={onNavigateFamilie} />}
       </div>
 
-      {/* Sticky footer — only shows when proposals exist */}
-      {displayItems.length > 0 && (
+      {/* Sticky footer.
+          Eksplisitt skolemodus: egen skoleknapp (overlay-only import / blokkert), aldri
+          «Legg til N hendelser». Andre moduser: uendret event/task-import. */}
+      {(isExplicitSchoolImport ? !!bundle : displayItems.length > 0) && (
         <div className="shrink-0 border-t border-synkaNavy/8 bg-synkaCream px-4 pb-4 pt-3">
           {importError && (
             <p
@@ -1199,7 +1242,7 @@ export function TankestrømPage({
               {importError}
             </p>
           )}
-          {promisedImportItemCount === 0 && updateModeProposalIds.size > 0 && (
+          {!isExplicitSchoolImport && promisedImportItemCount === 0 && updateModeProposalIds.size > 0 && (
             <p className="mb-2 rounded-md border border-amber-200/80 bg-amber-50/70 px-3 py-2 text-caption text-amber-900">
               Dette ser ut som en oppdatering til en eksisterende hendelse. Å oppdatere eksisterende
               kommer i neste steg.
@@ -1207,14 +1250,22 @@ export function TankestrømPage({
           )}
           <button
             type="button"
-            disabled={selectedCount === 0 || saveLoading || !canApproveSelection}
+            disabled={
+              isExplicitSchoolImport
+                ? !hasSchoolOverlayProposal || saveLoading
+                : selectedCount === 0 || saveLoading || !canApproveSelection
+            }
             onClick={() => void handleApprove()}
             className={`${btnPrimaryPill} w-full h-12 gap-2 touch-manipulation disabled:opacity-40`}
           >
             {!saveLoading && <IconCheck size={16} aria-hidden />}
             {saveLoading
               ? 'Importerer…'
-              : `Legg til ${promisedImportItemCount} hendelse${promisedImportItemCount === 1 ? '' : 'r'}`}
+              : isExplicitSchoolImport
+                ? hasSchoolOverlayProposal
+                  ? 'Importer skoleinformasjon'
+                  : 'Ingen gyldig skoleblokk'
+                : `Legg til ${promisedImportItemCount} hendelse${promisedImportItemCount === 1 ? '' : 'r'}`}
           </button>
         </div>
       )}
