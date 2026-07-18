@@ -84,8 +84,76 @@ export interface SchoolWeekOverlay {
     reason?: string
   }
   dailyActions: Partial<Record<number, SchoolWeekOverlayDayAction>>
+  /**
+   * Valgfrie per-dag-overstyringer (replace_day / adjust_start / adjust_end) — se
+   * `SchoolWeekDayOverride`. Fravær av entry = ingen overstyring for dagen; ingen `none`
+   * persisteres. ADDITIVT: gamle overlays uten feltet fungerer byte-semantisk uendret.
+   */
+  dayOverrides?: Partial<Record<WeekdayMonFri, SchoolWeekDayOverride>>
   appliedAt?: string
 }
+
+// -------------------------------------------------------------------------------------
+// Persistert dagsoverstyring på en lagret skoleuke (SchoolWeekOverlay.dayOverrides).
+// SELVSTENDIG, stabil persistkontrakt — bevisst adskilt fra fagbaserte `subjectUpdates`,
+// fritekstseksjoner, kalenderhendelser, background events OG Tankestrømmens wire-typer
+// (features/tankestrom `SchoolBlock*`). Navnet unngår kollisjon med den eksisterende
+// `SchoolDayOverride` (event-metadata-markør, `mode`-basert) — denne bruker `operation`.
+// Denne PR-en LAGRER kun semantikken; utførelse i UI/kalender kommer i et senere steg.
+// -------------------------------------------------------------------------------------
+
+export type SchoolWeekDayOverrideActivityKind =
+  | 'exam_day'
+  | 'trip_day'
+  | 'activity_day'
+  | 'free_day'
+  | 'other'
+
+export type SchoolWeekDayOverrideReviewStatus = 'ready' | 'review_required'
+
+/** Felles metadata for alle dagsoverstyrings-varianter. Aldri konstruer ID/dato/tid/activityKind. */
+export interface SchoolWeekDayOverrideBase {
+  date: string | null
+  title: string | null
+  reason: string | null
+  confidence: number
+  /** Sporing tilbake til kilden (schoolBlockProposal). Ingen tilfeldige/konstruerte ID-er. */
+  sourceProposalId: string
+  sourceDayId: string
+  sourceTitle: string | null
+  originalSourceType: string
+  reviewStatus: SchoolWeekDayOverrideReviewStatus
+  reviewMessages: string[]
+}
+
+/**
+ * replace_day: den ordinære skoleplanen for dagen skal SENERE skjules og erstattes av
+ * override-innholdet (heldagsprøve, turdag, aktivitetsdag, fri). Dette er IKKE bare en beskjed
+ * under «Ellers denne dagen». `effectiveStart/End` er valgfrie (fri hele dagen → begge null).
+ */
+export interface SchoolWeekReplaceDayOverride extends SchoolWeekDayOverrideBase {
+  operation: 'replace_day'
+  activityKind: SchoolWeekDayOverrideActivityKind
+  effectiveStart: string | null
+  effectiveEnd: string | null
+}
+
+/** adjust_start: ordinær skoleplan BEHOLDES; kun dagens effektive skolestart overstyres. Ingen konstruert slutt. */
+export interface SchoolWeekAdjustStartOverride extends SchoolWeekDayOverrideBase {
+  operation: 'adjust_start'
+  effectiveStart: string
+}
+
+/** adjust_end: ordinær skoleplan BEHOLDES; kun dagens effektive skoleslutt overstyres. Ingen konstruert start. */
+export interface SchoolWeekAdjustEndOverride extends SchoolWeekDayOverrideBase {
+  operation: 'adjust_end'
+  effectiveEnd: string
+}
+
+export type SchoolWeekDayOverride =
+  | SchoolWeekReplaceDayOverride
+  | SchoolWeekAdjustStartOverride
+  | SchoolWeekAdjustEndOverride
 
 export interface ParentWorkProfile {
   /** Typical work hours Mon–Fri */
