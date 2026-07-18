@@ -2,11 +2,12 @@
 import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, render, renderHook, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { parsePortalImportProposalBundle } from '../../../lib/tankestromApi'
 import { TankestrømPage } from '../TankestrømPage'
+import { useTankestromImport } from '../useTankestromImport'
 import type { Person } from '../../../types'
 
 /**
@@ -1635,6 +1636,184 @@ describe('TankestrømPage primærflyt-smoke', () => {
     expect(input.notes ?? '').toContain('Ta med drikke')
     expect(input.location).toBe('Sognsvann')
   })
+
+  // ---- Eksplisitt skoleimport-routing (documentKind === 'school') ----
+  // Mock omgår parseren → bundelen brukes direkte; schoolBlockProposal kan være en stub.
+  function makeSchoolResponse(opts: { overlay?: boolean; block?: boolean; events?: number; tasks?: number } = {}) {
+    const { overlay = true, block = true, events = 2, tasks = 0 } = opts
+    const eventItems = Array.from({ length: events }, (_, i) => ({
+      proposalId: `bbbb1111-1111-4abc-9def-00000000000${i + 1}`,
+      kind: 'event',
+      sourceId: 'e2e',
+      originalSourceType: 'pasted_text',
+      confidence: 0.9,
+      event: {
+        date: '2026-06-15',
+        personId: '',
+        title: 'Ukeplan for eksamen og avslutning',
+        start: '09:00',
+        end: '14:00',
+        metadata: { schoolContext: { itemType: 'general' } },
+      },
+    }))
+    const taskItems = Array.from({ length: tasks }, (_, i) => ({
+      proposalId: `cccc2222-2222-4abc-9def-00000000000${i + 1}`,
+      kind: 'task',
+      sourceId: 'e2e',
+      originalSourceType: 'pasted_text',
+      confidence: 0.9,
+      task: { date: '2026-06-16', title: 'Lekse i matematikk' },
+    }))
+    const b: Record<string, unknown> = {
+      schemaVersion: '1.0.0',
+      provenance: { sourceSystem: 'tankestrom', sourceType: 'e2e', generatedAt: '2026-05-08T20:00:00.000Z', importRunId: 'sb-1' },
+      items: [...eventItems, ...taskItems],
+    }
+    if (overlay) {
+      b.schoolWeekOverlayProposal = {
+        proposalId: 'overlay-sb-1',
+        kind: 'school_week_overlay',
+        schemaVersion: '1.0.0',
+        confidence: 0.9,
+        originalSourceType: 'pasted_text',
+        weeklySummary: ['Uke 25'],
+        classLabel: '2STC',
+        dailyActions: { 3: { action: 'enrich_existing_school_block', subjectUpdates: [{ subjectKey: 'matematikk' }] } },
+      }
+    }
+    if (block) b.schoolBlockProposal = { kind: 'school_block', proposalId: 'sb-block-1' }
+    return b as unknown as Awaited<ReturnType<typeof analyzeTextWithTankestrom>>
+  }
+
+  async function analyzeAsSchool(user: ReturnType<typeof userEvent.setup>, text = 'Skoleuke 25') {
+    await user.click(screen.getByRole('button', { name: /Skole/ }))
+    await user.click(screen.getByRole('button', { name: /Eller lim inn tekst/i }))
+    await user.type(screen.getByPlaceholderText(/Lim inn ukeplan/i), text)
+    await user.click(screen.getByRole('button', { name: 'Analyser tekst' }))
+  }
+
+  function renderSchoolPage() {
+    const createEvent = vi.fn().mockResolvedValue(undefined)
+    const createTask = vi.fn().mockResolvedValue(undefined)
+    const updatePerson = vi.fn().mockResolvedValue(undefined)
+    render(
+      <TankestrømPage
+        onBack={() => undefined}
+        people={stellanOgIda}
+        createEvent={createEvent}
+        createTask={createTask}
+        updatePerson={updatePerson}
+        onImportFinished={() => undefined}
+      />
+    )
+    return { createEvent, createTask, updatePerson }
+  }
+
+  it('eksplisitt skole + overlay + event- OG task-items: begge seksjoner skjules, knapp «Importer skoleinformasjon», klikk persisterer KUN overlay (0 createEvent/createTask)', async () => {
+    // Fixturen inneholder BÅDE event- og task-items → 0 createTask er meningsfullt (task-gate persistmessig sikker).
+    vi.mocked(analyzeTextWithTankestrom).mockResolvedValue(makeSchoolResponse({ overlay: true, block: true, events: 5, tasks: 1 }))
+    const user = userEvent.setup()
+    const { createEvent, createTask, updatePerson } = renderSchoolPage()
+
+    await analyzeAsSchool(user)
+
+    // Overlay-preview vises; ingen generiske event-/task-kort / «Legg til N hendelser».
+    expect(await screen.findByText('Slik blir skole-uken')).toBeTruthy()
+    expect(screen.queryByText('Foreslåtte hendelser')).toBeNull()
+    expect(screen.queryByText('Foreslåtte gjøremål')).toBeNull()
+    expect(screen.queryByRole('button', { name: /Legg til \d+ hendelse/i })).toBeNull()
+
+    const importBtn = screen.getByRole('button', { name: 'Importer skoleinformasjon' })
+    expect(importBtn).toBeTruthy()
+    await user.click(importBtn)
+
+    await waitFor(() => expect(updatePerson).toHaveBeenCalledTimes(1)) // overlay persistert ÉN gang
+    expect(createEvent).toHaveBeenCalledTimes(0)
+    expect(createTask).toHaveBeenCalledTimes(0)
+  })
+
+  it('eksplisitt skole + overlay UTEN schoolBlock: overlay-fallback fungerer, ingen event-fallback, overlay-only persist', async () => {
+    vi.mocked(analyzeTextWithTankestrom).mockResolvedValue(makeSchoolResponse({ overlay: true, block: false, events: 3 }))
+    const user = userEvent.setup()
+    const { createEvent, createTask, updatePerson } = renderSchoolPage()
+
+    await analyzeAsSchool(user)
+
+    expect(await screen.findByText('Slik blir skole-uken')).toBeTruthy()
+    expect(screen.queryByText('Foreslåtte hendelser')).toBeNull()
+    await user.click(screen.getByRole('button', { name: 'Importer skoleinformasjon' }))
+    await waitFor(() => expect(updatePerson).toHaveBeenCalled())
+    expect(createEvent).toHaveBeenCalledTimes(0)
+    expect(createTask).toHaveBeenCalledTimes(0)
+  })
+
+  it('eksplisitt skole + schoolBlock UTEN overlay: event-kort skjult, blokkeringstekst + undermelding, knapp deaktivert, ingen persist', async () => {
+    vi.mocked(analyzeTextWithTankestrom).mockResolvedValue(makeSchoolResponse({ overlay: false, block: true, events: 5 }))
+    const user = userEvent.setup()
+    const { createEvent, createTask, updatePerson } = renderSchoolPage()
+
+    await analyzeAsSchool(user)
+
+    expect(await screen.findByText('Analysen ga ingen importerbar skoleblokk')).toBeTruthy()
+    expect(screen.getByText(/kan ikke lagres i skoleblokken med dagens importformat/)).toBeTruthy()
+    expect(screen.queryByText('Foreslåtte hendelser')).toBeNull()
+    const btn = screen.getByRole('button', { name: 'Ingen gyldig skoleblokk' })
+    expect(btn.hasAttribute('disabled')).toBe(true)
+    expect(createEvent).toHaveBeenCalledTimes(0)
+    expect(createTask).toHaveBeenCalledTimes(0)
+    expect(updatePerson).toHaveBeenCalledTimes(0)
+  })
+
+  it('eksplisitt skole UTEN skoleproposal (kun events): blokkering m/ re-analyse-undermelding, event-kort skjult, ingen persist', async () => {
+    vi.mocked(analyzeTextWithTankestrom).mockResolvedValue(makeSchoolResponse({ overlay: false, block: false, events: 5 }))
+    const user = userEvent.setup()
+    const { createEvent, updatePerson } = renderSchoolPage()
+
+    await analyzeAsSchool(user)
+
+    expect(await screen.findByText('Analysen ga ingen importerbar skoleblokk')).toBeTruthy()
+    expect(screen.getByText(/analysere dokumentet på nytt/)).toBeTruthy()
+    expect(screen.queryByText('Foreslåtte hendelser')).toBeNull()
+    expect(screen.getByRole('button', { name: 'Ingen gyldig skoleblokk' }).hasAttribute('disabled')).toBe(true)
+    expect(createEvent).toHaveBeenCalledTimes(0)
+    expect(updatePerson).toHaveBeenCalledTimes(0)
+  })
+
+  it('event_doc (regresjon): eksisterende hendelsesflyt uendret — event-kort + «Legg til N hendelser»', async () => {
+    vi.mocked(analyzeTextWithTankestrom).mockResolvedValue(makeSchoolResponse({ overlay: false, block: false, events: 2 }))
+    const user = userEvent.setup()
+    renderSchoolPage()
+
+    await user.click(screen.getByRole('button', { name: /Arrangement/ })) // event_doc
+    await user.click(screen.getByRole('button', { name: /Eller lim inn tekst/i }))
+    await user.type(screen.getByPlaceholderText(/Lim inn ukeplan/i), 'Et arrangement')
+    await user.click(screen.getByRole('button', { name: 'Analyser tekst' }))
+
+    expect(await screen.findByText('Foreslåtte hendelser')).toBeTruthy()
+    expect(screen.getByRole('button', { name: /Legg til \d+ hendelse/i })).toBeTruthy()
+    expect(screen.queryByText('Analysen ga ingen importerbar skoleblokk')).toBeNull()
+  })
+
+  it('auto (regresjon): overlay + event-items → BÅDE overlay- og event-preview vises, «Legg til N hendelser», ikke skoleknapp/blokkering (fiksen gjelder KUN school)', async () => {
+    // Ingen doktype-valg → documentKind='auto'. Skolefiksen (skjuling/blokkering) skal IKKE gjelde her.
+    vi.mocked(analyzeTextWithTankestrom).mockResolvedValue(makeSchoolResponse({ overlay: true, block: false, events: 2, tasks: 0 }))
+    const user = userEvent.setup()
+    renderSchoolPage()
+
+    await user.click(screen.getByRole('button', { name: /Eller lim inn tekst/i }))
+    await user.type(screen.getByPlaceholderText(/Lim inn ukeplan/i), 'Auto-dokument')
+    await user.click(screen.getByRole('button', { name: 'Analyser tekst' }))
+
+    // Auto: overlay-preview OG event-preview vises samtidig; eksisterende event-knappetekst.
+    expect(await screen.findByText('Slik blir skole-uken')).toBeTruthy()
+    expect(screen.getByText('Foreslåtte hendelser')).toBeTruthy()
+    expect(screen.getByRole('button', { name: /Legg til \d+ hendelse/i })).toBeTruthy()
+    // Ingen av skolemodus-elementene:
+    expect(screen.queryByRole('button', { name: 'Importer skoleinformasjon' })).toBeNull()
+    expect(screen.queryByText('Analysen ga ingen importerbar skoleblokk')).toBeNull()
+    // (Kombinert overlay+event-persist for auto er dekket av eksisterende enkelt-event- og Fiks 1-tester.)
+  })
+
 })
 
 describe('parse: task personMatchStatus (tolerant — Vei 1)', () => {
@@ -1684,5 +1863,97 @@ describe('parse: task personMatchStatus (tolerant — Vei 1)', () => {
   it('child_unresolved bevares', () => {
     const t = taskOf({ personMatchStatus: 'child_unresolved' })
     expect(t.personMatchStatus).toBe('child_unresolved')
+  })
+})
+
+describe('eksplisitt skole: defense-in-depth (approveSelected-barriere i hooken)', () => {
+  afterEach(() => {
+    cleanup()
+    vi.clearAllMocks()
+  })
+
+  function hookBundle() {
+    return {
+      schemaVersion: '1.0.0',
+      provenance: { sourceSystem: 'tankestrom', sourceType: 'e2e', generatedAt: '2026-05-08T20:00:00.000Z', importRunId: 'hk-1' },
+      items: [
+        {
+          proposalId: 'dddd1111-1111-4abc-9def-000000000001',
+          kind: 'event',
+          sourceId: 'e2e',
+          originalSourceType: 'pasted_text',
+          confidence: 0.9,
+          event: { date: '2026-06-15', personId: 'stellan', title: 'Skole-event', start: '09:00', end: '10:00', metadata: {} },
+        },
+        {
+          proposalId: 'dddd2222-2222-4abc-9def-000000000001',
+          kind: 'task',
+          sourceId: 'e2e',
+          originalSourceType: 'pasted_text',
+          confidence: 0.9,
+          task: { date: '2026-06-16', title: 'Skole-task', childPersonId: 'stellan' },
+        },
+      ],
+      schoolWeekOverlayProposal: {
+        proposalId: 'ov-hk',
+        kind: 'school_week_overlay',
+        schemaVersion: '1.0.0',
+        confidence: 0.9,
+        originalSourceType: 'pasted_text',
+        weeklySummary: [],
+        dailyActions: {},
+      },
+    } as unknown as Awaited<ReturnType<typeof analyzeTextWithTankestrom>>
+  }
+
+  function renderImportHook() {
+    const createEvent = vi.fn().mockResolvedValue(undefined)
+    const createTask = vi.fn().mockResolvedValue(undefined)
+    const editEvent = vi.fn().mockResolvedValue(undefined)
+    const updatePerson = vi.fn().mockResolvedValue(undefined)
+    const view = renderHook(() =>
+      useTankestromImport({ open: true, people: stellanOgIda, createEvent, createTask, editEvent, updatePerson })
+    )
+    return { ...view, createEvent, createTask, editEvent, updatePerson }
+  }
+
+  it('approveSelected DIREKTE i skolemodus (event+task valgt) → ok=false, 0 createEvent/createTask/editEvent (avvist FØR persist)', async () => {
+    vi.mocked(analyzeTextWithTankestrom).mockResolvedValue(hookBundle())
+    const { result, createEvent, createTask, editEvent } = renderImportHook()
+
+    // Last inn bundle (auto), velg event+task, bytt til skole.
+    act(() => { result.current.setTextInput('doc til analyse') })
+    await act(async () => { await result.current.runAnalyze() })
+    // Velg alle importerbare items → persist VILLE skjedd uten barrieren (meningsfull 0-assert).
+    act(() => {
+      for (const item of result.current.primaryCalendarProposalItems) result.current.toggleProposal(item.proposalId)
+    })
+    act(() => { result.current.setDocumentKind('school') })
+
+    // Kall den GENERISKE handleren direkte (ikke sidehandleren) — sekundær sikkerhetsbarriere.
+    let res: Awaited<ReturnType<typeof result.current.approveSelected>> | undefined
+    await act(async () => { res = await result.current.approveSelected() })
+
+    expect(res?.ok).toBe(false)
+    expect(createEvent).toHaveBeenCalledTimes(0)
+    expect(createTask).toHaveBeenCalledTimes(0)
+    expect(editEvent).toHaveBeenCalledTimes(0)
+  })
+
+  it('re-analyse: documentKind=school beholdes over to runAnalyze — begge API-kall sender «school», overlay bevart', async () => {
+    vi.mocked(analyzeTextWithTankestrom).mockResolvedValue(hookBundle())
+    const { result } = renderImportHook()
+
+    act(() => { result.current.setDocumentKind('school') })
+    act(() => { result.current.setTextInput('Skoleuke A') })
+    await act(async () => { await result.current.runAnalyze() }) // kall 1
+    await act(async () => { await result.current.runAnalyze() }) // kall 2 (re-analyse, samme doktype)
+
+    expect(result.current.documentKind).toBe('school')
+    const calls = vi.mocked(analyzeTextWithTankestrom).mock.calls
+    expect(calls.length).toBeGreaterThanOrEqual(2)
+    expect(calls[0]![2]).toBe('school')
+    expect(calls[1]![2]).toBe('school')
+    expect(result.current.bundle?.schoolWeekOverlayProposal).toBeTruthy()
   })
 })
