@@ -1,5 +1,14 @@
-import type { ChildSchoolDayPlan, NorwegianGradeBand, SchoolLessonSlot } from '../types'
+import type {
+  ChildSchoolDayPlan,
+  NorwegianGradeBand,
+  SchoolLessonSlot,
+  SchoolWeekOverlayDayAction,
+} from '../types'
 import { subjectLabelForKey } from '../data/norwegianSubjects'
+import {
+  overlaySubjectUpdatesUnmatchedByLessons,
+  overlayUpdatesForLesson,
+} from './schoolWeekOverlayLessonMatch'
 
 /**
  * Delte, rene hjelpere for visning av uke-overlay under fag — brukes av BÅDE kalenderens
@@ -72,4 +81,43 @@ export function buildSchoolRowsForPlan(
     label: subjectLabelForKey(gradeBand, L.subjectKey, L.customLabel, L.lessonSubcategory),
     lesson: L,
   }))
+}
+
+/**
+ * Flate, synlige tekstlinjer fra en uke-overlay-dagshandling — NØYAKTIG de innholdslinjene
+ * legacy-previewen (SchoolLessonOverlayRows) ville vist for barnet, men UTEN fag-header/subjectKey/
+ * slug og UTEN seksjonsoverskrifter. Gjenbruker samme matchsemantikk (overlayUpdatesForLesson +
+ * overlaySubjectUpdatesUnmatchedByLessons), så den nye schoolBlock-previewen og legacy-previewen
+ * deler ÉN sannhet for hva som er barnerelevant. Deduplisert stabilt; muterer aldri input; ingen React.
+ *
+ * `isReplaceDay`: speiler legacy — ved erstatningsdag vises alle updates flatt; ellers matches de
+ * per lagret time (+ unmatched til slutt), akkurat som import-previewen.
+ */
+export function extractVisibleOverlayLinesForDay(args: {
+  action: SchoolWeekOverlayDayAction
+  lessons: SchoolLessonSlot[]
+  isReplaceDay?: boolean
+}): string[] {
+  const { action, lessons, isReplaceDay = false } = args
+  const updates = action.subjectUpdates ?? []
+  const ordered = isReplaceDay
+    ? updates
+    : [
+        ...lessons.flatMap((L) => overlayUpdatesForLesson(L, updates).map((m) => m.update)),
+        ...overlaySubjectUpdatesUnmatchedByLessons(updates, lessons),
+      ]
+  const seen = new Set<string>()
+  const out: string[] = []
+  for (const u of ordered) {
+    for (const { lines } of sectionsForReadOnly(u.sections)) {
+      for (const line of lines) {
+        const text = line.trim()
+        const norm = text.toLowerCase().replace(/\s+/g, ' ')
+        if (!norm || seen.has(norm)) continue
+        seen.add(norm)
+        out.push(text)
+      }
+    }
+  }
+  return out
 }

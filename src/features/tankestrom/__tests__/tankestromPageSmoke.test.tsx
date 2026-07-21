@@ -1814,6 +1814,128 @@ describe('TankestrømPage primærflyt-smoke', () => {
     // (Kombinert overlay+event-persist for auto er dekket av eksisterende enkelt-event- og Fiks 1-tester.)
   })
 
+  // ---- schoolBlockProposal som autoritativ dagskilde i preview (day operations) ----
+  function schoolBlockWithDays() {
+    return {
+      kind: 'school_block',
+      proposalId: 'sb-block-1',
+      schemaVersion: '1.0.0',
+      personId: 'stellan',
+      days: [
+        {
+          dayId: 'd0',
+          weekdayIndex: '0',
+          dayOperation: { op: 'none' },
+          contentItems: [{ itemId: 'c0', sourceText: 'Bokinnlevering 2STC', title: '' }],
+        },
+        {
+          dayId: 'd4',
+          weekdayIndex: '4',
+          dayOperation: {
+            op: 'replace_day',
+            activityKind: 'other',
+            effectiveStart: '09:00',
+            effectiveEnd: '12:00',
+            reason: 'Siste skoledag med opplegg',
+          },
+          contentItems: [],
+        },
+      ],
+    }
+  }
+
+  it('eksplisitt skole + schoolBlock MED gyldige dager UTEN overlay: preview vises (replace_day), blokkering undertrykt, ingen event-fallback', async () => {
+    const resp = makeSchoolResponse({ overlay: false, block: false, events: 4 })
+    ;(resp as unknown as Record<string, unknown>).schoolBlockProposal = schoolBlockWithDays()
+    vi.mocked(analyzeTextWithTankestrom).mockResolvedValue(resp)
+    const user = userEvent.setup()
+    const { createEvent, updatePerson } = renderSchoolPage()
+
+    await analyzeAsSchool(user)
+
+    // schoolBlock-preview er autoritativ: heading + replace_day-opplegget vises.
+    expect(await screen.findByText('Slik blir skole-uken')).toBeTruthy()
+    expect(screen.getByText('Siste skoledag med opplegg')).toBeTruthy()
+    expect(screen.getByText('09:00–12:00')).toBeTruthy()
+    expect(screen.getByText('Bokinnlevering 2STC')).toBeTruthy()
+    // Blokkeringsmeldingen er undertrykt (gyldig preview finnes); event-kort skjult.
+    expect(screen.queryByText('Analysen ga ingen importerbar skoleblokk')).toBeNull()
+    expect(screen.queryByText('Foreslåtte hendelser')).toBeNull()
+    // Persist/import uendret i denne fasen — ingen event-fallback.
+    expect(createEvent).toHaveBeenCalledTimes(0)
+    expect(updatePerson).toHaveBeenCalledTimes(0)
+  })
+
+  it('schoolBlock med løst child-audience vinner over overlay-tekst; legacy-komponent ikke rendret', async () => {
+    // A-tilfellet: schoolBlock-dagen har resolvedChildAudience → schoolBlock-tekst er autoritativ,
+    // overlay ignoreres som tekstkilde, og legacy-komponenten (med seksjonsoverskrift) rendres ikke.
+    const resp = makeSchoolResponse({ overlay: true, block: false, events: 0 })
+    const b = resp as unknown as Record<string, unknown>
+    ;(b.schoolWeekOverlayProposal as Record<string, unknown>).dailyActions = {
+      0: { action: 'enrich_existing_school_block', subjectUpdates: [{ subjectKey: 'matematikk', sections: { lekse: ['LEGACY-OVERLAY-TEKST'] } }] },
+    }
+    b.schoolBlockProposal = {
+      kind: 'school_block',
+      proposalId: 'sb-block-1',
+      schemaVersion: '1.0.0',
+      personId: 'stellan',
+      days: [
+        {
+          dayId: 'd0',
+          weekdayIndex: '0',
+          dayOperation: { op: 'none' },
+          contentItems: [
+            { itemId: 'c0', title: 'Bokinnlevering', resolvedChildAudience: { audienceEntryId: 'x', start: '10:30', end: '11:00', room: null, teacher: null } },
+          ],
+        },
+      ],
+    }
+    vi.mocked(analyzeTextWithTankestrom).mockResolvedValue(resp)
+    const user = userEvent.setup()
+    renderSchoolPage()
+
+    await analyzeAsSchool(user)
+
+    expect(await screen.findByText('Slik blir skole-uken')).toBeTruthy()
+    expect(screen.getByText('Bokinnlevering · 10:30–11:00')).toBeTruthy() // schoolBlock A vinner
+    expect(screen.queryByText('LEGACY-OVERLAY-TEKST')).toBeNull() // overlay ignorert
+    expect(screen.queryByText('Lekse')).toBeNull() // ingen legacy seksjonsoverskrift
+  })
+
+  it('schoolBlock uten løst audience + overlay → overlay-tekst vises flat (uten seksjonsoverskrift)', async () => {
+    // B-tilfellet: schoolBlock-dagen mangler løst audience → overlayets barnerelevante tekst brukes,
+    // men flatet ut (ingen «Lekse»-overskrift, ingen subjectKey), og bred common-tekst vises ikke.
+    const resp = makeSchoolResponse({ overlay: true, block: false, events: 0 })
+    const b = resp as unknown as Record<string, unknown>
+    ;(b.schoolWeekOverlayProposal as Record<string, unknown>).dailyActions = {
+      0: { action: 'enrich_existing_school_block', subjectUpdates: [{ subjectKey: 'matematikk', sections: { lekse: ['Les kapittel 3'] } }] },
+    }
+    b.schoolBlockProposal = {
+      kind: 'school_block',
+      proposalId: 'sb-block-1',
+      schemaVersion: '1.0.0',
+      personId: 'stellan',
+      days: [
+        {
+          dayId: 'd0',
+          weekdayIndex: '0',
+          dayOperation: { op: 'none' },
+          contentItems: [{ itemId: 'c0', sourceText: '2STA, 2STB, 2STC leverer alle bok' }],
+        },
+      ],
+    }
+    vi.mocked(analyzeTextWithTankestrom).mockResolvedValue(resp)
+    const user = userEvent.setup()
+    renderSchoolPage()
+
+    await analyzeAsSchool(user)
+
+    expect(await screen.findByText('Slik blir skole-uken')).toBeTruthy()
+    expect(screen.getByText('Les kapittel 3')).toBeTruthy() // overlay-fallback (flat)
+    expect(screen.queryByText('Lekse')).toBeNull() // ingen seksjonsoverskrift
+    expect(screen.queryByText(/2STA, 2STB, 2STC leverer alle bok/)).toBeNull() // bred common ikke vist
+  })
+
 })
 
 describe('parse: task personMatchStatus (tolerant — Vei 1)', () => {

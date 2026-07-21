@@ -3,6 +3,7 @@ import { cleanup, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it } from 'vitest'
 import type { SchoolLessonSlot, SchoolWeekOverlayDayAction } from '../../types'
 import { LessonOverlayBoxReadOnly, OverlayUpdateReadOnly } from '../SchoolLessonOverlayRows'
+import { extractVisibleOverlayLinesForDay } from '../../lib/schoolOverlayDisplay'
 
 afterEach(cleanup)
 
@@ -142,5 +143,34 @@ describe('klassekode-utheving på overlay-seksjonslinjer (fiks a — mode="spans
     )
     expect(screen.getByText('2STC 10.30-11.00').tagName).toBe('STRONG')
     expect(screen.getByText('2STA 13.10-13.40,').className).toContain('opacity-60')
+  })
+})
+
+describe('extractVisibleOverlayLinesForDay — paritet med legacy-visning (delt matchsemantikk)', () => {
+  it('returnerer nøyaktig innholdslinjene legacy viser (matched + unmatched), uten fag-header/seksjonsoverskrift/slug', () => {
+    // Legacy renderer «Les s.10» under den matchede naturfag-raden og «Gloser» i «Ellers denne dagen»
+    // (Spansk umatchet). Helperen skal gi de SAMME synlige faktalinjene — flatet, uten labels/subjectKey.
+    const action = enrich([
+      { subjectKey: 'Naturfag', sections: { lekse: ['Les s.10'] } },
+      { subjectKey: 'Spansk', sections: { ekstraBeskjed: ['Gloser'] } },
+    ])
+    const lines = extractVisibleOverlayLinesForDay({ action, lessons: [naturfag] })
+    expect(lines).toEqual(['Les s.10', 'Gloser'])
+    expect(lines.join(' ')).not.toContain('Naturfag') // ingen fag-header/subjectKey
+    expect(lines.join(' ')).not.toContain('Lekse') // ingen seksjonsoverskrift
+  })
+
+  it('erstatningsdag: alle updates flatt (isReplaceDay), deduplisert, muterer ikke input', () => {
+    const action: SchoolWeekOverlayDayAction = {
+      action: 'replace_school_block',
+      subjectUpdates: [
+        { subjectKey: 'a', sections: { ekstraBeskjed: ['Møt 09:00'] } },
+        { subjectKey: 'b', sections: { lekse: ['  møt 09:00  '] } }, // dublett (normalisert)
+      ],
+    }
+    const snapshot = JSON.parse(JSON.stringify(action))
+    const lines = extractVisibleOverlayLinesForDay({ action, lessons: [], isReplaceDay: true })
+    expect(lines).toEqual(['Møt 09:00'])
+    expect(action).toEqual(snapshot) // ingen mutasjon
   })
 })
