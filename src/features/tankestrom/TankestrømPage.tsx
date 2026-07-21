@@ -2,6 +2,8 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { IconArrowLeft, IconUpload, IconCheck } from '@tabler/icons-react'
 import { SectionDots } from '../../components/SectionDots'
 import { OverlayImportPreview } from './OverlayImportPreview'
+import { SchoolBlockImportPreview } from './SchoolBlockImportPreview'
+import { buildSchoolBlockPreviewDays } from './schoolBlockPreview'
 import { TankestromScheduleDetails } from '../../components/TankestromScheduleDetails'
 import { UploadFileList } from '../../components/UploadFileList'
 import { btnPrimaryPill } from '../../lib/ui'
@@ -543,13 +545,41 @@ export function TankestrømPage({
   const isExplicitSchoolImport = documentKind === 'school'
   const hasSchoolOverlayProposal = !!bundle?.schoolWeekOverlayProposal
   const hasSchoolBlockProposal = !!bundle?.schoolBlockProposal
+  // Autoritativ dagskilde: når schoolBlockProposal har gyldige dager brukes DEN i previewen
+  // (dagsoperasjoner påført mot barnets lagrede timeplan). Barnet hentes fra proposalens personId,
+  // med schoolProfileChildId som fallback. Ren read-only — ingen persist/import berøres her.
+  const schoolBlockPreviewChild = useMemo(() => {
+    const pid = bundle?.schoolBlockProposal?.personId
+    return (
+      (pid ? people.find((p) => p.id === pid) : undefined) ??
+      people.find((p) => p.id === schoolProfileChildId)
+    )
+  }, [bundle, people, schoolProfileChildId])
+  const schoolBlockPreviewDays = useMemo(
+    () =>
+      bundle?.schoolBlockProposal
+        ? buildSchoolBlockPreviewDays({
+            proposal: bundle.schoolBlockProposal,
+            overlayProposal: bundle.schoolWeekOverlayProposal,
+            child: schoolBlockPreviewChild,
+          })
+        : [],
+    [bundle, schoolBlockPreviewChild]
+  )
+  const hasSchoolBlockPreview = schoolBlockPreviewDays.length > 0
   // Eksplisitt skole uten importerbar overlay → blokkeringstilstand (ingen event-fallback).
-  const showExplicitSchoolBlocked = isExplicitSchoolImport && !!bundle && !hasSchoolOverlayProposal
+  // Undertrykkes når en gyldig schoolBlock-preview vises (unngår motstridende «ingen skoleblokk»-
+  // melding over en faktisk forhåndsvisning). Import-knappen/persist er uendret (neste steg).
+  const showExplicitSchoolBlocked =
+    isExplicitSchoolImport && !!bundle && !hasSchoolOverlayProposal && !hasSchoolBlockPreview
 
   // Tomtilstand: analyse ferdig (bundle satt, ikke i gang, ingen feil), men ingenting brukbart å vise.
-  // Skoleprofil/uke-overlay regnes som brukbart resultat (vises ikke som «fant ingenting»).
+  // Skoleprofil/uke-overlay/schoolBlock-preview regnes som brukbart resultat (ikke «fant ingenting»).
   const hasSchoolResult =
-    !!bundle && (!!bundle.schoolWeekOverlayProposal || bundle.items.some((i) => i.kind === 'school_profile'))
+    !!bundle &&
+    (!!bundle.schoolWeekOverlayProposal ||
+      hasSchoolBlockPreview ||
+      bundle.items.some((i) => i.kind === 'school_profile'))
   const hasUsableResult =
     eventDisplayItems.length > 0 ||
     taskDisplayItems.length > 0 ||
@@ -899,8 +929,12 @@ export function TankestrømPage({
             </div>
           )}
 
-        {/* Fag-plassert overlay-preview (før import) — samme visning som kalenderens skole-blokk. */}
-        {bundle?.schoolWeekOverlayProposal ? (
+        {/* Skole-preview: schoolBlockProposal er autoritativ dagskilde når den har gyldige dager
+            (dagsoperasjoner påført). Ellers faller vi tilbake til den eldre overlay-previewen —
+            aldri begge for samme dag (det var kilden til dupliseringene). */}
+        {hasSchoolBlockPreview ? (
+          <SchoolBlockImportPreview days={schoolBlockPreviewDays} child={schoolBlockPreviewChild} />
+        ) : bundle?.schoolWeekOverlayProposal ? (
           <OverlayImportPreview
             overlay={bundle.schoolWeekOverlayProposal}
             child={people.find((p) => p.id === schoolProfileChildId)}
