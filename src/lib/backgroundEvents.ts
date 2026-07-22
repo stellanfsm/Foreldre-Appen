@@ -17,6 +17,12 @@ import {
   norwegianDayOffSchool,
 } from './norwegianSchoolCalendar'
 import { calendarReplaceSchoolBlockTitle } from './schoolWeekOverlayReplaceTitle'
+import type { CanonicalSchoolContentDraft } from './canonicalSchoolTypes'
+import { parseCanonicalSchoolContentDraft } from './canonicalSchoolParse'
+import {
+  buildCanonicalSchoolImportPlan,
+  type CanonicalPlanDay,
+} from './canonicalSchoolImportPlan'
 
 type BackgroundSubkind = 'school_day' | 'school_day_override' | 'school_lesson' | 'school_break' | 'work_day'
 
@@ -43,7 +49,10 @@ export function buildSpecialSchoolTitle(action: SchoolWeekOverlayDayAction, band
 }
 
 type ResolvedSchoolWeekOverlayDay = {
-  action: SchoolWeekOverlayDayAction
+  /** Legacy dagsaksjon; `null` når overlayen er canonical (da brukes `canonicalDraft`). */
+  action: SchoolWeekOverlayDayAction | null
+  /** ADDITIVT: canonical-snapshot for uken — autoritativt (bygges med samme plan som previewen). */
+  canonicalDraft?: CanonicalSchoolContentDraft
   overlayId: string
   weekYear: number
   weekNumber: number
@@ -62,6 +71,23 @@ function findSchoolWeekOverlayDayAction(person: Person, dateKey: string): Resolv
   for (let i = school.weekOverlays.length - 1; i >= 0; i--) {
     const overlay = school.weekOverlays[i]!
     if (overlay.weekYear !== weekYear || overlay.weekNumber !== weekNumber) continue
+    // Canonical-snapshot er autoritativt for uken (matcher på uke, ikke dailyActions). Lagret JSONB
+    // RUNTIME-valideres med samme delte parser før planbygging — ugyldig snapshot → kontrollert
+    // fallback (legacy/normal), aldri kast, aldri sletting av data.
+    if (overlay.canonicalSchoolContentDraft) {
+      const validated = parseCanonicalSchoolContentDraft(overlay.canonicalSchoolContentDraft)
+      if (validated) {
+        return {
+          action: null,
+          canonicalDraft: validated,
+          overlayId: overlay.id,
+          weekYear: overlay.weekYear,
+          weekNumber: overlay.weekNumber,
+          dayIndex: dayMon0,
+        }
+      }
+      // Ugyldig canonical snapshot → fall til legacy dailyActions for samme overlay (om noen).
+    }
     const action = overlay.dailyActions[dayMon0]
       if (!action) continue
       return {
@@ -78,6 +104,28 @@ function findSchoolWeekOverlayDayAction(person: Person, dateKey: string): Resolv
       }
   }
   return null
+}
+
+/** Blokk-tidsrom + tittel for en canonical plandag (Del 9/10: dayOperation direkte fra planen). */
+function canonicalSchoolBlockSpan(
+  planDay: CanonicalPlanDay,
+  fallbackStart: string,
+  fallbackEnd: string
+): { start: string; end: string; title: string; override: boolean } {
+  if (planDay.op === 'replace_day' && planDay.replacement) {
+    return {
+      start: planDay.replacement.start ?? fallbackStart,
+      end: planDay.replacement.end ?? fallbackEnd,
+      title: planDay.replacement.title,
+      override: true,
+    }
+  }
+  if (planDay.timetable.length > 0) {
+    const start = planDay.timetable.reduce((m, r) => (r.start < m ? r.start : m), planDay.timetable[0]!.start)
+    const end = planDay.timetable.reduce((m, r) => (r.end > m ? r.end : m), planDay.timetable[0]!.end)
+    return { start, end, title: 'Skole', override: false }
+  }
+  return { start: fallbackStart, end: fallbackEnd, title: 'Skole', override: false }
 }
 
 function makeBackgroundEvent(
@@ -173,7 +221,39 @@ export function buildBackgroundEventsForDate(
       }
 
       const weekOverlayDay = findSchoolWeekOverlayDayAction(p, dateKey)
-      if (weekOverlayDay) {
+      // Canonical-snapshot (readback): SAMME planbygger som previewen. Autoritativt for uken —
+      // legacy dailyActions/dayOverrides tolkes ikke parallelt. Kun dager i draften overstyres;
+      // ukedager uten canonical dag faller gjennom til normal skoleblokk.
+      if (weekOverlayDay?.canonicalDraft) {
+        const plan = buildCanonicalSchoolImportPlan({ draft: weekOverlayDay.canonicalDraft, child: p })
+        const planDay = plan.days.find((d) => d.weekday === wd)
+        if (planDay) {
+          const span = canonicalSchoolBlockSpan(planDay, dayStart, dayEnd)
+          out.push(
+            makeBackgroundEvent(
+              p.id,
+              dateKey,
+              span.start,
+              span.end,
+              span.title,
+              'school',
+              span.override ? 'canonical-day-override' : 'canonical-day',
+              span.override ? 'school_day_override' : 'school_day',
+              {
+                schoolCanonicalDay: planDay,
+                schoolWeekOverlayMeta: {
+                  overlayId: weekOverlayDay.overlayId,
+                  weekYear: weekOverlayDay.weekYear,
+                  weekNumber: weekOverlayDay.weekNumber,
+                  dayIndex: weekOverlayDay.dayIndex,
+                },
+              }
+            )
+          )
+          continue
+        }
+        // Ingen canonical dag for denne ukedagen → normal skoleblokk under (fall gjennom).
+      } else if (weekOverlayDay?.action) {
         if (weekOverlayDay.action.action === 'remove_school_block') {
           continue
         }
@@ -242,9 +322,9 @@ export function buildBackgroundEventsForDate(
         out.push(
           makeBackgroundEvent(p.id, dateKey, gates.start, gates.end, 'Skole', 'school', 'day', 'school_day', {
             schoolWeekOverlayDay:
-              weekOverlayDay?.action.action === 'enrich_existing_school_block' ? weekOverlayDay.action : undefined,
+              weekOverlayDay?.action?.action === 'enrich_existing_school_block' ? weekOverlayDay.action : undefined,
             schoolWeekOverlayMeta:
-              weekOverlayDay?.action.action === 'enrich_existing_school_block'
+              weekOverlayDay?.action?.action === 'enrich_existing_school_block'
                 ? {
                     overlayId: weekOverlayDay.overlayId,
                     weekYear: weekOverlayDay.weekYear,
@@ -264,9 +344,9 @@ export function buildBackgroundEventsForDate(
         out.push(
           makeBackgroundEvent(p.id, dateKey, start, end, 'Skole', 'school', 'day', 'school_day', {
             schoolWeekOverlayDay:
-              weekOverlayDay?.action.action === 'enrich_existing_school_block' ? weekOverlayDay.action : undefined,
+              weekOverlayDay?.action?.action === 'enrich_existing_school_block' ? weekOverlayDay.action : undefined,
             schoolWeekOverlayMeta:
-              weekOverlayDay?.action.action === 'enrich_existing_school_block'
+              weekOverlayDay?.action?.action === 'enrich_existing_school_block'
                 ? {
                     overlayId: weekOverlayDay.overlayId,
                     weekYear: weekOverlayDay.weekYear,
@@ -281,9 +361,9 @@ export function buildBackgroundEventsForDate(
         out.push(
           makeBackgroundEvent(p.id, dateKey, dayStart, dayEnd, 'Skole', 'school', 'day', 'school_day', {
             schoolWeekOverlayDay:
-              weekOverlayDay?.action.action === 'enrich_existing_school_block' ? weekOverlayDay.action : undefined,
+              weekOverlayDay?.action?.action === 'enrich_existing_school_block' ? weekOverlayDay.action : undefined,
             schoolWeekOverlayMeta:
-              weekOverlayDay?.action.action === 'enrich_existing_school_block'
+              weekOverlayDay?.action?.action === 'enrich_existing_school_block'
                 ? {
                     overlayId: weekOverlayDay.overlayId,
                     weekYear: weekOverlayDay.weekYear,

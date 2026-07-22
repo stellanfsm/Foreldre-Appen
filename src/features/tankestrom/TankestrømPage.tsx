@@ -4,6 +4,8 @@ import { SectionDots } from '../../components/SectionDots'
 import { OverlayImportPreview } from './OverlayImportPreview'
 import { SchoolBlockImportPreview } from './SchoolBlockImportPreview'
 import { buildSchoolBlockPreviewDays } from './schoolBlockPreview'
+import { CanonicalSchoolImportPreview } from './CanonicalSchoolImportPreview'
+import { buildCanonicalSchoolImportPlan } from '../../lib/canonicalSchoolImportPlan'
 import { TankestromScheduleDetails } from '../../components/TankestromScheduleDetails'
 import { UploadFileList } from '../../components/UploadFileList'
 import { btnPrimaryPill } from '../../lib/ui'
@@ -545,40 +547,52 @@ export function TankestrømPage({
   const isExplicitSchoolImport = documentKind === 'school'
   const hasSchoolOverlayProposal = !!bundle?.schoolWeekOverlayProposal
   const hasSchoolBlockProposal = !!bundle?.schoolBlockProposal
-  // Autoritativ dagskilde: når schoolBlockProposal har gyldige dager brukes DEN i previewen
-  // (dagsoperasjoner påført mot barnets lagrede timeplan). Barnet hentes fra proposalens personId,
-  // med schoolProfileChildId som fallback. Ren read-only — ingen persist/import berøres her.
+  // Barnet for skole-previewen: canonical/​schoolBlock personId, ellers schoolProfileChildId.
   const schoolBlockPreviewChild = useMemo(() => {
-    const pid = bundle?.schoolBlockProposal?.personId
+    const pid = bundle?.canonicalSchoolContentDraft?.personId ?? bundle?.schoolBlockProposal?.personId
     return (
       (pid ? people.find((p) => p.id === pid) : undefined) ??
       people.find((p) => p.id === schoolProfileChildId)
     )
   }, [bundle, people, schoolProfileChildId])
+  // AUTORITATIV kilde: når et gyldig canonicalSchoolContentDraft finnes bygges ÉN delt plan som
+  // brukes av previewen (og senere persist). schoolBlock/overlay er da ren fallback — aldri parallelt.
+  const canonicalPlan = useMemo(
+    () =>
+      bundle?.canonicalSchoolContentDraft
+        ? buildCanonicalSchoolImportPlan({ draft: bundle.canonicalSchoolContentDraft, child: schoolBlockPreviewChild })
+        : null,
+    [bundle, schoolBlockPreviewChild]
+  )
+  const hasCanonicalPlan = !!canonicalPlan && canonicalPlan.days.length > 0
+  // schoolBlock-preview (fallback nivå 2): kun når canonical mangler.
   const schoolBlockPreviewDays = useMemo(
     () =>
-      bundle?.schoolBlockProposal
+      !hasCanonicalPlan && bundle?.schoolBlockProposal
         ? buildSchoolBlockPreviewDays({
             proposal: bundle.schoolBlockProposal,
             overlayProposal: bundle.schoolWeekOverlayProposal,
             child: schoolBlockPreviewChild,
           })
         : [],
-    [bundle, schoolBlockPreviewChild]
+    [hasCanonicalPlan, bundle, schoolBlockPreviewChild]
   )
   const hasSchoolBlockPreview = schoolBlockPreviewDays.length > 0
+  const hasSchoolPreview = hasCanonicalPlan || hasSchoolBlockPreview
+  // Importknappen (Del 8): canonical draft ELLER legacy overlay gjør skoleimport lagringsbar.
+  const canSaveExplicitSchool = hasCanonicalPlan || hasSchoolOverlayProposal
   // Eksplisitt skole uten importerbar overlay → blokkeringstilstand (ingen event-fallback).
-  // Undertrykkes når en gyldig schoolBlock-preview vises (unngår motstridende «ingen skoleblokk»-
-  // melding over en faktisk forhåndsvisning). Import-knappen/persist er uendret (neste steg).
+  // Undertrykkes når en gyldig skole-preview (canonical ELLER schoolBlock) vises. Import-knappen/
+  // persist er uendret (persist fra canonical krever additiv kontraktendring — neste steg).
   const showExplicitSchoolBlocked =
-    isExplicitSchoolImport && !!bundle && !hasSchoolOverlayProposal && !hasSchoolBlockPreview
+    isExplicitSchoolImport && !!bundle && !hasSchoolOverlayProposal && !hasSchoolPreview
 
   // Tomtilstand: analyse ferdig (bundle satt, ikke i gang, ingen feil), men ingenting brukbart å vise.
-  // Skoleprofil/uke-overlay/schoolBlock-preview regnes som brukbart resultat (ikke «fant ingenting»).
+  // Skoleprofil/uke-overlay/skole-preview regnes som brukbart resultat (ikke «fant ingenting»).
   const hasSchoolResult =
     !!bundle &&
     (!!bundle.schoolWeekOverlayProposal ||
-      hasSchoolBlockPreview ||
+      hasSchoolPreview ||
       bundle.items.some((i) => i.kind === 'school_profile'))
   const hasUsableResult =
     eventDisplayItems.length > 0 ||
@@ -698,7 +712,7 @@ export function TankestrømPage({
     // Eksplisitt skole: rout ALLTID til overlay-only-persist, aldri gjennom event-grenen.
     // Uten gyldig overlay → blokkert (knappen er deaktivert; defensiv retur her).
     if (isExplicitSchoolImport) {
-      if (!hasSchoolOverlayProposal) return
+      if (!canSaveExplicitSchool) return
       const result = await saveExplicitSchoolOverlay()
       if (result.ok) {
         onBack()
@@ -929,10 +943,13 @@ export function TankestrømPage({
             </div>
           )}
 
-        {/* Skole-preview: schoolBlockProposal er autoritativ dagskilde når den har gyldige dager
-            (dagsoperasjoner påført). Ellers faller vi tilbake til den eldre overlay-previewen —
-            aldri begge for samme dag (det var kilden til dupliseringene). */}
-        {hasSchoolBlockPreview ? (
+        {/* Skole-preview — ÉN kilde av gangen, aldri parallelt:
+            1) canonicalSchoolContentDraft (autoritativ delt plan) når den finnes,
+            2) ellers schoolBlockProposal (dagsoperasjoner mot lagret timeplan),
+            3) ellers den eldre overlay-previewen (fallback). */}
+        {hasCanonicalPlan && canonicalPlan ? (
+          <CanonicalSchoolImportPreview plan={canonicalPlan} child={schoolBlockPreviewChild} />
+        ) : hasSchoolBlockPreview ? (
           <SchoolBlockImportPreview days={schoolBlockPreviewDays} child={schoolBlockPreviewChild} />
         ) : bundle?.schoolWeekOverlayProposal ? (
           <OverlayImportPreview
@@ -1286,7 +1303,7 @@ export function TankestrømPage({
             type="button"
             disabled={
               isExplicitSchoolImport
-                ? !hasSchoolOverlayProposal || saveLoading
+                ? !canSaveExplicitSchool || saveLoading
                 : selectedCount === 0 || saveLoading || !canApproveSelection
             }
             onClick={() => void handleApprove()}
@@ -1296,7 +1313,7 @@ export function TankestrømPage({
             {saveLoading
               ? 'Importerer…'
               : isExplicitSchoolImport
-                ? hasSchoolOverlayProposal
+                ? canSaveExplicitSchool
                   ? 'Importer skoleinformasjon'
                   : 'Ingen gyldig skoleblokk'
                 : `Legg til ${promisedImportItemCount} hendelse${promisedImportItemCount === 1 ? '' : 'r'}`}

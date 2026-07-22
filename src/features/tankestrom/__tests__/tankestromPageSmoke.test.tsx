@@ -1936,6 +1936,104 @@ describe('TankestrømPage primærflyt-smoke', () => {
     expect(screen.queryByText(/2STA, 2STB, 2STC leverer alle bok/)).toBeNull() // bred common ikke vist
   })
 
+  // ---- canonicalSchoolContentDraft som autoritativ kilde ----
+  function canonicalDraftWithDays() {
+    return {
+      schemaVersion: '1.0.0',
+      sourceTitle: 'Ukeplan uke 25',
+      originalSourceType: 'school_activity_plan',
+      personId: 'stellan',
+      personMatchStatus: 'matched',
+      classCode: '2STC',
+      structureStatus: 'complete',
+      reviewFlags: [],
+      days: [
+        {
+          dayId: 'd1',
+          date: '2026-06-16',
+          weekdayIndex: '1',
+          dayLabel: null,
+          dayOperation: { op: 'none' },
+          dayResolution: 'enrich_only',
+          subjectItems: [
+            { sourceId: 's1', itemId: 'c1', sourceRef: null, placement: 'subject', contentType: 'lesson', action: 'enrich', subject: 'Matematikk', subjectKey: 'matematikk', customLabel: null, start: null, end: null, audienceEntries: [], sections: null, sourceText: 'Forberedelsesdag til heldagsprøve', evidence: null, confidence: 0.9, reviewFlags: [] },
+          ],
+          audienceItems: [],
+          generalDayMessages: [
+            { sourceId: 's2', itemId: 'c2', sourceRef: null, placement: 'day', contentType: 'message', action: 'enrich', subject: null, subjectKey: null, customLabel: null, start: null, end: null, audienceEntries: [], sections: null, sourceText: 'Husk skolebøker', evidence: null, confidence: 0.9, reviewFlags: [] },
+          ],
+          confidence: 0.9,
+          evidence: null,
+          reviewFlags: [],
+        },
+      ],
+    }
+  }
+
+  it('canonicalSchoolContentDraft er autoritativ: canonical-preview vises, blokkering undertrykt, ingen event-fallback', async () => {
+    const resp = makeSchoolResponse({ overlay: true, block: true, events: 3 })
+    const b = resp as unknown as Record<string, unknown>
+    // Overlay har distinkt tekst som IKKE skal vises når canonical er autoritativ.
+    ;(b.schoolWeekOverlayProposal as Record<string, unknown>).dailyActions = {
+      1: { action: 'enrich_existing_school_block', subjectUpdates: [{ subjectKey: 'matematikk', sections: { lekse: ['LEGACY-OVERLAY-TEKST'] } }] },
+    }
+    b.canonicalSchoolContentDraft = canonicalDraftWithDays()
+    vi.mocked(analyzeTextWithTankestrom).mockResolvedValue(resp)
+    const user = userEvent.setup()
+    const { createEvent, updatePerson } = renderSchoolPage()
+
+    await analyzeAsSchool(user)
+
+    expect(await screen.findByText('Slik blir skole-uken')).toBeTruthy()
+    expect(screen.getByText('Forberedelsesdag til heldagsprøve')).toBeTruthy() // canonical subject-item
+    expect(screen.getByText('Husk skolebøker')).toBeTruthy() // canonical general message
+    expect(screen.queryByText('LEGACY-OVERLAY-TEKST')).toBeNull() // schoolBlock/overlay ikke rendret parallelt
+    expect(screen.queryByText('Analysen ga ingen importerbar skoleblokk')).toBeNull()
+    expect(screen.queryByText('Foreslåtte hendelser')).toBeNull()
+    expect(createEvent).toHaveBeenCalledTimes(0)
+    expect(updatePerson).toHaveBeenCalledTimes(0) // persist fra canonical ikke koblet ennå
+  })
+
+  it('canonical persist: importknapp lagrer canonical-snapshot additivt på SchoolWeekOverlay (ingen legacy-oversettelse)', async () => {
+    const resp = makeSchoolResponse({ overlay: false, block: false, events: 0 })
+    ;(resp as unknown as Record<string, unknown>).canonicalSchoolContentDraft = canonicalDraftWithDays()
+    vi.mocked(analyzeTextWithTankestrom).mockResolvedValue(resp)
+    const user = userEvent.setup()
+    const { createEvent, createTask, updatePerson } = renderSchoolPage()
+
+    await analyzeAsSchool(user)
+
+    const importBtn = await screen.findByRole('button', { name: 'Importer skoleinformasjon' })
+    expect(importBtn.hasAttribute('disabled')).toBe(false)
+    await user.click(importBtn)
+
+    await waitFor(() => expect(updatePerson).toHaveBeenCalledTimes(1))
+    expect(createEvent).toHaveBeenCalledTimes(0)
+    expect(createTask).toHaveBeenCalledTimes(0)
+    const [cid, patch] = updatePerson.mock.calls[0]! as [string, { school: { weekOverlays: Array<Record<string, unknown>> } }]
+    expect(cid).toBe('stellan')
+    const overlays = patch.school.weekOverlays
+    expect(overlays).toHaveLength(1) // replace-by-week: én post for uken
+    const stored = overlays[0]!
+    expect(stored.canonicalSchoolContentDraft).toBeTruthy() // snapshot lagret additivt
+    expect(stored.dailyActions).toEqual({}) // ingen legacy-oversettelse
+    const draft = stored.canonicalSchoolContentDraft as { days: Array<{ subjectItems: unknown[] }> }
+    expect(draft.days[0]!.subjectItems).toHaveLength(1) // fag-plassering bevart i snapshotet
+  })
+
+  it('K. legacy fallback: uten canonical draft brukes schoolBlock/overlay-previewen (uendret)', async () => {
+    // Ingen canonicalSchoolContentDraft → overlay-previewen (legacy) vises som før.
+    vi.mocked(analyzeTextWithTankestrom).mockResolvedValue(makeSchoolResponse({ overlay: true, block: false, events: 3 }))
+    const user = userEvent.setup()
+    const { createEvent } = renderSchoolPage()
+
+    await analyzeAsSchool(user)
+
+    expect(await screen.findByText('Slik blir skole-uken')).toBeTruthy()
+    expect(screen.queryByText('Foreslåtte hendelser')).toBeNull()
+    expect(createEvent).toHaveBeenCalledTimes(0)
+  })
+
 })
 
 describe('parse: task personMatchStatus (tolerant — Vei 1)', () => {

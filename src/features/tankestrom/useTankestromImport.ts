@@ -78,6 +78,7 @@ import { detectLessonConflicts } from '../../lib/schoolProfileConflicts'
 import { normalizeTaskIntent, suggestTaskIntentFromTitleAndNotes } from '../../lib/taskIntent'
 import { parseTime } from '../../lib/time'
 import { getISOWeek, getISOWeekYear } from '../../lib/isoWeek'
+import type { CanonicalSchoolContentDraft } from '../../lib/canonicalSchoolTypes'
 import {
   findConservativeExistingEventMatch,
   getIncomingArrangementRange,
@@ -2621,6 +2622,53 @@ function overlayToChildWeekOverlay(
 
 function cloneSchoolProfile(profile: ChildSchoolProfile): ChildSchoolProfile {
   return JSON.parse(JSON.stringify(profile)) as ChildSchoolProfile
+}
+
+/** ISO-datoformat YYYY-MM-DD (kun formatsjekk på et strukturert felt — ikke fritekst-parsing). */
+function isIsoDateKey(s: string): boolean {
+  return /^\d{4}-\d{2}-\d{2}$/.test(s)
+}
+
+/**
+ * Sikker uke for canonical import (Del 7). Prioritet: validert overlay-weekNumber → dato på
+ * draftens dager (ISO) → null. Ingen ukeutledning fra sourceTitle. `null` ⇒ import krever
+ * ukeavklaring (ikke lagre under tilfeldig uke).
+ */
+function resolveCanonicalImportWeek(
+  draft: CanonicalSchoolContentDraft,
+  overlayWeekNumber: number | undefined
+): { weekYear: number; weekNumber: number } | null {
+  if (typeof overlayWeekNumber === 'number' && Number.isFinite(overlayWeekNumber)) {
+    return { weekYear: getISOWeekYear(new Date()), weekNumber: overlayWeekNumber }
+  }
+  const firstDate = draft.days.map((d) => d.date).find((d): d is string => !!d && isIsoDateKey(d))
+  if (firstDate) {
+    const dt = new Date(`${firstDate}T12:00:00`)
+    return { weekYear: getISOWeekYear(dt), weekNumber: getISOWeek(dt) }
+  }
+  return null
+}
+
+/**
+ * Bygger ETT `SchoolWeekOverlay` som bærer canonical-snapshotet autoritativt. INGEN oversettelse
+ * til legacy subjectUpdates/dayOverrides — legacy-felt settes til trygg tom verdi (`dailyActions: {}`).
+ * Ved readback bygger `buildCanonicalSchoolImportPlan` samme plan som previewen.
+ */
+function canonicalDraftToChildWeekOverlay(
+  draft: CanonicalSchoolContentDraft,
+  week: { weekYear: number; weekNumber: number }
+): SchoolWeekOverlay {
+  return {
+    id: `canonical-${week.weekYear}-w${week.weekNumber}`,
+    weekYear: week.weekYear,
+    weekNumber: week.weekNumber,
+    sourceTitle: draft.sourceTitle || undefined,
+    originalSourceType: draft.originalSourceType || undefined,
+    classLabel: draft.classCode ?? undefined,
+    dailyActions: {},
+    canonicalSchoolContentDraft: draft,
+    appliedAt: new Date().toISOString(),
+  }
 }
 
 function taskDraftFromEventDraft(e: TankestromEventDraft, people: Person[], validPersonIds: Set<string>): TankestromTaskDraft {
@@ -6319,21 +6367,81 @@ export function useTankestromImport({
   }, [schoolReview, bundle?.schoolWeekOverlayProposal, saveSchoolWeekOverlay, selectedIds, approveSelected])
 
   /**
-   * Eksplisitt skoleimport (documentKind === 'school'): lagre KUN uke-overlayen i barnets
-   * `person.school.weekOverlays` — aldri approveSelected/createEvent/createTask. Overlay-only-
-   * persist (gjenbruker saveSchoolWeekOverlay) med replace-by-week-semantikk. Returnerer samme
-   * TankestromImportResult-form. Krever eksplisitt skolevalg + gyldig overlay; ellers strukturert feil.
+   * Full-fidelity canonical persist (Del 6): lagre canonical-snapshotet additivt på ÉN
+   * `SchoolWeekOverlay` for uken (replace-by-week). Ingen legacy-oversettelse, ingen parallelle
+   * canonical/legacy-kopier. Krever gyldig draft + barn + skoleprofil + sikkert ukenummer.
+   */
+  const saveCanonicalSchoolWeek = useCallback(async (): Promise<TankestromImportResult> => {
+    const draft = bundle?.canonicalSchoolContentDraft
+    if (!draft || draft.days.length === 0) {
+      return { ok: false, partial: false, failureMessage: 'Analysen ga ingen importerbar skoleblokk.' }
+    }
+    if (!updatePerson) {
+      return { ok: false, partial: false, failureMessage: 'Lagring er ikke tilgjengelig.' }
+    }
+    const cid = (draft.personId?.trim() || schoolProfileChildId.trim())
+    const child = people.find((p) => p.id === cid && p.memberKind === 'child')
+    if (!child) {
+      return { ok: false, partial: false, failureMessage: 'Velg hvilket barn skoleuken skal lagres til.' }
+    }
+    const existingSchool = child.school
+    if (!existingSchool) {
+      return { ok: false, partial: false, failureMessage: 'Barnet mangler skoleprofil. Lagre skoleprofil først.' }
+    }
+    const week = resolveCanonicalImportWeek(draft, bundle?.schoolWeekOverlayProposal?.weekNumber)
+    if (!week) {
+      return { ok: false, partial: false, failureMessage: 'Skoleuken mangler et sikkert ukenummer. Bekreft uke før import.' }
+    }
+    const nextOverlay = canonicalDraftToChildWeekOverlay(draft, week)
+    const existingOverlays = existingSchool.weekOverlays ?? []
+    const remaining = existingOverlays.filter(
+      (o) => !(o.weekYear === week.weekYear && o.weekNumber === week.weekNumber)
+    )
+    const nextSchool: ChildSchoolProfile = { ...existingSchool, weekOverlays: [...remaining, nextOverlay] }
+
+    setError(null)
+    setSaveLoading(true)
+    try {
+      await updatePerson(cid, { school: nextSchool })
+      return { ok: true, partial: false }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Kunne ikke lagre skoleuken.')
+      return { ok: false, partial: false }
+    } finally {
+      setSaveLoading(false)
+    }
+  }, [
+    bundle?.canonicalSchoolContentDraft,
+    bundle?.schoolWeekOverlayProposal?.weekNumber,
+    schoolProfileChildId,
+    people,
+    updatePerson,
+  ])
+
+  /**
+   * Eksplisitt skoleimport (documentKind === 'school'). Del 8: velger ÉN persist-sti —
+   * canonical-snapshot når et gyldig canonicalSchoolContentDraft finnes, ellers legacy overlay-
+   * persist. Aldri begge. Aldri approveSelected/createEvent/createTask.
    */
   const saveExplicitSchoolOverlay = useCallback(async (): Promise<TankestromImportResult> => {
     if (documentKind !== 'school') {
       return { ok: false, partial: false, failureMessage: 'Skoleflyten krever eksplisitt «Skole»-valg.' }
+    }
+    if (bundle?.canonicalSchoolContentDraft && bundle.canonicalSchoolContentDraft.days.length > 0) {
+      return saveCanonicalSchoolWeek()
     }
     if (!bundle?.schoolWeekOverlayProposal) {
       return { ok: false, partial: false, failureMessage: 'Analysen ga ingen importerbar skoleblokk.' }
     }
     const okOverlay = await saveSchoolWeekOverlay()
     return okOverlay ? { ok: true, partial: false } : { ok: false, partial: false }
-  }, [documentKind, bundle?.schoolWeekOverlayProposal, saveSchoolWeekOverlay])
+  }, [
+    documentKind,
+    bundle?.canonicalSchoolContentDraft,
+    bundle?.schoolWeekOverlayProposal,
+    saveCanonicalSchoolWeek,
+    saveSchoolWeekOverlay,
+  ])
 
   const promoteSecondaryImportCandidate = useCallback(
     (c: PortalSecondaryImportCandidate, targetKind: 'event' | 'task') => {
@@ -6496,6 +6604,7 @@ export function useTankestromImport({
     saveSchoolWeekOverlay,
     saveSchoolWeekOverlayThenCalendarSelection,
     saveExplicitSchoolOverlay,
+    saveCanonicalSchoolWeek,
     setSchoolWeekOverlayProposalDraft,
     embeddedScheduleReviewRowsByParentId,
     detachedEmbeddedChildren,
