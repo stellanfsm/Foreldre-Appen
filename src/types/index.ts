@@ -3,6 +3,8 @@
  * Person-coded events; time as "HH:mm" (24h).
  */
 
+import type { StoredCanonicalSchoolContentDraft } from '../lib/canonicalSchoolTypes'
+
 export type PersonId = string;
 
 /** Norwegian school stage for subject presets and default times (veiledende). */
@@ -90,6 +92,12 @@ export interface SchoolWeekOverlay {
    * persisteres. ADDITIVT: gamle overlays uten feltet fungerer byte-semantisk uendret.
    */
   dayOverrides?: Partial<Record<WeekdayMonFri, SchoolWeekDayOverride>>
+  /**
+   * ADDITIVT canonical snapshot. Når satt er DETTE den autoritative datakilden for skoleuken —
+   * `buildCanonicalSchoolImportPlan` bygger samme plan som previewen, og legacy `dailyActions`/
+   * `dayOverrides` tolkes IKKE parallelt for denne uken. Serialiserbart (JSONB, ingen migrasjon).
+   */
+  canonicalSchoolContentDraft?: StoredCanonicalSchoolContentDraft
   appliedAt?: string
 }
 

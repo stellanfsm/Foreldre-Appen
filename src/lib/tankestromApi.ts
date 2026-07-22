@@ -31,6 +31,7 @@ import type {
   SchoolBlockReviewCode,
 } from '../features/tankestrom/types'
 import type { TankestromPersonMatchStatus } from '../features/tankestrom/types'
+import { parseCanonicalSchoolContentDraft } from './canonicalSchoolParse'
 import type {
   ChildSchoolDayPlan,
   ChildSchoolProfile,
@@ -1246,6 +1247,7 @@ function tryParseSchoolBlockProposal(raw: unknown): SchoolBlockProposal | undefi
   }
 }
 
+
 /**
  * Validerer og parser JSON fra analyse-backend til typet bundle.
  */
@@ -1275,10 +1277,15 @@ export function parsePortalImportProposalBundle(data: unknown): PortalImportProp
 
   const schoolWeekOverlayProposal =
     data.schoolWeekOverlayProposal == null ? undefined : parseTopLevelSchoolWeekOverlayProposal(data.schoolWeekOverlayProposal)
+  // Additivt (Vei 1 «school»): canonicalSchoolContentDraft parses tolerant. Mangler/null/ugyldig
+  // schemaVersion/ingen dager → undefined (fallback til schoolBlock/overlay; velter aldri bundelen).
+  // Et gyldig canonical draft alene gjør bundelen gyldig (krever ikke kunstig overlay/items).
+  const canonicalSchoolContentDraft =
+    data.canonicalSchoolContentDraft == null ? undefined : parseCanonicalSchoolContentDraft(data.canonicalSchoolContentDraft)
 
-  if (items.length === 0 && !schoolWeekOverlayProposal) {
+  if (items.length === 0 && !schoolWeekOverlayProposal && !canonicalSchoolContentDraft) {
     throw new Error(
-      'Ugyldig svar: items må inneholde minst ett forslag, eller toppnivåfeltet schoolProfile / schoolProfileProposal / schoolWeekOverlayProposal må være satt'
+      'Ugyldig svar: items må inneholde minst ett forslag, eller toppnivåfeltet schoolProfile / schoolProfileProposal / schoolWeekOverlayProposal / canonicalSchoolContentDraft må være satt'
     )
   }
   normalizeMisclassifiedArrangementDeadlineEvents(items)
@@ -1301,7 +1308,15 @@ export function parsePortalImportProposalBundle(data: unknown): PortalImportProp
   // ugyldig → undefined (velter ALDRI resten av bundelen — overlay/items/secondary beholdes).
   const schoolBlockProposal =
     data.schoolBlockProposal == null ? undefined : tryParseSchoolBlockProposal(data.schoolBlockProposal)
-  return { schemaVersion: '1.0.0', provenance, items, schoolWeekOverlayProposal, schoolBlockProposal, secondaryCandidates }
+  return {
+    schemaVersion: '1.0.0',
+    provenance,
+    items,
+    schoolWeekOverlayProposal,
+    schoolBlockProposal,
+    canonicalSchoolContentDraft,
+    secondaryCandidates,
+  }
 }
 
 function tryParseSecondaryImportCandidate(raw: unknown, index: number): PortalSecondaryImportCandidate | null {

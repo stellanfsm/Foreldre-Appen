@@ -12,6 +12,8 @@ import type {
   WeekdayMonFri,
 } from '../types'
 import { springDialog } from '../lib/motion'
+import { CanonicalSchoolDayContent } from './CanonicalSchoolDayContent'
+import type { CanonicalPlanDay } from '../lib/canonicalSchoolImportPlan'
 import { sheetPanel, sheetHandle, sheetDetailBody, typSectionCap, btnRowAction } from '../lib/ui'
 import { useFamily } from '../context/FamilyContext'
 import { dateKeyToWeekdayMon0 } from '../lib/weekday'
@@ -221,6 +223,27 @@ function getSchoolDayPlan(person: Person, dateKey: string): ChildSchoolDayPlan |
   return person.school.weekdays[wd]
 }
 
+/**
+ * Leser den serialiserbare `CanonicalPlanDay` fra skoleeventets metadata (skrevet av
+ * backgroundEvents fra det RUNTIME-validerte lagrede snapshotet). Lett strukturguard — canonical
+ * er da autoritativt for skoleblokken; legacy timeplan/overlay rendres ikke parallelt.
+ */
+function readCanonicalPlanDay(event: Event): CanonicalPlanDay | null {
+  const raw = (event.metadata as Record<string, unknown> | undefined)?.schoolCanonicalDay
+  if (!raw || typeof raw !== 'object') return null
+  const d = raw as Partial<CanonicalPlanDay>
+  if (typeof d.op !== 'string') return null
+  if (
+    !Array.isArray(d.timetable) ||
+    !Array.isArray(d.unplacedSubjectGroups) ||
+    !Array.isArray(d.audienceItems) ||
+    !Array.isArray(d.generalMessages)
+  ) {
+    return null
+  }
+  return raw as CanonicalPlanDay
+}
+
 function buildSchoolRows(person: Person, dateKey: string): TimeRowWithLesson[] {
   const school = person.school
   if (!school) return []
@@ -271,6 +294,8 @@ export function BackgroundDetailSheet({
   // Klassekode-utheving i skole-item-notater: blokken tilhører ETT barn → entydig kode.
   const childClassCode = person.relevanceProfile?.school?.classCode
   const isSchool = event.metadata?.backgroundKind === 'school'
+  // ADDITIVT: canonical-snapshot (readback) er autoritativt for skoleblokken når det finnes.
+  const canonicalDay = isSchool ? readCanonicalPlanDay(event) : null
   const weekOverlayDayAction = isSchool ? normalizeOverlayDayAction(event) : null
   const weekOverlayMeta = isSchool ? normalizeOverlayMeta(event) : null
   const schoolDayOverride = isSchool ? extractSchoolDayOverride(event) : null
@@ -279,7 +304,7 @@ export function BackgroundDetailSheet({
   const isAdjustDay = schoolDayOverride?.mode === 'adjust_day'
   const title = !isSchool
     ? 'Arbeidsblokk'
-    : isReplaceDay
+    : isReplaceDay || canonicalDay?.op === 'replace_day'
       ? 'Spesialdag'
       : 'Timeplan'
 
@@ -303,6 +328,9 @@ export function BackgroundDetailSheet({
       rows = [{ start: event.start, end: event.end, label: 'Skole' }]
     }
   }
+  // Canonical er autoritativt: legacy timeplan-rader rendres ikke (CanonicalSchoolDayContent
+  // viser sin egen timeplan + fag-items etter dayOperation). Ingen parallell tolkning.
+  if (canonicalDay) rows = []
 
   const relevantForeground = foregroundEvents.sort((a, b) => a.start.localeCompare(b.start))
 
@@ -397,7 +425,7 @@ export function BackgroundDetailSheet({
                 </span>
               ) : null}
             </div>
-            {isSchool && weekOverlaySummaryLines.length > 0 ? (
+            {isSchool && !canonicalDay && weekOverlaySummaryLines.length > 0 ? (
               <div className="mt-2 rounded-md border border-indigo-200 bg-indigo-50/60 px-2.5 py-2">
                 <p className="text-[10px] font-semibold uppercase tracking-wide text-indigo-900">Ukeoppsummering</p>
                 <ul className="mt-1 list-disc space-y-0.5 pl-4 text-caption text-indigo-950">
@@ -405,6 +433,13 @@ export function BackgroundDetailSheet({
                     <li key={`${line}-${idx}`}>{line}</li>
                   ))}
                 </ul>
+              </div>
+            ) : null}
+
+            {/* Canonical readback: samme delte renderer som import-previewen. */}
+            {canonicalDay ? (
+              <div className="mt-4">
+                <CanonicalSchoolDayContent day={canonicalDay} />
               </div>
             ) : null}
 

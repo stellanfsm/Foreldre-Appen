@@ -128,87 +128,45 @@ export interface PortalSecondaryImportCandidate {
 // Kun wire-typer + parsing i dette steget; ingen preview/draft/persist.
 // -------------------------------------------------------------------------------------
 
-/** Speiler `TankestromPersonMatchStatus` (gjenbrukt, ikke duplisert). */
-export type SchoolBlockWeekdayIndex = '0' | '1' | '2' | '3' | '4'
+// De delte skole-primitivene OG canonical-kontrakten bor nå i den nøytrale, React-frie modulen
+// `../../lib/canonicalSchoolTypes` (én definisjon, ingen importsyklus). De re-eksporteres her slik
+// at alle eksisterende `import … from '.../features/tankestrom/types'`-stier er uendret.
+import type {
+  SchoolBlockActivityKind,
+  SchoolBlockContentType,
+  SchoolBlockDayOperation,
+  SchoolBlockElementAction,
+  SchoolBlockReviewFlag,
+  SchoolBlockSections,
+  SchoolBlockStructureStatus,
+  SchoolBlockWeekdayIndex,
+  CanonicalSchoolContentDraft,
+} from '../../lib/canonicalSchoolTypes'
+export type {
+  SchoolBlockActivityKind,
+  SchoolBlockContentType,
+  SchoolBlockDayOperation,
+  SchoolBlockElementAction,
+  SchoolBlockReviewCode,
+  SchoolBlockReviewFlag,
+  SchoolBlockSections,
+  SchoolBlockStructureStatus,
+  SchoolBlockWeekdayIndex,
+  CanonicalSchoolContentDraft,
+  CanonicalSchoolDay,
+  CanonicalSchoolContentItem,
+  CanonicalSchoolContentPlacement,
+  StoredCanonicalSchoolContentDraft,
+} from '../../lib/canonicalSchoolTypes'
 
-export type SchoolBlockStructureStatus = 'complete' | 'review_required'
-
+// Beholdt lokalt (kun schoolBlock-wire; ikke delt med canonical):
 export type SchoolBlockDayResolution =
   | 'enrich_only'
   | 'partial_replace'
   | 'full_replace'
   | 'hours_adjusted'
 
-export type SchoolBlockContentType =
-  | 'lesson'
-  | 'homework'
-  | 'assessment'
-  | 'reminder'
-  | 'resource'
-  | 'message'
-  | 'alternative_program'
-
-export type SchoolBlockElementAction = 'enrich' | 'replace_range'
-
 export type SchoolBlockAudienceScope = 'common' | 'per_audience'
-
-export type SchoolBlockActivityKind =
-  | 'exam_day'
-  | 'trip_day'
-  | 'activity_day'
-  | 'free_day'
-  | 'other'
-
-export type SchoolBlockReviewCode =
-  | 'missing_time'
-  | 'ambiguous_subject'
-  | 'child_class_unresolved'
-  | 'unrecognized_activity'
-  | 'conflicting_actions'
-  | 'low_confidence'
-
-export interface SchoolBlockReviewFlag {
-  code: SchoolBlockReviewCode
-  message: string
-  scope: {
-    dayId?: string
-    itemId?: string
-    audienceEntryId?: string
-  }
-}
-
-export type SchoolBlockDayOperation =
-  | { op: 'none' }
-  | {
-      op: 'replace_day'
-      activityKind: SchoolBlockActivityKind
-      effectiveStart: string | null
-      effectiveEnd: string | null
-      reason: string | null
-      confidence: number
-    }
-  | {
-      op: 'adjust_start'
-      effectiveStart: string
-      reason: string | null
-      confidence: number
-    }
-  | {
-      op: 'adjust_end'
-      effectiveEnd: string
-      reason: string | null
-      confidence: number
-    }
-
-export interface SchoolBlockSections {
-  iTimen?: string[]
-  lekse?: string[]
-  husk?: string[]
-  proveVurdering?: string[]
-  ressurser?: string[]
-  ekstraBeskjed?: string[]
-  descriptionLines?: string[]
-}
 
 export interface SchoolBlockSubjectCandidate {
   subjectKey: string
@@ -312,6 +270,9 @@ export interface SchoolBlockProposal {
   }
 }
 
+// canonicalSchoolContentDraft-typene (Placement/Item/Day/Draft) er flyttet til den nøytrale
+// modulen `../../lib/canonicalSchoolTypes` og re-eksporteres øverst i denne fila.
+
 export interface PortalImportProposalBundle {
   schemaVersion: PortalImportSchemaVersion
   provenance: PortalImportProvenance
@@ -319,6 +280,11 @@ export interface PortalImportProposalBundle {
   schoolWeekOverlayProposal?: PortalSchoolWeekOverlayProposal
   /** Additiv toppnivå-struktur fra `documentKind: "school"` — kun parsing i dette steget. */
   schoolBlockProposal?: SchoolBlockProposal
+  /**
+   * Additiv, allerede fag-/child-scopet skole-draft. Når satt + gyldig er den AUTORITATIV for
+   * preview og persist (schoolBlock/overlay brukes kun som fallback når denne mangler).
+   */
+  canonicalSchoolContentDraft?: CanonicalSchoolContentDraft
   /** Valgfri liste fra analyse — ellers utledes noen få fra lav sikkerhet på items (klient). */
   secondaryCandidates?: PortalSecondaryImportCandidate[]
 }
